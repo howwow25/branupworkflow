@@ -20,6 +20,23 @@ body {
 }
 .header h1 { font-size: 24px; font-weight: 700; }
 .header .sub { color: #8b949e; font-size: 13px; margin-top: 4px; }
+.filters {
+    display: flex; gap: 8px; padding: 12px 32px;
+    background: #16181d; border-bottom: 1px solid #2a2d3a;
+    flex-wrap: wrap; align-items: center;
+}
+.filter-btn {
+    padding: 6px 16px;
+    border-radius: 20px; border: 1px solid #2a2d3a;
+    background: #1c1f2a; color: #8b949e;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+}
+.filter-btn:hover { border-color: #58a6ff; color: #e1e4e8; }
+.filter-btn.active {
+    background: #58a6ff; color: #000;
+    border-color: #58a6ff;
+}
 .stats {
     display: flex; gap: 16px; padding: 16px 32px;
     background: #16181d; border-bottom: 1px solid #2a2d3a;
@@ -48,30 +65,26 @@ body {
 }
 .col-header {
     padding: 12px 16px;
-    font-weight: 700;
-    font-size: 14px;
+    font-weight: 700; font-size: 14px;
     border-bottom: 1px solid #2a2d3a;
     background: #1c1f2a;
     display: flex; justify-content: space-between; align-items: center;
 }
 .count {
     background: #2a2d3a;
-    padding: 2px 10px;
-    border-radius: 10px;
-    font-size: 12px;
-    font-weight: 600;
+    padding: 2px 10px; border-radius: 10px;
+    font-size: 12px; font-weight: 600;
 }
 .card {
     background: #1c1f2a;
-    margin: 8px 12px;
-    padding: 14px;
-    border-radius: 8px;
-    border: 1px solid #2a2d3a;
-    transition: border-color 0.2s;
+    margin: 8px 12px; padding: 14px;
+    border-radius: 8px; border: 1px solid #2a2d3a;
+    transition: border-color 0.2s, opacity 0.2s;
 }
 .card:hover { border-color: #58a6ff; }
 .card.done { border-color: #1a3a2a; }
 .card.done:hover { border-color: #3fb950; }
+.card.hidden { display: none; }
 .card .title {
     font-size: 13px; line-height: 1.5; margin: 8px 0; color: #e1e4e8;
 }
@@ -91,27 +104,21 @@ body {
 .badge-nodue { background: #484f5a; color: #ccc; }
 .badge-done { background: #1a3a2a; color: #3fb950; }
 .dday {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
+    display: inline-block; padding: 2px 8px;
+    border-radius: 4px; font-size: 11px;
+    font-weight: 700; letter-spacing: 0.5px;
 }
 .divider {
     padding: 24px 32px 0;
-    font-size: 20px;
-    font-weight: 800;
+    font-size: 20px; font-weight: 800;
     color: #3fb950;
     border-top: 2px solid #1a3a2a;
     margin-top: 8px;
 }
 .section-title {
     padding: 16px 32px 0;
-    font-size: 13px;
-    color: #8b949e;
-    font-weight: 600;
-    letter-spacing: 1px;
+    font-size: 13px; color: #8b949e;
+    font-weight: 600; letter-spacing: 1px;
 }
 .footer {
     text-align: center; padding: 24px;
@@ -122,8 +129,9 @@ body {
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드</h1>
-    <div class="sub">마지막 갱신: 2026-05-29 22:54 | 진행 19건 · 완료 5건</div>
+    <div class="sub">마지막 갱신: 2026-05-29 23:14 | 진행 19건 · 완료 5건</div>
 </div>
+<div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('모두')">모두</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
 <div class="stats">
     <div class="stat danger">
         <div class="num">0</div>
@@ -152,7 +160,7 @@ body {
     <div class="empty">없음</div>
 </div><div class="column">
     <div class="col-header">🚨 오늘마감 <span class="count">4</span></div>
-    <div class="card">
+    <div class="card" data-assignee="이향석">
     <span class="dday badge-today">#1</span>
     <div class="title">급여지급</div>
     <div class="meta">
@@ -160,7 +168,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-05-29</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="전경표">
     <span class="dday badge-today">#2</span>
     <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
     <div class="meta">
@@ -168,7 +176,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 2026-05-29</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="전경표">
     <span class="dday badge-today">#3</span>
     <div class="title">제약사 더마코스메틱을 위한 마케팅 직무 구인 방법 리서치 및 브랜업의 더마코스메틱 마케팅 직무 채요을 위한 도입방안 제안</div>
     <div class="meta">
@@ -176,7 +184,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 2026-05-29</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="노수민">
     <span class="dday badge-today">#4</span>
     <div class="title">대표님 명함 주문</div>
     <div class="meta">
@@ -187,7 +195,7 @@ body {
 </div>
 </div><div class="column">
     <div class="col-header">⚠️ D-3 <span class="count">4</span></div>
-    <div class="card">
+    <div class="card" data-assignee="이향석">
     <span class="dday badge-urgent">#5</span>
     <div class="title">정경원 프로그램 메뉴얼 만들기</div>
     <div class="meta">
@@ -195,7 +203,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="모두">
     <span class="dday badge-urgent">#6</span>
     <div class="title">위시트랜드2.0 벤치마킹 아이디어</div>
     <div class="meta">
@@ -203,7 +211,7 @@ body {
         <span class="assignee">👤 모두</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="강경철">
     <span class="dday badge-urgent">#7</span>
     <div class="title">아이젤 COA 자료 줄리어스 대표님 검토 요청</div>
     <div class="meta">
@@ -211,7 +219,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="강경철">
     <span class="dday badge-urgent">#8</span>
     <div class="title">프리랜서 영상 계약서 준비</div>
     <div class="meta">
@@ -222,7 +230,7 @@ body {
 </div>
 </div><div class="column">
     <div class="col-header">📋 D-7 <span class="count">1</span></div>
-    <div class="card">
+    <div class="card" data-assignee="이향석">
     <span class="dday badge-soon">#9</span>
     <div class="title">아이젤 계약서 조영길이사와 사전 조율</div>
     <div class="meta">
@@ -236,7 +244,7 @@ body {
     <div class="empty">없음</div>
 </div><div class="column">
     <div class="col-header">⬜ 미정 <span class="count">10</span></div>
-    <div class="card">
+    <div class="card" data-assignee="전경표">
     <span class="dday badge-nodue">#10</span>
     <div class="title">(추석) 정육공방 법인 영업/마케팅 효율적으로 아웃소싱 할 방법 리서치 (텔레마케팅, 오프라인 영업)</div>
     <div class="meta">
@@ -244,7 +252,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="전경표">
     <span class="dday badge-nodue">#11</span>
     <div class="title">(추석) 정육공방 키메디 상품 제안서 제작 및 발송</div>
     <div class="meta">
@@ -252,7 +260,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="전경표">
     <span class="dday badge-nodue">#12</span>
     <div class="title">제이엠솔루션-안목고수 구조 연구분석 및 브랜업의 도입 방안 검토</div>
     <div class="meta">
@@ -260,7 +268,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="강경철">
     <span class="dday badge-nodue">#13</span>
     <div class="title">아이젤 1만세트 추가분 선금 결제 시기 파악</div>
     <div class="meta">
@@ -268,7 +276,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="강경철">
     <span class="dday badge-nodue">#14</span>
     <div class="title">원석 괄사 업체 추가 파악</div>
     <div class="meta">
@@ -276,7 +284,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="미정">
     <span class="dday badge-nodue">#15</span>
     <div class="title">협력업체들 계약서 정리 안된업체 늦어도 주초까진 마무리</div>
     <div class="meta">
@@ -284,7 +292,7 @@ body {
         <span class="assignee">👤 미정</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="미정">
     <span class="dday badge-nodue">#16</span>
     <div class="title">월요일 한시에 한솔 바이오 화상공장 저 방문 그후에 이혜원 로레알 헤드 비엠 미팅 면접 월</div>
     <div class="meta">
@@ -292,7 +300,7 @@ body {
         <span class="assignee">👤 미정</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="강경철">
     <span class="dday badge-nodue">#17</span>
     <div class="title">괄사 견적 요청 (첨부 이미지 - 다우오피스)</div>
     <div class="meta">
@@ -300,7 +308,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="노수민">
     <span class="dday badge-nodue">#18</span>
     <div class="title">오키나와 컨퍼런스 영상 스토리보드 제작</div>
     <div class="meta">
@@ -308,7 +316,7 @@ body {
         <span class="assignee">👤 노수민</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card">
+</div><div class="card" data-assignee="노수민">
     <span class="dday badge-nodue">#19</span>
     <div class="title">사이트 수정</div>
     <div class="meta">
@@ -321,35 +329,35 @@ body {
 </div>
 <div class="divider">✅ 완료된 업무</div><div class="section-title">📅 주 단위</div><div class="board"><div class="column">
     <div class="col-header">W1 · 이번주 <span class="count">5</span></div>
-    <div class="card done">
+    <div class="card done" data-assignee="강경철">
     <span class="dday badge-done">W1 · 이번주</span>
     <div class="title">에나지크 2차 파일럿 결제 타임라인 업데이트</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="강경철">
     <span class="dday badge-done">W1 · 이번주</span>
     <div class="title">두코 발주서 작성 (2만세트 *2%)</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="전경표">
     <span class="dday badge-done">W1 · 이번주</span>
     <div class="title">CellaDerm / Pharmaskin Lab / FanMind / Dermalogic / DermatoCell / Dermazing 회사이름, 브랜드 등록되는지 확인</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="전경표">
     <span class="dday badge-done">W1 · 이번주</span>
     <div class="title">최이사님 된장남 재고/유통기한 확인 및 물량 소모 아이디어</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="전경표">
     <span class="dday badge-done">W1 · 이번주</span>
     <div class="title">소라살롱 및 르꼬르망 추석 협업상품 컨택(프로젝트 진행 여부, 상품 아이디어 요청)</div>
     <div class="meta">
@@ -368,35 +376,35 @@ body {
     <div class="empty">없음</div>
 </div></div><div class="section-title">📆 월 단위</div><div class="board"><div class="column">
     <div class="col-header">M1 · 이번달 <span class="count">5</span></div>
-    <div class="card done">
+    <div class="card done" data-assignee="강경철">
     <span class="dday badge-done">M1 · 이번달</span>
     <div class="title">에나지크 2차 파일럿 결제 타임라인 업데이트</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="강경철">
     <span class="dday badge-done">M1 · 이번달</span>
     <div class="title">두코 발주서 작성 (2만세트 *2%)</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="전경표">
     <span class="dday badge-done">M1 · 이번달</span>
     <div class="title">CellaDerm / Pharmaskin Lab / FanMind / Dermalogic / DermatoCell / Dermazing 회사이름, 브랜드 등록되는지 확인</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="전경표">
     <span class="dday badge-done">M1 · 이번달</span>
     <div class="title">최이사님 된장남 재고/유통기한 확인 및 물량 소모 아이디어</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done">
+</div><div class="card done" data-assignee="전경표">
     <span class="dday badge-done">M1 · 이번달</span>
     <div class="title">소라살롱 및 르꼬르망 추석 협업상품 컨택(프로젝트 진행 여부, 상품 아이디어 요청)</div>
     <div class="meta">
@@ -414,6 +422,29 @@ body {
     <div class="col-header">M4 · 3달전 <span class="count">0</span></div>
     <div class="empty">없음</div>
 </div></div>
-<div class="footer">브랜업 대시보드 · 2026-05-29 22:54 · 10분 자동갱신</div>
+<div class="footer">브랜업 대시보드 · 2026-05-29 23:14 · 10분 자동갱신</div>
+<script>
+function filterAssignee(name) {
+    // 버튼 active 상태 변경
+    document.querySelectorAll('.filter-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+
+    // 모든 카드 필터링
+    document.querySelectorAll('.card').forEach(function(card) {
+        if (name === 'ALL') {
+            card.classList.remove('hidden');
+        } else {
+            var a = card.getAttribute('data-assignee');
+            if (a === name) {
+                card.classList.remove('hidden');
+            } else {
+                card.classList.add('hidden');
+            }
+        }
+    });
+}
+</script>
 </body>
 </html>
