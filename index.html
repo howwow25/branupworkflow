@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>브랜업 대시보드</title>
+<meta http-equiv="refresh" content="600">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -32,6 +33,7 @@ body {
 .stat .label { font-size: 11px; color: #8b949e; margin-top: 2px; text-transform: uppercase; }
 .stat.danger .num { color: #f85149; }
 .stat.warn .num { color: #d2991d; }
+.stat.done .num { color: #3fb950; }
 .board {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -68,11 +70,10 @@ body {
     transition: border-color 0.2s;
 }
 .card:hover { border-color: #58a6ff; }
+.card.done { border-color: #1a3a2a; }
+.card.done:hover { border-color: #3fb950; }
 .card .title {
-    font-size: 13px;
-    line-height: 1.5;
-    margin: 8px 0;
-    color: #e1e4e8;
+    font-size: 13px; line-height: 1.5; margin: 8px 0; color: #e1e4e8;
 }
 .card .meta {
     display: flex; justify-content: space-between;
@@ -80,8 +81,7 @@ body {
     margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2d3a;
 }
 .empty {
-    padding: 32px; text-align: center;
-    color: #484f5a; font-size: 13px;
+    padding: 32px; text-align: center; color: #484f5a; font-size: 13px;
 }
 .badge-delayed { background: #f85149; color: #fff; }
 .badge-today { background: #f0883e; color: #fff; }
@@ -89,6 +89,7 @@ body {
 .badge-soon { background: #3fb950; color: #000; }
 .badge-ok { background: #58a6ff; color: #000; }
 .badge-nodue { background: #484f5a; color: #ccc; }
+.badge-done { background: #1a3a2a; color: #3fb950; }
 .dday {
     display: inline-block;
     padding: 2px 8px;
@@ -96,6 +97,21 @@ body {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.5px;
+}
+.divider {
+    padding: 24px 32px 0;
+    font-size: 20px;
+    font-weight: 800;
+    color: #3fb950;
+    border-top: 2px solid #1a3a2a;
+    margin-top: 8px;
+}
+.section-title {
+    padding: 16px 32px 0;
+    font-size: 13px;
+    color: #8b949e;
+    font-weight: 600;
+    letter-spacing: 1px;
 }
 .footer {
     text-align: center; padding: 24px;
@@ -106,7 +122,7 @@ body {
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드</h1>
-    <div class="sub">마지막 갱신: 2026-05-29 22:17 | 전체 19건</div>
+    <div class="sub">마지막 갱신: 2026-05-29 22:54 | 진행 19건 · 완료 5건</div>
 </div>
 <div class="stats">
     <div class="stat danger">
@@ -123,7 +139,11 @@ body {
     </div>
     <div class="stat">
         <div class="num">19</div>
-        <div class="label">전체</div>
+        <div class="label">진행중</div>
+    </div>
+    <div class="stat done">
+        <div class="num">5</div>
+        <div class="label">완료</div>
     </div>
 </div>
 <div class="board">
@@ -299,6 +319,101 @@ body {
 </div>
 </div>
 </div>
-<div class="footer">브랜업 대시보드 · 2026-05-29 22:17</div>
+<div class="divider">✅ 완료된 업무</div><div class="section-title">📅 주 단위</div><div class="board"><div class="column">
+    <div class="col-header">W1 · 이번주 <span class="count">5</span></div>
+    <div class="card done">
+    <span class="dday badge-done">W1 · 이번주</span>
+    <div class="title">에나지크 2차 파일럿 결제 타임라인 업데이트</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">W1 · 이번주</span>
+    <div class="title">두코 발주서 작성 (2만세트 *2%)</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">W1 · 이번주</span>
+    <div class="title">CellaDerm / Pharmaskin Lab / FanMind / Dermalogic / DermatoCell / Dermazing 회사이름, 브랜드 등록되는지 확인</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">W1 · 이번주</span>
+    <div class="title">최이사님 된장남 재고/유통기한 확인 및 물량 소모 아이디어</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">W1 · 이번주</span>
+    <div class="title">소라살롱 및 르꼬르망 추석 협업상품 컨택(프로젝트 진행 여부, 상품 아이디어 요청)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div>
+</div><div class="column">
+    <div class="col-header">W2 · 지난주 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div><div class="column">
+    <div class="col-header">W3 · 2주전 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div><div class="column">
+    <div class="col-header">W4 · 3주전 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div></div><div class="section-title">📆 월 단위</div><div class="board"><div class="column">
+    <div class="col-header">M1 · 이번달 <span class="count">5</span></div>
+    <div class="card done">
+    <span class="dday badge-done">M1 · 이번달</span>
+    <div class="title">에나지크 2차 파일럿 결제 타임라인 업데이트</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">M1 · 이번달</span>
+    <div class="title">두코 발주서 작성 (2만세트 *2%)</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">M1 · 이번달</span>
+    <div class="title">CellaDerm / Pharmaskin Lab / FanMind / Dermalogic / DermatoCell / Dermazing 회사이름, 브랜드 등록되는지 확인</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">M1 · 이번달</span>
+    <div class="title">최이사님 된장남 재고/유통기한 확인 및 물량 소모 아이디어</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div><div class="card done">
+    <span class="dday badge-done">M1 · 이번달</span>
+    <div class="title">소라살롱 및 르꼬르망 추석 협업상품 컨택(프로젝트 진행 여부, 상품 아이디어 요청)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 05/29 완료</span>
+    </div>
+</div>
+</div><div class="column">
+    <div class="col-header">M2 · 지난달 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div><div class="column">
+    <div class="col-header">M3 · 2달전 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div><div class="column">
+    <div class="col-header">M4 · 3달전 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div></div>
+<div class="footer">브랜업 대시보드 · 2026-05-29 22:54 · 10분 자동갱신</div>
 </body>
 </html>
