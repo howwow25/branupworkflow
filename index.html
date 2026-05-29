@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>브랜업 대시보드</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    min-height: 100vh;
+}
+.header {
+    background: linear-gradient(135deg, #1a1c2e 0%, #16181d 100%);
+    padding: 24px 32px;
+    border-bottom: 1px solid #2a2d3a;
+}
+.header h1 { font-size: 24px; font-weight: 700; }
+.header .sub { color: #8b949e; font-size: 13px; margin-top: 4px; }
+.stats {
+    display: flex; gap: 16px; padding: 16px 32px;
+    background: #16181d; border-bottom: 1px solid #2a2d3a;
+    flex-wrap: wrap;
+}
+.stat {
+    background: #1c1f2a; border-radius: 8px; padding: 12px 20px;
+    min-width: 100px; text-align: center;
+}
+.stat .num { font-size: 28px; font-weight: 800; color: #58a6ff; }
+.stat .label { font-size: 11px; color: #8b949e; margin-top: 2px; text-transform: uppercase; }
+.stat.danger .num { color: #f85149; }
+.stat.warn .num { color: #d2991d; }
+.board {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 24px 32px;
+}
+.column {
+    background: #16181d;
+    border-radius: 12px;
+    border: 1px solid #2a2d3a;
+    overflow: hidden;
+}
+.col-header {
+    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 14px;
+    border-bottom: 1px solid #2a2d3a;
+    background: #1c1f2a;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.count {
+    background: #2a2d3a;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.card {
+    background: #1c1f2a;
+    margin: 8px 12px;
+    padding: 14px;
+    border-radius: 8px;
+    border: 1px solid #2a2d3a;
+    transition: border-color 0.2s;
+}
+.card:hover { border-color: #58a6ff; }
+.card .title {
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 8px 0;
+    color: #e1e4e8;
+}
+.card .meta {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: #8b949e;
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2d3a;
+}
+.empty {
+    padding: 32px; text-align: center;
+    color: #484f5a; font-size: 13px;
+}
+.badge-delayed { background: #f85149; color: #fff; }
+.badge-today { background: #f0883e; color: #fff; }
+.badge-urgent { background: #d2991d; color: #000; }
+.badge-soon { background: #3fb950; color: #000; }
+.badge-ok { background: #58a6ff; color: #000; }
+.badge-nodue { background: #484f5a; color: #ccc; }
+.dday {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+.footer {
+    text-align: center; padding: 24px;
+    color: #484f5a; font-size: 11px;
+}
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>📊 브랜업 대시보드</h1>
+    <div class="sub">마지막 갱신: 2026-05-29 15:10 | 전체 18건</div>
+</div>
+<div class="stats">
+    <div class="stat danger">
+        <div class="num">0</div>
+        <div class="label">지연</div>
+    </div>
+    <div class="stat">
+        <div class="num">6</div>
+        <div class="label">오늘 마감</div>
+    </div>
+    <div class="stat warn">
+        <div class="num">8</div>
+        <div class="label">마감 미정</div>
+    </div>
+    <div class="stat">
+        <div class="num">18</div>
+        <div class="label">전체</div>
+    </div>
+</div>
+<div class="board">
+<div class="column">
+    <div class="col-header">🔥 지연 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div><div class="column">
+    <div class="col-header">🚨 오늘마감 <span class="count">6</span></div>
+    <div class="card">
+    <span class="dday badge-today">D-DAY</span>
+    <div class="title">급여지급</div>
+    <div class="meta">
+        <span class="assignee">👤 이향석</span>
+        <span class="due">📅 2026-05-29</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-today">D-DAY</span>
+    <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 2026-05-29</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-today">D-DAY</span>
+    <div class="title">제약사 더마코스메틱을 위한 마케팅 직무 구인 방법 리서치 및 브랜업의 더마코스메틱 마케팅 직무 채요을 위한 도입방안 제안</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 2026-05-29</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-today">D-DAY</span>
+    <div class="title">CellaDerm / Pharmaskin Lab / FanMind / Dermalogic / DermatoCell / Dermazing 회사이름, 브랜드 등록되는지 확인</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 2026-05-29</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-today">D-DAY</span>
+    <div class="title">에나지크 2차 파일럿 결제 타임라인 업데이트</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">📅 2026-05-29</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-today">D-DAY</span>
+    <div class="title">아이젤 1만세트 추가분 선금 결제 시기 파악</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">📅 2026-05-29</span>
+    </div>
+</div>
+</div><div class="column">
+    <div class="col-header">⚠️ D-3 <span class="count">3</span></div>
+    <div class="card">
+    <span class="dday badge-urgent">D-3</span>
+    <div class="title">정경원 프로그램 메뉴얼 만들기</div>
+    <div class="meta">
+        <span class="assignee">👤 이향석</span>
+        <span class="due">📅 2026-06-01</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-urgent">D-3</span>
+    <div class="title">위시트랜드2.0 벤치마킹 아이디어</div>
+    <div class="meta">
+        <span class="assignee">👤 모두</span>
+        <span class="due">📅 2026-06-01</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-urgent">D-3</span>
+    <div class="title">아이젤 COA 자료 줄리어스 대표님 검토 요청</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">📅 2026-06-01</span>
+    </div>
+</div>
+</div><div class="column">
+    <div class="col-header">📋 D-7 <span class="count">1</span></div>
+    <div class="card">
+    <span class="dday badge-soon">D-4</span>
+    <div class="title">아이젤 계약서 조영길이사와 사전 조율</div>
+    <div class="meta">
+        <span class="assignee">👤 이향석</span>
+        <span class="due">📅 2026-06-02</span>
+    </div>
+</div>
+</div><div class="column">
+    <div class="col-header">🟢 여유 <span class="count">0</span></div>
+    <div class="empty">없음</div>
+</div><div class="column">
+    <div class="col-header">⬜ 미정 <span class="count">8</span></div>
+    <div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">최이사님 된장남 재고/유통기한 확인 및 물량 소모 아이디어</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">소라살롱 및 르꼬르망 추석 협업상품 컨택(프로젝트 진행 여부, 상품 아이디어 요청)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">(추석) 정육공방 법인 영업/마케팅 효율적으로 아웃소싱 할 방법 리서치 (텔레마케팅, 오프라인 영업)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">(추석) 정육공방 키메디 상품 제안서 제작 및 발송</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">제이엠솔루션-안목고수 구조 연구분석 및 브랜업의 도입 방안 검토</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">원석 괄사 업체 추가 파악</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div><div class="card">
+    <span class="dday badge-nodue">미정</span>
+    <div class="title">두코 발주서 작성 (2만세트 *2%)</div>
+    <div class="meta">
+        <span class="assignee">👤 강경철</span>
+        <span class="due">📅 미정</span>
+    </div>
+</div>
+</div>
+</div>
+<div class="footer">브랜업 대시보드 · 2026-05-29 15:10</div>
+</body>
+</html>
