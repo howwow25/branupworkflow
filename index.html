@@ -142,33 +142,33 @@ body {
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
-    <div class="sub">마지막 갱신: 2026-06-01 00:55 | 진행 29건 · 완료 9건</div>
+    <div class="sub">마지막 갱신: 2026-06-01 01:16 | 진행 <span id="hdr-active">29</span>건 · 완료 <span id="hdr-done">9</span>건</div>
 </div>
 <div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('모두')">모두</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
 <div class="stats">
-    <div class="stat danger">
+    <div class="stat danger" id="stat-delayed">
         <div class="num">3</div>
         <div class="label">지연</div>
     </div>
-    <div class="stat">
+    <div class="stat" id="stat-today">
         <div class="num">5</div>
         <div class="label">오늘 마감</div>
     </div>
-    <div class="stat warn">
+    <div class="stat warn" id="stat-nodue">
         <div class="num">12</div>
         <div class="label">마감 미정</div>
     </div>
-    <div class="stat">
+    <div class="stat" id="stat-active">
         <div class="num">29</div>
         <div class="label">진행중</div>
     </div>
-    <div class="stat done">
+    <div class="stat done" id="stat-done">
         <div class="num">9</div>
         <div class="label">완료</div>
     </div>
 </div>
 <div class="board">
-<div class="column">
+<div class="column" data-col="delayed">
     <div class="col-header">🔥 지연 <span class="count">3</span></div>
     <div class="card" data-assignee="전경표">
     <span class="dday badge-delayed">#10</span>
@@ -195,7 +195,7 @@ body {
         <span class="due">📅 2026-05-29</span>
     </div>
 </div>
-</div><div class="column">
+</div><div class="column" data-col="no_due">
     <div class="col-header">⬜ 미정 <span class="count">12</span></div>
     <div class="card" data-assignee="전경표">
     <span class="dday badge-nodue">#7</span>
@@ -294,7 +294,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div>
-</div><div class="column">
+</div><div class="column" data-col="today">
     <div class="col-header">🚨 오늘마감 <span class="count">5</span></div>
     <div class="card" data-assignee="모두">
     <span class="dday badge-today">#3</span>
@@ -337,7 +337,7 @@ body {
         <span class="due">📅 2026-06-01</span>
     </div>
 </div>
-</div><div class="column">
+</div><div class="column" data-col="d3">
     <div class="col-header">⚠️ D-3 <span class="count">5</span></div>
     <div class="card" data-assignee="이향석">
     <span class="dday badge-urgent">#1</span>
@@ -380,7 +380,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div>
-</div><div class="column">
+</div><div class="column" data-col="d7">
     <div class="col-header">📋 D-7 <span class="count">4</span></div>
     <div class="card" data-assignee="이향석">
     <span class="dday badge-soon">#27</span>
@@ -415,15 +415,15 @@ body {
         <span class="due">📅 2026-06-06</span>
     </div>
 </div>
-</div><div class="column">
+</div><div class="column" data-col="upcoming">
     <div class="col-header">🟢 여유 <span class="count">0</span></div>
     <div class="empty">없음</div>
 </div>
 </div>
-<div class="divider">✅ 완료된 업무</div><div class="section-title">📅 주 단위</div><div class="board"><div class="column">
+<div class="divider">✅ 완료된 업무</div><div class="section-title">📅 주 단위</div><div class="board"><div class="column" data-col="week-1">
     <div class="col-header">W1 · 이번주 <span class="count">0</span></div>
     <div class="empty">없음</div>
-</div><div class="column">
+</div><div class="column" data-col="week-2">
     <div class="col-header">W2 · 지난주 <span class="count">9</span></div>
     <div class="card done" data-assignee="이향석">
     <span class="dday badge-done">W2 · 지난주</span>
@@ -489,16 +489,16 @@ body {
         <span class="due">✅ 05/29 완료</span>
     </div>
 </div>
-</div><div class="column">
+</div><div class="column" data-col="week-3">
     <div class="col-header">W3 · 2주전 <span class="count">0</span></div>
     <div class="empty">없음</div>
-</div><div class="column">
+</div><div class="column" data-col="week-4">
     <div class="col-header">W4 · 3주전 <span class="count">0</span></div>
     <div class="empty">없음</div>
-</div></div><div class="section-title">📆 월 단위</div><div class="board"><div class="column">
+</div></div><div class="section-title">📆 월 단위</div><div class="board"><div class="column" data-col="month-1">
     <div class="col-header">M1 · 이번달 <span class="count">0</span></div>
     <div class="empty">없음</div>
-</div><div class="column">
+</div><div class="column" data-col="month-2">
     <div class="col-header">M2 · 지난달 <span class="count">9</span></div>
     <div class="card done" data-assignee="이향석">
     <span class="dday badge-done">M2 · 지난달</span>
@@ -564,14 +564,14 @@ body {
         <span class="due">✅ 05/29 완료</span>
     </div>
 </div>
-</div><div class="column">
+</div><div class="column" data-col="month-3">
     <div class="col-header">M3 · 2달전 <span class="count">0</span></div>
     <div class="empty">없음</div>
-</div><div class="column">
+</div><div class="column" data-col="month-4">
     <div class="col-header">M4 · 3달전 <span class="count">0</span></div>
     <div class="empty">없음</div>
 </div></div>
-<div class="footer">브랜업 대시보드 · 2026-06-01 00:55 · 10분 자동갱신</div>
+<div class="footer">브랜업 대시보드 · 2026-06-01 01:16 · 10분 자동갱신</div>
 <script>
 function forceRefresh() {
     var url = new URL(window.location.href);
@@ -579,14 +579,56 @@ function forceRefresh() {
     window.location.href = url.toString();
 }
 
+function countVisible(col) {
+    return col.querySelectorAll('.card:not(.hidden)').length;
+}
+
+function updateCounts() {
+    var activeTotal = 0;
+    var doneTotal = 0;
+
+    var statMap = {
+        'delayed': 'stat-delayed',
+        'today': 'stat-today',
+        'no_due': 'stat-nodue'
+    };
+
+    document.querySelectorAll('.column[data-col]').forEach(function(col) {
+        var key = col.getAttribute('data-col');
+        var cnt = countVisible(col);
+        var badge = col.querySelector('.count');
+        if (badge) badge.textContent = cnt;
+
+        if (['delayed','today','no_due','d3','d7','upcoming'].indexOf(key) !== -1) {
+            activeTotal += cnt;
+            if (statMap[key]) {
+                var el = document.getElementById(statMap[key]);
+                if (el) el.querySelector('.num').textContent = cnt;
+            }
+        }
+        if (key.startsWith('week-') || key.startsWith('month-')) {
+            doneTotal += cnt;
+        }
+    });
+
+    var elActive = document.getElementById('stat-active');
+    if (elActive) elActive.querySelector('.num').textContent = activeTotal;
+
+    var elDone = document.getElementById('stat-done');
+    if (elDone) elDone.querySelector('.num').textContent = doneTotal;
+
+    var hdrActive = document.getElementById('hdr-active');
+    if (hdrActive) hdrActive.textContent = activeTotal;
+    var hdrDone = document.getElementById('hdr-done');
+    if (hdrDone) hdrDone.textContent = doneTotal;
+}
+
 function filterAssignee(name) {
-    // 버튼 active 상태 변경
     document.querySelectorAll('.filter-btn').forEach(function(btn) {
         btn.classList.remove('active');
     });
     event.target.classList.add('active');
 
-    // 모든 카드 필터링
     document.querySelectorAll('.card').forEach(function(card) {
         if (name === 'ALL') {
             card.classList.remove('hidden');
@@ -599,6 +641,8 @@ function filterAssignee(name) {
             }
         }
     });
+
+    updateCounts();
 }
 </script>
 </body>
