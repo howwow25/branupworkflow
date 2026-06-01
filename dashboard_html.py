@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HTML 대시보드 생성기 — 진행중 + 완료(주/월) + 담당자 필터 + 모달 편집
+HTML 대시보드 생성기 — 진행중 + 완료(주/월) + 담당자 필터 + 모달 편집 + 에이전트 보드
 """
 import sys
 import os
@@ -56,7 +56,6 @@ def dday_class(dd):
 
 
 def esc(s):
-    """HTML 이스케이프"""
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
@@ -150,7 +149,6 @@ def render():
     nodue_count = len(groups["no_due"])
     done_count = len(completed)
 
-    # ── 모든 담당자 수집 ──
     all_assignees = set()
     for t in tasks:
         all_assignees.add(t.get("assignee") or "미정")
@@ -182,12 +180,10 @@ def render():
     {cards}
 </div>"""
 
-    # ── 필터 버튼 ──
     filter_btns = '<button class="filter-btn active" onclick="filterAssignee(\'ALL\')">ALL</button>'
     for a in sorted_assignees:
         filter_btns += f'<button class="filter-btn" onclick="filterAssignee(\'{a}\')">{a}</button>'
 
-    # ── 완료 섹션 ──
     completed_html = ""
     if completed:
         completed_html += '<div class="divider">✅ 완료된 업무</div>'
@@ -238,6 +234,7 @@ body {{
     background: #0f1117;
     color: #e1e4e8;
     min-height: 100vh;
+    padding-bottom: 80px;
 }}
 .header {{
     background: linear-gradient(135deg, #1a1c2e 0%, #16181d 100%);
@@ -444,7 +441,7 @@ body {{
 }}
 .modal-status strong {{ color: #e1e4e8; }}
 .toast {{
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
     background: #238636; color: #fff; padding: 12px 24px;
     border-radius: 8px; font-size: 13px; font-weight: 600;
     z-index: 2000; opacity: 0; transition: opacity 0.3s;
@@ -452,6 +449,110 @@ body {{
 }}
 .toast.show {{ opacity: 1; }}
 .toast.error {{ background: #f85149; }}
+
+/* ── 에이전트 보드 ── */
+.agent-fab {{
+    position: fixed; bottom: 24px; right: 24px;
+    width: 56px; height: 56px;
+    border-radius: 50%; border: none;
+    background: linear-gradient(135deg, #58a6ff, #3fb950);
+    color: #fff; font-size: 26px;
+    cursor: pointer; z-index: 500;
+    box-shadow: 0 4px 20px rgba(88,166,255,0.3);
+    transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
+}}
+.agent-fab:hover {{
+    transform: scale(1.08);
+    box-shadow: 0 6px 28px rgba(88,166,255,0.5);
+}}
+.agent-fab.active {{
+    background: #f85149;
+    transform: rotate(45deg);
+}}
+.agent-panel {{
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #16181d;
+    border-top: 2px solid #2a2d3a;
+    z-index: 600;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    display: flex; flex-direction: column;
+}}
+.agent-panel.open {{
+    max-height: 420px;
+}}
+.agent-messages {{
+    flex: 1; overflow-y: auto;
+    padding: 16px 20px;
+    display: flex; flex-direction: column;
+    gap: 10px;
+    min-height: 60px;
+    max-height: 280px;
+}}
+.agent-msg {{
+    padding: 10px 14px; border-radius: 12px;
+    font-size: 13px; line-height: 1.6;
+    max-width: 92%;
+    animation: fadeIn 0.2s ease;
+}}
+@keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(8px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+.agent-msg.user {{
+    align-self: flex-end;
+    background: #1f6feb; color: #fff;
+    border-bottom-right-radius: 4px;
+}}
+.agent-msg.bot {{
+    align-self: flex-start;
+    background: #1c1f2a; color: #e1e4e8;
+    border-bottom-left-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}}
+.agent-msg.bot strong {{ color: #58a6ff; }}
+.agent-input-area {{
+    display: flex; gap: 8px; padding: 12px 20px;
+    border-top: 1px solid #2a2d3a;
+    background: #0f1117;
+}}
+.agent-input {{
+    flex: 1; padding: 10px 14px;
+    background: #1c1f2a; border: 1px solid #2a2d3a;
+    border-radius: 8px; color: #e1e4e8;
+    font-size: 14px; font-family: inherit;
+}}
+.agent-input:focus {{ outline: none; border-color: #58a6ff; }}
+.agent-input::placeholder {{ color: #484f5a; }}
+.agent-send {{
+    padding: 10px 18px;
+    background: #238636; color: #fff;
+    border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+}}
+.agent-send:hover {{ background: #2ea043; }}
+.agent-chips {{
+    display: flex; gap: 6px; padding: 8px 20px 12px;
+    flex-wrap: wrap;
+}}
+.agent-chip {{
+    padding: 5px 12px;
+    border-radius: 14px; border: 1px solid #2a2d3a;
+    background: #1c1f2a; color: #8b949e;
+    font-size: 11px; cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}}
+.agent-chip:hover {{
+    border-color: #58a6ff; color: #e1e4e8;
+    background: #1f2937;
+}}
+.agent-typing {{
+    align-self: flex-start;
+    color: #484f5a; font-size: 12px;
+    padding: 8px 14px;
+}}
 </style>
 </head>
 <body>
@@ -526,7 +627,28 @@ body {{
 </div>
 <div class="toast" id="toast"></div>
 
-<div class="footer">브랜업 대시보드 · {now_str} · 10분 자동갱신 · API: {API_PORT}</div>
+<!-- ── 에이전트 보드 ── -->
+<button class="agent-fab" id="agentFab" onclick="toggleAgent()" title="에이전트 보드">🤖</button>
+<div class="agent-panel" id="agentPanel">
+    <div class="agent-messages" id="agentMessages">
+        <div class="agent-msg bot">🤖 무엇을 도와드릴까요?
+<span style="color:#8b949e;font-size:11px">업무 등록 · 조회 · 완료 · 삭제</span></div>
+    </div>
+    <div class="agent-chips" id="agentChips">
+        <span class="agent-chip" onclick="sendAgent('전체 업무')">📋 전체 업무</span>
+        <span class="agent-chip" onclick="sendAgent('내 업무')">👤 내 업무</span>
+        <span class="agent-chip" onclick="quickRegister()">➕ 등록</span>
+        <span class="agent-chip" onclick="sendAgent('5번 완료')" style="display:none" id="chipComplete">✅ 완료예시</span>
+    </div>
+    <div class="agent-input-area">
+        <input type="text" class="agent-input" id="agentInput"
+               placeholder="예: 업무지시 제목:리서치 담당:전경표 마감:2026-06-15"
+               onkeydown="if(event.key==='Enter')sendAgent()">
+        <button class="agent-send" onclick="sendAgent()">전송</button>
+    </div>
+</div>
+
+<div class="footer">브랜업 대시보드 · {now_str} · 10분 자동갱신</div>
 <script>
 var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:{API_PORT}' : (window.location.origin + '/api');
 var currentTaskId = null;
@@ -597,19 +719,18 @@ function filterAssignee(name) {{
     updateCounts();
 }}
 
-// ── Toast ──
 function showToast(msg, isError) {{
     var t = document.getElementById('toast');
     t.textContent = msg;
     t.className = 'toast ' + (isError ? 'error' : '');
     setTimeout(function() {{ t.classList.add('show'); }}, 10);
-    setTimeout(function() {{ t.classList.remove('show'); }}, 2000);
+    setTimeout(function() {{ t.classList.remove('show'); }}, 2500);
 }}
 
 // ── 모달 ──
 function openModal(taskId) {{
     currentTaskId = taskId;
-    fetch(API + '/api/tasks/' + taskId)
+    fetch(API + '/tasks/' + taskId)
         .then(function(r) {{ return r.json(); }})
         .then(function(task) {{
             if (task.error) {{
@@ -656,7 +777,7 @@ function openModal(taskId) {{
             document.getElementById('modalOverlay').classList.add('active');
         }})
         .catch(function(e) {{
-            showToast('API 서버 연결 실패 (localhost:{API_PORT})', true);
+            showToast('API 서버 연결 실패', true);
         }});
 }}
 
@@ -679,7 +800,7 @@ function saveTask() {{
         return;
     }}
 
-    fetch(API + '/api/tasks/' + currentTaskId, {{
+    fetch(API + '/tasks/' + currentTaskId, {{
         method: 'PATCH',
         headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(data)
@@ -702,7 +823,7 @@ function completeTask() {{
     if (!currentTaskId) return;
     if (!confirm('정말 완료 처리하시겠습니까?')) return;
 
-    fetch(API + '/api/tasks/' + currentTaskId + '/complete', {{
+    fetch(API + '/tasks/' + currentTaskId + '/complete', {{
         method: 'POST'
     }})
     .then(function(r) {{ return r.json(); }})
@@ -723,7 +844,7 @@ function deleteTask() {{
     if (!currentTaskId) return;
     if (!confirm('정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
 
-    fetch(API + '/api/tasks/' + currentTaskId, {{
+    fetch(API + '/tasks/' + currentTaskId, {{
         method: 'DELETE'
     }})
     .then(function(r) {{ return r.json(); }})
@@ -740,6 +861,88 @@ function deleteTask() {{
     .catch(function(e) {{
         showToast('API 서버 연결 실패', true);
     }});
+}}
+
+// ── 에이전트 보드 ──
+var agentOpen = false;
+
+function toggleAgent() {{
+    agentOpen = !agentOpen;
+    var panel = document.getElementById('agentPanel');
+    var fab = document.getElementById('agentFab');
+    if (agentOpen) {{
+        panel.classList.add('open');
+        fab.classList.add('active');
+        fab.textContent = '✕';
+        document.getElementById('agentInput').focus();
+    }} else {{
+        panel.classList.remove('open');
+        fab.classList.remove('active');
+        fab.textContent = '🤖';
+    }}
+}}
+
+function addAgentMsg(text, type) {{
+    var msgs = document.getElementById('agentMessages');
+    var div = document.createElement('div');
+    div.className = 'agent-msg ' + type;
+    div.innerHTML = text.replace(/\\n/g, '<br>').replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>').replace(/\\*(.+?)\\*/g, '<em>$1</em>');
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+}}
+
+function sendAgent(text) {{
+    var input = document.getElementById('agentInput');
+    var msg = text || input.value.trim();
+    if (!msg) return;
+
+    if (!text) {{
+        input.value = '';
+        input.focus();
+    }}
+
+    // 패널 열기
+    if (!agentOpen) toggleAgent();
+
+    // 사용자 메시지
+    addAgentMsg(msg, 'user');
+
+    // 타이핑 표시
+    var typing = document.createElement('div');
+    typing.className = 'agent-typing';
+    typing.textContent = '🤖 입력 중...';
+    var msgs = document.getElementById('agentMessages');
+    msgs.appendChild(typing);
+    msgs.scrollTop = msgs.scrollHeight;
+
+    // API 호출
+    fetch(API + '/agent', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ text: msg }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(data) {{
+        msgs.removeChild(typing);
+        addAgentMsg(data.message || '처리 완료', 'bot');
+
+        // 등록/완료/삭제는 자동 새로고침
+        if (data.type === 'register' || data.type === 'complete' || data.type === 'delete') {{
+            setTimeout(function() {{ forceRefresh(); }}, 800);
+        }}
+    }})
+    .catch(function(e) {{
+        msgs.removeChild(typing);
+        addAgentMsg('❌ API 서버 연결 실패\\n(' + API + ')', 'bot');
+    }});
+}}
+
+function quickRegister() {{
+    var input = document.getElementById('agentInput');
+    input.value = '업무지시 제목: 담당: 마감:';
+    if (!agentOpen) toggleAgent();
+    input.focus();
+    input.setSelectionRange(5, 5);
 }}
 </script>
 </body>
