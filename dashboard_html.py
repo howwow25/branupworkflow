@@ -151,9 +151,11 @@ def render():
 
     all_assignees = set()
     for t in tasks:
-        all_assignees.add(t.get("assignee") or "미정")
+        for a in (t.get("assignee") or "미정").split(","):
+            all_assignees.add(a.strip())
     for t in completed:
-        all_assignees.add(t.get("assignee") or "미정")
+        for a in (t.get("assignee") or "미정").split(","):
+            all_assignees.add(a.strip())
     sorted_assignees = sorted(all_assignees, key=lambda x: (x == "미정", x == "모두", x))
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -708,7 +710,7 @@ function filterAssignee(name) {{
             card.classList.remove('hidden');
         }} else {{
             var a = card.getAttribute('data-assignee');
-            if (a === name) {{
+            if (a.split(/,\\s*/).includes(name)) {{
                 card.classList.remove('hidden');
             }} else {{
                 card.classList.add('hidden');
