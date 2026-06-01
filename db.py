@@ -151,7 +151,7 @@ def create_task(room_id: str, title: str, summary: str = "",
 
 def update_task(task_id: str, **kwargs):
     conn = get_conn()
-    allowed = {"status", "summary", "due_at", "assignee", "priority", "closed_at"}
+    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at"}
     sets, vals = ["updated_at=?"], [now_iso()]
     for k, v in kwargs.items():
         if k in allowed:
