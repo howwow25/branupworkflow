@@ -130,7 +130,8 @@ def get_all_rooms() -> List[Dict]:
 # ── tasks ──────────────────────────────────────────────
 
 def create_task(room_id: str, title: str, summary: str = "",
-                due_at: Optional[str] = None, assignee: Optional[str] = None) -> Dict:
+                due_at: Optional[str] = None, assignee: Optional[str] = None,
+                priority: str = "중간") -> Dict:
     conn = get_conn()
     tid = str(uuid4())
     ts = now_iso()
@@ -138,19 +139,19 @@ def create_task(room_id: str, title: str, summary: str = "",
         "SELECT COALESCE(MAX(display_num), 0) + 1 FROM tasks"
     ).fetchone()[0]
     conn.execute(
-        "INSERT INTO tasks (id,room_id,title,status,summary,due_at,assignee,created_at,updated_at,display_num) "
-        "VALUES (?,?,?,'진행중',?,?,?,?,?,?)",
-        (tid, room_id, title, summary, due_at, assignee, ts, ts, next_num))
+        "INSERT INTO tasks (id,room_id,title,status,summary,due_at,assignee,priority,created_at,updated_at,display_num) "
+        "VALUES (?,?,?,'진행중',?,?,?,?,?,?,?)",
+        (tid, room_id, title, summary, due_at, assignee, priority, ts, ts, next_num))
     conn.commit()
     return {"id": tid, "room_id": room_id, "title": title, "status": "진행중",
             "summary": summary, "due_at": due_at, "assignee": assignee,
-            "created_at": ts, "updated_at": ts, "closed_at": None,
+            "priority": priority, "created_at": ts, "updated_at": ts, "closed_at": None,
             "display_num": next_num}
 
 
 def update_task(task_id: str, **kwargs):
     conn = get_conn()
-    allowed = {"status", "summary", "due_at", "assignee", "closed_at"}
+    allowed = {"status", "summary", "due_at", "assignee", "priority", "closed_at"}
     sets, vals = ["updated_at=?"], [now_iso()]
     for k, v in kwargs.items():
         if k in allowed:

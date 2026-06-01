@@ -32,20 +32,25 @@ PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
 
 def parse_text(text):
     """자연어 텍스트에서 제목/담당/마감 추출 (task_manager.py 로직 그대로)"""
-    title, assignee, due = None, None, None
+    title, assignee, due, priority = None, None, None, None
 
     # 제목 추출
-    m = re.search(r'제목\s*[:：]\s*(.+?)(?:\n|담당|마감|$)', text, re.IGNORECASE)
+    m = re.search(r'제목\s*[:：]\s*(.+?)(?:\n|담당|마감|우선|$)', text, re.IGNORECASE)
     if m:
         title = m.group(1).strip()
 
     # 담당자 추출
-    m = re.search(r'담당(?:자)?\s*[:：]\s*(.+?)(?:\n|마감|제목|$)', text, re.IGNORECASE)
+    m = re.search(r'담당(?:자)?\s*[:：]\s*(.+?)(?:\n|마감|제목|우선|$)', text, re.IGNORECASE)
     if m:
         assignee = m.group(1).strip()
 
+    # 우선순위 추출
+    m = re.search(r'우선(?:순위)?\s*[:：]\s*(긴급|높음|중간|낮음)', text, re.IGNORECASE)
+    if m:
+        priority = m.group(1)
+
     # 마감 추출 및 날짜 변환
-    m = re.search(r'마감\s*[:：]\s*(.+?)(?:\n|제목|담당|$)', text, re.IGNORECASE)
+    m = re.search(r'마감\s*[:：]\s*(.+?)(?:\n|제목|담당|우선|$)', text, re.IGNORECASE)
     if m:
         raw_due = m.group(1).strip()
         if re.match(r'\d{4}-\d{2}-\d{2}', raw_due):
@@ -71,7 +76,7 @@ def parse_text(text):
         if not title and lines:
             title = lines[0][:50]
 
-    return title, assignee, due
+    return title, assignee, due, priority
 
 
 class APIHandler(BaseHTTPRequestHandler):
@@ -134,7 +139,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         body = self._parse_body()
-        allowed = {"title", "assignee", "due_at", "summary"}
+        allowed = {"title", "assignee", "due_at", "summary", "priority"}
         updates = {k: v for k, v in body.items() if k in allowed}
         if not updates:
             self._send_json({"error": "no valid fields"}, 400)
@@ -284,7 +289,7 @@ class APIHandler(BaseHTTPRequestHandler):
                      bool(re.search(r'담당\s*[:：]', text))
 
         if is_register or has_fields:
-            title, assignee, due = parse_text(text)
+            title, assignee, due, priority = parse_text(text)
             if not title:
                 return {
                     "type": "error",
@@ -301,17 +306,20 @@ class APIHandler(BaseHTTPRequestHandler):
                 summary=text,
                 due_at=due,
                 assignee=assignee,
+                priority=priority or "중간",
             )
 
             due_str = due or "미정"
             a_str = assignee or "미정"
+            p_str = priority or "중간"
             return {
                 "type": "register",
                 "message": (
                     f"📋 **#{task['display_num']} 등록 완료!**\n"
                     f"제목: {title}\n"
                     f"담당: {a_str}\n"
-                    f"마감: {due_str}"
+                    f"마감: {due_str}\n"
+                    f"우선순위: {p_str}"
                 ),
                 "data": {
                     "id": task["id"],

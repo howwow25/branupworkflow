@@ -68,9 +68,11 @@ def render_card(t, dd):
     css = dday_class(dd)
     num = t.get("display_num", "?")
     task_id = t.get("id", "")
+    prio = t.get("priority", "중간")
+    prio_icon = {"긴급": "🔴", "높음": "🟠", "중간": "", "낮음": "🟢"}.get(prio, "")
 
     return f"""<div class="card" data-assignee="{assignee}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-{css}">#{num}</span>
+    <span class="dday badge-{css}">#{num}{" " + prio_icon if prio_icon else ""}</span>
     <div class="title">{title}</div>
     <div class="meta">
         <span class="dday badge-{css}">{label}</span>
@@ -620,6 +622,15 @@ body {{
                 <label>요약</label>
                 <textarea id="editSummary" placeholder="업무 요약..."></textarea>
             </div>
+            <div class="modal-field">
+                <label>우선순위</label>
+                <select id="editPriority">
+                    <option value="긴급">🔴 긴급</option>
+                    <option value="높음">🟠 높음</option>
+                    <option value="중간" selected>🟡 중간</option>
+                    <option value="낮음">🟢 낮음</option>
+                </select>
+            </div>
             <div class="modal-actions">
                 <button class="btn-save" onclick="saveTask()">💾 저장</button>
                 <button class="btn-complete" id="btnComplete" onclick="completeTask()">✅ 완료 처리</button>
@@ -764,6 +775,9 @@ function openModal(taskId) {{
 
             document.getElementById('editSummary').value = task.summary || '';
 
+            var prio = task.priority || '중간';
+            document.getElementById('editPriority').value = prio;
+
             var created = task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-';
             var updated = task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-';
             document.getElementById('modalMeta').innerHTML =
@@ -797,7 +811,8 @@ function saveTask() {{
         title: document.getElementById('editTitle').value.trim(),
         assignee: document.getElementById('editAssignee').value,
         due_at: document.getElementById('editDue').value || null,
-        summary: document.getElementById('editSummary').value.trim()
+        summary: document.getElementById('editSummary').value.trim(),
+        priority: document.getElementById('editPriority').value
     }};
     if (!data.title) {{
         showToast('제목은 필수입니다', true);
