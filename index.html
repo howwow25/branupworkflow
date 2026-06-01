@@ -339,7 +339,7 @@ body {
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
-    <div class="sub">마지막 갱신: 2026-06-01 19:48 | 진행 <span id="hdr-active">38</span>건 · 완료 <span id="hdr-done">12</span>건</div>
+    <div class="sub">마지막 갱신: 2026-06-01 19:49 | 진행 <span id="hdr-active">38</span>건 · 완료 <span id="hdr-done">12</span>건</div>
 </div>
 <div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이상원')">이상원</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
 <div class="stats">
@@ -348,7 +348,7 @@ body {
         <div class="label">지연</div>
     </div>
     <div class="stat" id="stat-today">
-        <div class="num">4</div>
+        <div class="num">3</div>
         <div class="label">오늘 마감</div>
     </div>
     <div class="stat warn" id="stat-nodue">
@@ -476,7 +476,7 @@ body {
     </div>
 </div>
 </div><div class="column" data-col="today">
-    <div class="col-header">🚨 오늘마감 <span class="count">4</span></div>
+    <div class="col-header">🚨 오늘마감 <span class="count">3</span></div>
     <div class="card" data-assignee="모두" data-task-id="a1f436d7-65b2-447a-a2ca-8f0fcd1e1f11" onclick="openModal('a1f436d7-65b2-447a-a2ca-8f0fcd1e1f11')">
     <span class="dday badge-today">#3</span>
     <div class="title">위시트랜드2.0 벤치마킹 아이디어</div>
@@ -501,17 +501,9 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card" data-assignee="이향석" data-task-id="0d802e01-8a2b-48f4-bb48-121191cefd13" onclick="openModal('0d802e01-8a2b-48f4-bb48-121191cefd13')">
-    <span class="dday badge-today">#30</span>
-    <div class="title">대표님 맥미니 Openclaw, Hermes 에이전트 정검</div>
-    <div class="meta">
-        <span class="dday badge-today">D-DAY</span>
-        <span class="assignee">👤 이향석</span>
-        <span class="due">📅 2026-06-01</span>
-    </div>
 </div>
 </div><div class="column" data-col="d3">
-    <div class="col-header">⚠️ D-3 <span class="count">14</span></div>
+    <div class="col-header">⚠️ D-3 <span class="count">15</span></div>
     <div class="card" data-assignee="이향석" data-task-id="565ea2c8-8fda-4070-83a5-5b48a827bfb1" onclick="openModal('565ea2c8-8fda-4070-83a5-5b48a827bfb1')">
     <span class="dday badge-urgent">#1</span>
     <div class="title">아이젤 계약서 조영길이사와 사전 조율</div>
@@ -523,6 +515,14 @@ body {
 </div><div class="card" data-assignee="이향석" data-task-id="8199b058-dafb-4bf4-9222-173723f59b2c" onclick="openModal('8199b058-dafb-4bf4-9222-173723f59b2c')">
     <span class="dday badge-urgent">#28</span>
     <div class="title">자금일정정검-브랜업/어니스트</div>
+    <div class="meta">
+        <span class="dday badge-urgent">D-1</span>
+        <span class="assignee">👤 이향석</span>
+        <span class="due">📅 2026-06-02</span>
+    </div>
+</div><div class="card" data-assignee="이향석" data-task-id="0d802e01-8a2b-48f4-bb48-121191cefd13" onclick="openModal('0d802e01-8a2b-48f4-bb48-121191cefd13')">
+    <span class="dday badge-urgent">#30</span>
+    <div class="title">대표님 맥미니 Openclaw, Hermes 에이전트 정검</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
         <span class="assignee">👤 이향석</span>
@@ -952,7 +952,7 @@ body {
     </div>
 </div>
 
-<div class="footer">브랜업 대시보드 · 2026-06-01 19:48 · 10분 자동갱신</div>
+<div class="footer">브랜업 대시보드 · 2026-06-01 19:49 · 10분 자동갱신</div>
 <script>
 var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:8800' : (window.location.origin + '/api');
 var currentTaskId = null;
