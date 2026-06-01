@@ -184,6 +184,8 @@ def render():
 
     filter_btns = '<button class="filter-btn active" onclick="filterAssignee(\'ALL\')">ALL</button>'
     for a in sorted_assignees:
+        if a == '모두':
+            continue
         filter_btns += f'<button class="filter-btn" onclick="filterAssignee(\'{a}\')">{a}</button>'
 
     completed_html = ""
@@ -710,7 +712,7 @@ function filterAssignee(name) {{
             card.classList.remove('hidden');
         }} else {{
             var a = card.getAttribute('data-assignee');
-            if (a.split(/,\\s*/).includes(name)) {{
+            if (a.split(/,\\s*/).includes(name) || a.split(/,\\s*/).includes('모두')) {{
                 card.classList.remove('hidden');
             }} else {{
                 card.classList.add('hidden');
