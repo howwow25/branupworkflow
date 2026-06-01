@@ -1,0 +1,753 @@
+#!/usr/bin/env python3
+"""
+HTML 대시보드 생성기 — 진행중 + 완료(주/월) + 담당자 필터 + 모달 편집
+"""
+import sys
+import os
+import json
+from pathlib import Path
+from datetime import datetime, timedelta
+
+DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
+    str(Path(__file__).parent.parent / "data"))
+OUTPUT_PATH = Path(DATA_DIR) / "dashboard.html"
+API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
+
+sys.path.insert(0, str(Path(__file__).parent))
+from db import get_active_tasks, get_completed_tasks
+
+
+def dday(due_str):
+    if not due_str: return None
+    try:
+        due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+        return (due_date - datetime.now().date()).days
+    except Exception:
+        return None
+
+
+def group_tasks(tasks):
+    groups = {"delayed": [], "today": [], "d3": [], "d7": [], "upcoming": [], "no_due": []}
+    for t in tasks:
+        dd = dday(t.get("due_at"))
+        if dd is None:        groups["no_due"].append((t, None))
+        elif dd < 0:          groups["delayed"].append((t, dd))
+        elif dd == 0:         groups["today"].append((t, dd))
+        elif dd <= 3:         groups["d3"].append((t, dd))
+        elif dd <= 7:         groups["d7"].append((t, dd))
+        else:                 groups["upcoming"].append((t, dd))
+    return groups
+
+
+def dday_label(dd):
+    if dd is None: return "미정"
+    if dd < 0:     return f"D+{abs(dd)}"
+    if dd == 0:    return "D-DAY"
+    return f"D-{dd}"
+
+
+def dday_class(dd):
+    if dd is None: return "nodue"
+    if dd < 0:     return "delayed"
+    if dd == 0:    return "today"
+    if dd <= 3:    return "urgent"
+    if dd <= 7:    return "soon"
+    return "ok"
+
+
+def esc(s):
+    """HTML 이스케이프"""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def render_card(t, dd):
+    title = esc(t.get("title", ""))
+    assignee = esc(t.get("assignee") or "미정")
+    due = t.get("due_at", "")
+    due_str = due[:10] if due else "미정"
+    label = dday_label(dd)
+    css = dday_class(dd)
+    num = t.get("display_num", "?")
+    task_id = t.get("id", "")
+
+    return f"""<div class="card" data-assignee="{assignee}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
+    <span class="dday badge-{css}">#{num}</span>
+    <div class="title">{title}</div>
+    <div class="meta">
+        <span class="dday badge-{css}">{label}</span>
+        <span class="assignee">👤 {assignee}</span>
+        <span class="due">📅 {due_str}</span>
+    </div>
+</div>"""
+
+
+def week_range(w):
+    today = datetime.now().date()
+    monday = today - timedelta(days=today.weekday())
+    start = monday - timedelta(weeks=w - 1)
+    return start, start + timedelta(days=6)
+
+
+def month_range(m):
+    today = datetime.now().date()
+    first = today.replace(day=1)
+    for _ in range(m - 1):
+        first = (first - timedelta(days=1)).replace(day=1)
+    if m == 1:
+        return first, today
+    next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return first, next_first - timedelta(days=1)
+
+
+def group_completed(tasks):
+    weeks = {}
+    months = {}
+    for t in tasks:
+        closed = t.get("closed_at", "")
+        if not closed: continue
+        try:
+            closed_date = datetime.strptime(closed[:10], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        for w in range(1, 5):
+            ws, we = week_range(w)
+            if ws <= closed_date <= we:
+                weeks.setdefault(w, []).append((t, closed_date))
+                break
+        for m in range(1, 5):
+            ms, me = month_range(m)
+            if ms <= closed_date <= me:
+                months.setdefault(m, []).append((t, closed_date))
+                break
+    return weeks, months
+
+
+def render_completed_card(t, closed_date, label):
+    title = esc(t.get("title", ""))
+    assignee = esc(t.get("assignee") or "미정")
+    closed_str = closed_date.strftime("%m/%d")
+    task_id = t.get("id", "")
+
+    return f"""<div class="card done" data-assignee="{assignee}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
+    <span class="dday badge-done">{label}</span>
+    <div class="title">{title}</div>
+    <div class="meta">
+        <span class="assignee">👤 {assignee}</span>
+        <span class="due">✅ {closed_str} 완료</span>
+    </div>
+</div>"""
+
+
+def render():
+    tasks = get_active_tasks()
+    groups = group_tasks(tasks)
+    completed = get_completed_tasks()
+    c_weeks, c_months = group_completed(completed)
+
+    total = len(tasks)
+    delayed_count = len(groups["delayed"])
+    today_count = len(groups["today"])
+    nodue_count = len(groups["no_due"])
+    done_count = len(completed)
+
+    # ── 모든 담당자 수집 ──
+    all_assignees = set()
+    for t in tasks:
+        all_assignees.add(t.get("assignee") or "미정")
+    for t in completed:
+        all_assignees.add(t.get("assignee") or "미정")
+    sorted_assignees = sorted(all_assignees, key=lambda x: (x == "미정", x == "모두", x))
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    columns = [
+        ("🔥 지연", "delayed", groups["delayed"]),
+        ("⬜ 미정", "no_due", groups["no_due"]),
+        ("🚨 오늘마감", "today", groups["today"]),
+        ("⚠️ D-3", "d3", groups["d3"]),
+        ("📋 D-7", "d7", groups["d7"]),
+        ("🟢 여유", "upcoming", groups["upcoming"]),
+    ]
+
+    col_html = ""
+    for title, key, items in columns:
+        cards_parts = []
+        for t, dd in sorted(items, key=lambda x: x[1] or 999):
+            cards_parts.append(render_card(t, dd))
+        cards = "".join(cards_parts)
+        if not cards:
+            cards = '<div class="empty">없음</div>'
+        col_html += f"""<div class="column" data-col="{key}">
+    <div class="col-header">{title} <span class="count">{len(items)}</span></div>
+    {cards}
+</div>"""
+
+    # ── 필터 버튼 ──
+    filter_btns = '<button class="filter-btn active" onclick="filterAssignee(\'ALL\')">ALL</button>'
+    for a in sorted_assignees:
+        filter_btns += f'<button class="filter-btn" onclick="filterAssignee(\'{a}\')">{a}</button>'
+
+    # ── 완료 섹션 ──
+    completed_html = ""
+    if completed:
+        completed_html += '<div class="divider">✅ 완료된 업무</div>'
+        week_labels = {1: "W1 · 이번주", 2: "W2 · 지난주", 3: "W3 · 2주전", 4: "W4 · 3주전"}
+        has_weeks = any(c_weeks.get(w) for w in range(1, 5))
+        if has_weeks:
+            completed_html += '<div class="section-title">📅 주 단위</div><div class="board">'
+            for w in range(1, 5):
+                items = c_weeks.get(w, [])
+                cards = "".join(render_completed_card(t, cd, week_labels[w]) for t, cd in items)
+                if not cards:
+                    cards = '<div class="empty">없음</div>'
+                completed_html += f"""<div class="column" data-col="week-{w}">
+    <div class="col-header">{week_labels[w]} <span class="count">{len(items)}</span></div>
+    {cards}
+</div>"""
+            completed_html += '</div>'
+
+        month_labels = {1: "M1 · 이번달", 2: "M2 · 지난달", 3: "M3 · 2달전", 4: "M4 · 3달전"}
+        has_months = any(c_months.get(m) for m in range(1, 5))
+        if has_months:
+            completed_html += '<div class="section-title">📆 월 단위</div><div class="board">'
+            for m in range(1, 5):
+                items = c_months.get(m, [])
+                cards = "".join(render_completed_card(t, cd, month_labels[m]) for t, cd in items)
+                if not cards:
+                    cards = '<div class="empty">없음</div>'
+                completed_html += f"""<div class="column" data-col="month-{m}">
+    <div class="col-header">{month_labels[m]} <span class="count">{len(items)}</span></div>
+    {cards}
+</div>"""
+            completed_html += '</div>'
+
+    html = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>브랜업 대시보드</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta http-equiv="refresh" content="600">
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    min-height: 100vh;
+}}
+.header {{
+    background: linear-gradient(135deg, #1a1c2e 0%, #16181d 100%);
+    padding: 24px 32px;
+    border-bottom: 1px solid #2a2d3a;
+}}
+.header h1 {{ font-size: 24px; font-weight: 700; }}
+.header .sub {{ color: #8b949e; font-size: 13px; margin-top: 4px; }}
+.filters {{
+    display: flex; gap: 8px; padding: 12px 32px;
+    background: #16181d; border-bottom: 1px solid #2a2d3a;
+    flex-wrap: wrap; align-items: center;
+}}
+.filter-btn {{
+    padding: 6px 16px;
+    border-radius: 20px; border: 1px solid #2a2d3a;
+    background: #1c1f2a; color: #8b949e;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+}}
+.filter-btn:hover {{ border-color: #58a6ff; color: #e1e4e8; }}
+.filter-btn.active {{
+    background: #58a6ff; color: #000;
+    border-color: #58a6ff;
+}}
+.stats {{
+    display: flex; gap: 16px; padding: 16px 32px;
+    background: #16181d; border-bottom: 1px solid #2a2d3a;
+    flex-wrap: wrap;
+}}
+.stat {{
+    background: #1c1f2a; border-radius: 8px; padding: 12px 20px;
+    min-width: 100px; text-align: center;
+}}
+.stat .num {{ font-size: 28px; font-weight: 800; color: #58a6ff; }}
+.stat .label {{ font-size: 11px; color: #8b949e; margin-top: 2px; text-transform: uppercase; }}
+.stat.danger .num {{ color: #f85149; }}
+.stat.warn .num {{ color: #d2991d; }}
+.stat.done .num {{ color: #3fb950; }}
+.board {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 24px 32px;
+}}
+.column {{
+    background: #16181d;
+    border-radius: 12px;
+    border: 1px solid #2a2d3a;
+    overflow: hidden;
+}}
+.col-header {{
+    padding: 12px 16px;
+    font-weight: 700; font-size: 14px;
+    border-bottom: 1px solid #2a2d3a;
+    background: #1c1f2a;
+    display: flex; justify-content: space-between; align-items: center;
+}}
+.count {{
+    background: #2a2d3a;
+    padding: 2px 10px; border-radius: 10px;
+    font-size: 12px; font-weight: 600;
+}}
+.card {{
+    background: #1c1f2a;
+    margin: 8px 12px; padding: 14px;
+    border-radius: 8px; border: 1px solid #2a2d3a;
+    transition: border-color 0.2s, opacity 0.2s;
+    cursor: pointer;
+}}
+.card:hover {{ border-color: #58a6ff; }}
+.card.done {{ border-color: #1a3a2a; }}
+.card.done:hover {{ border-color: #3fb950; }}
+.card.hidden {{ display: none; }}
+.card .title {{
+    font-size: 13px; line-height: 1.5; margin: 8px 0; color: #e1e4e8;
+}}
+.card .meta {{
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: #8b949e;
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2d3a;
+}}
+.empty {{
+    padding: 32px; text-align: center; color: #484f5a; font-size: 13px;
+}}
+.badge-delayed {{ background: #f85149; color: #fff; }}
+.badge-today {{ background: #f0883e; color: #fff; }}
+.badge-urgent {{ background: #d2991d; color: #000; }}
+.badge-soon {{ background: #3fb950; color: #000; }}
+.badge-ok {{ background: #58a6ff; color: #000; }}
+.badge-nodue {{ background: #484f5a; color: #ccc; }}
+.badge-done {{ background: #1a3a2a; color: #3fb950; }}
+.dday {{
+    display: inline-block; padding: 2px 8px;
+    border-radius: 4px; font-size: 11px;
+    font-weight: 700; letter-spacing: 0.5px;
+}}
+.divider {{
+    padding: 24px 32px 0;
+    font-size: 20px; font-weight: 800;
+    color: #3fb950;
+    border-top: 2px solid #1a3a2a;
+    margin-top: 8px;
+}}
+.section-title {{
+    padding: 16px 32px 0;
+    font-size: 13px; color: #8b949e;
+    font-weight: 600; letter-spacing: 1px;
+}}
+.footer {{
+    text-align: center; padding: 24px;
+    color: #484f5a; font-size: 11px;
+}}
+.refresh-btn {{
+    background: none; border: 1px solid #2a2d3a;
+    border-radius: 8px; padding: 4px 10px;
+    font-size: 18px; cursor: pointer;
+    transition: all 0.2s; vertical-align: middle;
+}}
+.refresh-btn:hover {{
+    background: #2a2d3a; border-color: #58a6ff;
+    transform: rotate(90deg);
+}}
+
+/* ── 모달 ── */
+.modal-overlay {{
+    display: none;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    justify-content: center; align-items: center;
+}}
+.modal-overlay.active {{ display: flex; }}
+.modal {{
+    background: #16181d;
+    border: 1px solid #2a2d3a;
+    border-radius: 16px;
+    width: 90%; max-width: 520px;
+    max-height: 85vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}}
+.modal-header {{
+    padding: 20px 24px 12px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+}}
+.modal-header h2 {{ font-size: 18px; color: #e1e4e8; }}
+.modal-close {{
+    background: none; border: none; color: #8b949e;
+    font-size: 24px; cursor: pointer; padding: 0 4px;
+    line-height: 1;
+}}
+.modal-close:hover {{ color: #f85149; }}
+.modal-body {{ padding: 0 24px 24px; }}
+.modal-field {{
+    margin-bottom: 16px;
+}}
+.modal-field label {{
+    display: block; font-size: 11px; color: #8b949e;
+    margin-bottom: 6px; text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.modal-field input, .modal-field textarea, .modal-field select {{
+    width: 100%; padding: 10px 14px;
+    background: #0f1117;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px; color: #e1e4e8;
+    font-size: 14px; font-family: inherit;
+}}
+.modal-field input:focus, .modal-field textarea:focus, .modal-field select:focus {{
+    outline: none; border-color: #58a6ff;
+}}
+.modal-field textarea {{
+    resize: vertical; min-height: 80px;
+}}
+.modal-actions {{
+    display: flex; gap: 10px; margin-top: 20px;
+    flex-wrap: wrap;
+}}
+.modal-actions button {{
+    padding: 10px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; border: 1px solid #2a2d3a;
+    transition: all 0.15s;
+}}
+.btn-save {{
+    background: #238636; color: #fff; border-color: #238636;
+}}
+.btn-save:hover {{ background: #2ea043; }}
+.btn-complete {{
+    background: #1a3a2a; color: #3fb950; border-color: #3fb950;
+}}
+.btn-complete:hover {{ background: #1f4a33; }}
+.btn-delete {{
+    background: #3a1a1a; color: #f85149; border-color: #f85149;
+}}
+.btn-delete:hover {{ background: #4a1f1f; }}
+.btn-cancel {{
+    background: #1c1f2a; color: #8b949e;
+}}
+.btn-cancel:hover {{ color: #e1e4e8; }}
+.modal-status {{
+    font-size: 12px; color: #8b949e; margin-bottom: 16px;
+    padding: 8px 12px; background: #1c1f2a; border-radius: 8px;
+}}
+.modal-status strong {{ color: #e1e4e8; }}
+.toast {{
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #238636; color: #fff; padding: 12px 24px;
+    border-radius: 8px; font-size: 13px; font-weight: 600;
+    z-index: 2000; opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+}}
+.toast.show {{ opacity: 1; }}
+.toast.error {{ background: #f85149; }}
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
+    <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
+</div>
+<div class="filters">{filter_btns}</div>
+<div class="stats">
+    <div class="stat danger" id="stat-delayed">
+        <div class="num">{delayed_count}</div>
+        <div class="label">지연</div>
+    </div>
+    <div class="stat" id="stat-today">
+        <div class="num">{today_count}</div>
+        <div class="label">오늘 마감</div>
+    </div>
+    <div class="stat warn" id="stat-nodue">
+        <div class="num">{nodue_count}</div>
+        <div class="label">마감 미정</div>
+    </div>
+    <div class="stat" id="stat-active">
+        <div class="num">{total}</div>
+        <div class="label">진행중</div>
+    </div>
+    <div class="stat done" id="stat-done">
+        <div class="num">{done_count}</div>
+        <div class="label">완료</div>
+    </div>
+</div>
+<div class="board">
+{col_html}
+</div>
+{completed_html}
+
+<!-- ── 모달 ── -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 id="modalTitle">업무 상세</h2>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-status" id="modalMeta"></div>
+            <div class="modal-field">
+                <label>제목</label>
+                <input type="text" id="editTitle" placeholder="업무 제목">
+            </div>
+            <div class="modal-field">
+                <label>담당자</label>
+                <select id="editAssignee">
+                    <option value="">미정</option>
+                    {''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}
+                </select>
+            </div>
+            <div class="modal-field">
+                <label>마감일</label>
+                <input type="date" id="editDue">
+            </div>
+            <div class="modal-field">
+                <label>요약</label>
+                <textarea id="editSummary" placeholder="업무 요약..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-save" onclick="saveTask()">💾 저장</button>
+                <button class="btn-complete" id="btnComplete" onclick="completeTask()">✅ 완료 처리</button>
+                <button class="btn-delete" onclick="deleteTask()">🗑 삭제</button>
+                <button class="btn-cancel" onclick="closeModal()">취소</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<div class="footer">브랜업 대시보드 · {now_str} · 10분 자동갱신 · API: {API_PORT}</div>
+<script>
+var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:{API_PORT}' : (window.location.origin + '/api');
+var currentTaskId = null;
+
+function forceRefresh() {{
+    var url = new URL(window.location.href);
+    url.searchParams.set('_', Date.now());
+    window.location.href = url.toString();
+}}
+
+function countVisible(col) {{
+    return col.querySelectorAll('.card:not(.hidden)').length;
+}}
+
+function updateCounts() {{
+    var statMap = {{
+        'delayed': 'stat-delayed',
+        'today': 'stat-today',
+        'no_due': 'stat-nodue'
+    }};
+
+    document.querySelectorAll('.column[data-col]').forEach(function(col) {{
+        var key = col.getAttribute('data-col');
+        var cnt = countVisible(col);
+        var badge = col.querySelector('.count');
+        if (badge) badge.textContent = cnt;
+
+        if (statMap[key]) {{
+            var el = document.getElementById(statMap[key]);
+            if (el) el.querySelector('.num').textContent = cnt;
+        }}
+    }});
+
+    var activeTotal = document.querySelectorAll('.card:not(.done):not(.hidden)').length;
+    var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden)').length;
+
+    var elActive = document.getElementById('stat-active');
+    if (elActive) elActive.querySelector('.num').textContent = activeTotal;
+
+    var elDone = document.getElementById('stat-done');
+    if (elDone) elDone.querySelector('.num').textContent = doneTotal;
+
+    var hdrActive = document.getElementById('hdr-active');
+    if (hdrActive) hdrActive.textContent = activeTotal;
+    var hdrDone = document.getElementById('hdr-done');
+    if (hdrDone) hdrDone.textContent = doneTotal;
+}}
+
+function filterAssignee(name) {{
+    document.querySelectorAll('.filter-btn').forEach(function(btn) {{
+        btn.classList.remove('active');
+    }});
+    event.target.classList.add('active');
+
+    document.querySelectorAll('.card').forEach(function(card) {{
+        if (name === 'ALL') {{
+            card.classList.remove('hidden');
+        }} else {{
+            var a = card.getAttribute('data-assignee');
+            if (a === name) {{
+                card.classList.remove('hidden');
+            }} else {{
+                card.classList.add('hidden');
+            }}
+        }}
+    }});
+
+    updateCounts();
+}}
+
+// ── Toast ──
+function showToast(msg, isError) {{
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + (isError ? 'error' : '');
+    setTimeout(function() {{ t.classList.add('show'); }}, 10);
+    setTimeout(function() {{ t.classList.remove('show'); }}, 2000);
+}}
+
+// ── 모달 ──
+function openModal(taskId) {{
+    currentTaskId = taskId;
+    fetch(API + '/api/tasks/' + taskId)
+        .then(function(r) {{ return r.json(); }})
+        .then(function(task) {{
+            if (task.error) {{
+                showToast('업무를 불러올 수 없습니다', true);
+                return;
+            }}
+            document.getElementById('modalTitle').textContent = '#' + task.display_num + ' 업무 상세';
+            document.getElementById('editTitle').value = task.title || '';
+            document.getElementById('editDue').value = task.due_at ? task.due_at.slice(0,10) : '';
+
+            var sel = document.getElementById('editAssignee');
+            var found = false;
+            for (var i = 0; i < sel.options.length; i++) {{
+                if (sel.options[i].value === (task.assignee || '')) {{
+                    sel.selectedIndex = i;
+                    found = true;
+                    break;
+                }}
+            }}
+            if (!found && task.assignee) {{
+                var opt = document.createElement('option');
+                opt.value = task.assignee;
+                opt.textContent = task.assignee;
+                opt.selected = true;
+                sel.appendChild(opt);
+            }}
+
+            document.getElementById('editSummary').value = task.summary || '';
+
+            var created = task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-';
+            var updated = task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-';
+            document.getElementById('modalMeta').innerHTML =
+                '<strong>상태:</strong> ' + (task.status || '진행중') +
+                ' &nbsp;|&nbsp; <strong>생성:</strong> ' + created +
+                ' &nbsp;|&nbsp; <strong>수정:</strong> ' + updated;
+
+            var btnComplete = document.getElementById('btnComplete');
+            if (task.status === '완료') {{
+                btnComplete.style.display = 'none';
+            }} else {{
+                btnComplete.style.display = '';
+            }}
+
+            document.getElementById('modalOverlay').classList.add('active');
+        }})
+        .catch(function(e) {{
+            showToast('API 서버 연결 실패 (localhost:{API_PORT})', true);
+        }});
+}}
+
+function closeModal(e) {{
+    if (e && e.target !== document.getElementById('modalOverlay')) return;
+    document.getElementById('modalOverlay').classList.remove('active');
+    currentTaskId = null;
+}}
+
+function saveTask() {{
+    if (!currentTaskId) return;
+    var data = {{
+        title: document.getElementById('editTitle').value.trim(),
+        assignee: document.getElementById('editAssignee').value,
+        due_at: document.getElementById('editDue').value || null,
+        summary: document.getElementById('editSummary').value.trim()
+    }};
+    if (!data.title) {{
+        showToast('제목은 필수입니다', true);
+        return;
+    }}
+
+    fetch(API + '/api/tasks/' + currentTaskId, {{
+        method: 'PATCH',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(data)
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(task) {{
+        if (task.error) {{
+            showToast('저장 실패: ' + task.error, true);
+            return;
+        }}
+        showToast('저장 완료!');
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function(e) {{
+        showToast('API 서버 연결 실패', true);
+    }});
+}}
+
+function completeTask() {{
+    if (!currentTaskId) return;
+    if (!confirm('정말 완료 처리하시겠습니까?')) return;
+
+    fetch(API + '/api/tasks/' + currentTaskId + '/complete', {{
+        method: 'POST'
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(task) {{
+        if (task.error) {{
+            showToast('완료 처리 실패', true);
+            return;
+        }}
+        showToast('완료 처리되었습니다!');
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function(e) {{
+        showToast('API 서버 연결 실패', true);
+    }});
+}}
+
+function deleteTask() {{
+    if (!currentTaskId) return;
+    if (!confirm('정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+
+    fetch(API + '/api/tasks/' + currentTaskId, {{
+        method: 'DELETE'
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(data) {{
+        if (data.error) {{
+            showToast('삭제 실패', true);
+            return;
+        }}
+        showToast('삭제 완료!');
+        document.getElementById('modalOverlay').classList.remove('active');
+        currentTaskId = null;
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function(e) {{
+        showToast('API 서버 연결 실패', true);
+    }});
+}}
+</script>
+</body>
+</html>"""
+    return html
+
+
+if __name__ == "__main__":
+    OUTPUT_PATH.write_text(render(), encoding="utf-8")
+    print(f"✅ HTML 대시보드 생성 완료: {OUTPUT_PATH}")
+    print(f"   열기: open {OUTPUT_PATH}")

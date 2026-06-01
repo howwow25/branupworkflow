@@ -83,6 +83,7 @@ body {
     margin: 8px 12px; padding: 14px;
     border-radius: 8px; border: 1px solid #2a2d3a;
     transition: border-color 0.2s, opacity 0.2s;
+    cursor: pointer;
 }
 .card:hover { border-color: #58a6ff; }
 .card.done { border-color: #1a3a2a; }
@@ -137,12 +138,103 @@ body {
     background: #2a2d3a; border-color: #58a6ff;
     transform: rotate(90deg);
 }
+
+/* ── 모달 ── */
+.modal-overlay {
+    display: none;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    justify-content: center; align-items: center;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+    background: #16181d;
+    border: 1px solid #2a2d3a;
+    border-radius: 16px;
+    width: 90%; max-width: 520px;
+    max-height: 85vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal-header {
+    padding: 20px 24px 12px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+}
+.modal-header h2 { font-size: 18px; color: #e1e4e8; }
+.modal-close {
+    background: none; border: none; color: #8b949e;
+    font-size: 24px; cursor: pointer; padding: 0 4px;
+    line-height: 1;
+}
+.modal-close:hover { color: #f85149; }
+.modal-body { padding: 0 24px 24px; }
+.modal-field {
+    margin-bottom: 16px;
+}
+.modal-field label {
+    display: block; font-size: 11px; color: #8b949e;
+    margin-bottom: 6px; text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.modal-field input, .modal-field textarea, .modal-field select {
+    width: 100%; padding: 10px 14px;
+    background: #0f1117;
+    border: 1px solid #2a2d3a;
+    border-radius: 8px; color: #e1e4e8;
+    font-size: 14px; font-family: inherit;
+}
+.modal-field input:focus, .modal-field textarea:focus, .modal-field select:focus {
+    outline: none; border-color: #58a6ff;
+}
+.modal-field textarea {
+    resize: vertical; min-height: 80px;
+}
+.modal-actions {
+    display: flex; gap: 10px; margin-top: 20px;
+    flex-wrap: wrap;
+}
+.modal-actions button {
+    padding: 10px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; border: 1px solid #2a2d3a;
+    transition: all 0.15s;
+}
+.btn-save {
+    background: #238636; color: #fff; border-color: #238636;
+}
+.btn-save:hover { background: #2ea043; }
+.btn-complete {
+    background: #1a3a2a; color: #3fb950; border-color: #3fb950;
+}
+.btn-complete:hover { background: #1f4a33; }
+.btn-delete {
+    background: #3a1a1a; color: #f85149; border-color: #f85149;
+}
+.btn-delete:hover { background: #4a1f1f; }
+.btn-cancel {
+    background: #1c1f2a; color: #8b949e;
+}
+.btn-cancel:hover { color: #e1e4e8; }
+.modal-status {
+    font-size: 12px; color: #8b949e; margin-bottom: 16px;
+    padding: 8px 12px; background: #1c1f2a; border-radius: 8px;
+}
+.modal-status strong { color: #e1e4e8; }
+.toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #238636; color: #fff; padding: 12px 24px;
+    border-radius: 8px; font-size: 13px; font-weight: 600;
+    z-index: 2000; opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+}
+.toast.show { opacity: 1; }
+.toast.error { background: #f85149; }
 </style>
 </head>
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
-    <div class="sub">마지막 갱신: 2026-06-01 12:20 | 진행 <span id="hdr-active">29</span>건 · 완료 <span id="hdr-done">10</span>건</div>
+    <div class="sub">마지막 갱신: 2026-06-01 12:55 | 진행 <span id="hdr-active">29</span>건 · 완료 <span id="hdr-done">10</span>건</div>
 </div>
 <div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('모두')">모두</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
 <div class="stats">
@@ -170,7 +262,7 @@ body {
 <div class="board">
 <div class="column" data-col="delayed">
     <div class="col-header">🔥 지연 <span class="count">3</span></div>
-    <div class="card" data-assignee="전경표">
+    <div class="card" data-assignee="전경표" data-task-id="0d3ed24e-7874-40bf-bf52-59fee8878e4f" onclick="openModal('0d3ed24e-7874-40bf-bf52-59fee8878e4f')">
     <span class="dday badge-delayed">#10</span>
     <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
     <div class="meta">
@@ -178,7 +270,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 2026-05-29</span>
     </div>
-</div><div class="card" data-assignee="전경표">
+</div><div class="card" data-assignee="전경표" data-task-id="559bbf83-6d06-4892-8996-e9cd79632b9a" onclick="openModal('559bbf83-6d06-4892-8996-e9cd79632b9a')">
     <span class="dday badge-delayed">#11</span>
     <div class="title">제약사 더마코스메틱을 위한 마케팅 직무 구인 방법 리서치 및 브랜업의 더마코스메틱 마케팅 직무 채요을 위한 도입방안 제안</div>
     <div class="meta">
@@ -186,7 +278,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 2026-05-29</span>
     </div>
-</div><div class="card" data-assignee="노수민">
+</div><div class="card" data-assignee="노수민" data-task-id="288e27b8-aa41-40b1-9c40-c3a4501467f4" onclick="openModal('288e27b8-aa41-40b1-9c40-c3a4501467f4')">
     <span class="dday badge-delayed">#24</span>
     <div class="title">대표님 명함 주문</div>
     <div class="meta">
@@ -197,7 +289,7 @@ body {
 </div>
 </div><div class="column" data-col="no_due">
     <div class="col-header">⬜ 미정 <span class="count">12</span></div>
-    <div class="card" data-assignee="전경표">
+    <div class="card" data-assignee="전경표" data-task-id="72ba1ae7-769a-4f50-b125-e017fb326482" onclick="openModal('72ba1ae7-769a-4f50-b125-e017fb326482')">
     <span class="dday badge-nodue">#7</span>
     <div class="title">(추석) 정육공방 법인 영업/마케팅 효율적으로 아웃소싱 할 방법 리서치 (텔레마케팅, 오프라인 영업)</div>
     <div class="meta">
@@ -205,7 +297,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="전경표">
+</div><div class="card" data-assignee="전경표" data-task-id="3896a2e0-e318-4665-842d-85559e73b800" onclick="openModal('3896a2e0-e318-4665-842d-85559e73b800')">
     <span class="dday badge-nodue">#8</span>
     <div class="title">(추석) 정육공방 키메디 상품 제안서 제작 및 발송</div>
     <div class="meta">
@@ -213,7 +305,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="전경표">
+</div><div class="card" data-assignee="전경표" data-task-id="e7a95dae-e50c-404c-8be0-1193f66f9de9" onclick="openModal('e7a95dae-e50c-404c-8be0-1193f66f9de9')">
     <span class="dday badge-nodue">#9</span>
     <div class="title">제이엠솔루션-안목고수 구조 연구분석 및 브랜업의 도입 방안 검토</div>
     <div class="meta">
@@ -221,7 +313,7 @@ body {
         <span class="assignee">👤 전경표</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="강경철">
+</div><div class="card" data-assignee="강경철" data-task-id="47e77bc7-bb6f-446f-b80f-76b44ac89e47" onclick="openModal('47e77bc7-bb6f-446f-b80f-76b44ac89e47')">
     <span class="dday badge-nodue">#14</span>
     <div class="title">아이젤 1만세트 추가분 선금 결제 시기 파악</div>
     <div class="meta">
@@ -229,7 +321,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="강경철">
+</div><div class="card" data-assignee="강경철" data-task-id="aa64f366-6966-4cdc-bf93-385a4e4a4afa" onclick="openModal('aa64f366-6966-4cdc-bf93-385a4e4a4afa')">
     <span class="dday badge-nodue">#15</span>
     <div class="title">원석 괄사 업체 추가 파악</div>
     <div class="meta">
@@ -237,7 +329,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="미정">
+</div><div class="card" data-assignee="미정" data-task-id="59aaec2e-bde5-46ea-97d5-09b4ef8530f9" onclick="openModal('59aaec2e-bde5-46ea-97d5-09b4ef8530f9')">
     <span class="dday badge-nodue">#18</span>
     <div class="title">협력업체들 계약서 정리 안된업체 늦어도 주초까진 마무리</div>
     <div class="meta">
@@ -245,7 +337,7 @@ body {
         <span class="assignee">👤 미정</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="미정">
+</div><div class="card" data-assignee="미정" data-task-id="f639304c-0fb1-4ab9-bdb3-5f4624b983c2" onclick="openModal('f639304c-0fb1-4ab9-bdb3-5f4624b983c2')">
     <span class="dday badge-nodue">#19</span>
     <div class="title">월요일 한시에 한솔 바이오 화상공장 저 방문 그후에 이혜원 로레알 헤드 비엠 미팅 면접 월</div>
     <div class="meta">
@@ -253,7 +345,7 @@ body {
         <span class="assignee">👤 미정</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="강경철">
+</div><div class="card" data-assignee="강경철" data-task-id="b92d7cca-c93b-4d07-ae35-de414ca1254d" onclick="openModal('b92d7cca-c93b-4d07-ae35-de414ca1254d')">
     <span class="dday badge-nodue">#21</span>
     <div class="title">괄사 견적 요청 (첨부 이미지 - 다우오피스)</div>
     <div class="meta">
@@ -261,7 +353,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="노수민">
+</div><div class="card" data-assignee="노수민" data-task-id="bf843c8a-1364-461b-96bd-dbd8d60b04da" onclick="openModal('bf843c8a-1364-461b-96bd-dbd8d60b04da')">
     <span class="dday badge-nodue">#22</span>
     <div class="title">오키나와 컨퍼런스 영상 스토리보드 제작</div>
     <div class="meta">
@@ -269,7 +361,7 @@ body {
         <span class="assignee">👤 노수민</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="노수민">
+</div><div class="card" data-assignee="노수민" data-task-id="de6810f4-aa75-4165-90b2-e598d36b201c" onclick="openModal('de6810f4-aa75-4165-90b2-e598d36b201c')">
     <span class="dday badge-nodue">#23</span>
     <div class="title">사이트 수정</div>
     <div class="meta">
@@ -277,7 +369,7 @@ body {
         <span class="assignee">👤 노수민</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="미정">
+</div><div class="card" data-assignee="미정" data-task-id="1e1d9033-2592-4689-9818-4d1f6c06a130" onclick="openModal('1e1d9033-2592-4689-9818-4d1f6c06a130')">
     <span class="dday badge-nodue">#37</span>
     <div class="title">캐나다 수출 법률리스크 체크</div>
     <div class="meta">
@@ -285,7 +377,7 @@ body {
         <span class="assignee">👤 미정</span>
         <span class="due">📅 미정</span>
     </div>
-</div><div class="card" data-assignee="미정">
+</div><div class="card" data-assignee="미정" data-task-id="90e1ffd2-d3b0-42fe-9d09-43283f2d2f69" onclick="openModal('90e1ffd2-d3b0-42fe-9d09-43283f2d2f69')">
     <span class="dday badge-nodue">#38</span>
     <div class="title">명함에 인스타연결 혹은 홈페이지 연결</div>
     <div class="meta">
@@ -296,7 +388,7 @@ body {
 </div>
 </div><div class="column" data-col="today">
     <div class="col-header">🚨 오늘마감 <span class="count">5</span></div>
-    <div class="card" data-assignee="모두">
+    <div class="card" data-assignee="모두" data-task-id="a1f436d7-65b2-447a-a2ca-8f0fcd1e1f11" onclick="openModal('a1f436d7-65b2-447a-a2ca-8f0fcd1e1f11')">
     <span class="dday badge-today">#3</span>
     <div class="title">위시트랜드2.0 벤치마킹 아이디어</div>
     <div class="meta">
@@ -304,7 +396,7 @@ body {
         <span class="assignee">👤 모두</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card" data-assignee="강경철">
+</div><div class="card" data-assignee="강경철" data-task-id="7fc735df-f098-40cf-acdd-677184739e71" onclick="openModal('7fc735df-f098-40cf-acdd-677184739e71')">
     <span class="dday badge-today">#16</span>
     <div class="title">아이젤 COA 자료 줄리어스 대표님 검토 요청</div>
     <div class="meta">
@@ -312,7 +404,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card" data-assignee="강경철">
+</div><div class="card" data-assignee="강경철" data-task-id="1e51db07-ce91-48fa-996f-7cbef40e3a2d" onclick="openModal('1e51db07-ce91-48fa-996f-7cbef40e3a2d')">
     <span class="dday badge-today">#20</span>
     <div class="title">프리랜서 영상 계약서 준비</div>
     <div class="meta">
@@ -320,7 +412,7 @@ body {
         <span class="assignee">👤 강경철</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="0d802e01-8a2b-48f4-bb48-121191cefd13" onclick="openModal('0d802e01-8a2b-48f4-bb48-121191cefd13')">
     <span class="dday badge-today">#30</span>
     <div class="title">대표님 맥미니 Openclaw, Hermes 에이전트 정검</div>
     <div class="meta">
@@ -328,7 +420,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-01</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="4ff71814-e13b-4712-9fd2-13b86a263d66" onclick="openModal('4ff71814-e13b-4712-9fd2-13b86a263d66')">
     <span class="dday badge-today">#36</span>
     <div class="title">Flow 조사</div>
     <div class="meta">
@@ -339,7 +431,7 @@ body {
 </div>
 </div><div class="column" data-col="d3">
     <div class="col-header">⚠️ D-3 <span class="count">5</span></div>
-    <div class="card" data-assignee="이향석">
+    <div class="card" data-assignee="이향석" data-task-id="565ea2c8-8fda-4070-83a5-5b48a827bfb1" onclick="openModal('565ea2c8-8fda-4070-83a5-5b48a827bfb1')">
     <span class="dday badge-urgent">#1</span>
     <div class="title">아이젤 계약서 조영길이사와 사전 조율</div>
     <div class="meta">
@@ -347,7 +439,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-02</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="8199b058-dafb-4bf4-9222-173723f59b2c" onclick="openModal('8199b058-dafb-4bf4-9222-173723f59b2c')">
     <span class="dday badge-urgent">#28</span>
     <div class="title">자금일정정검-브랜업/어니스트</div>
     <div class="meta">
@@ -355,7 +447,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-02</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="0594ce4d-01df-4e3d-a655-430b7a00b47a" onclick="openModal('0594ce4d-01df-4e3d-a655-430b7a00b47a')">
     <span class="dday badge-urgent">#32</span>
     <div class="title">신우, 태평양 월별 자문계획 수립</div>
     <div class="meta">
@@ -363,7 +455,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-02</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="303d901c-040b-4dd0-8a62-ed5ec2806bab" onclick="openModal('303d901c-040b-4dd0-8a62-ed5ec2806bab')">
     <span class="dday badge-urgent">#33</span>
     <div class="title">정경원 itrader 메뉴얼 작성</div>
     <div class="meta">
@@ -371,7 +463,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-02</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="08c3c548-8432-4cad-a578-aad3a4734b4e" onclick="openModal('08c3c548-8432-4cad-a578-aad3a4734b4e')">
     <span class="dday badge-urgent">#35</span>
     <div class="title">3차 배치 인보이스 작성</div>
     <div class="meta">
@@ -382,7 +474,7 @@ body {
 </div>
 </div><div class="column" data-col="d7">
     <div class="col-header">📋 D-7 <span class="count">4</span></div>
-    <div class="card" data-assignee="이향석">
+    <div class="card" data-assignee="이향석" data-task-id="ab03808a-4180-4f10-9a16-ceed2e114567" onclick="openModal('ab03808a-4180-4f10-9a16-ceed2e114567')">
     <span class="dday badge-soon">#27</span>
     <div class="title">TSonaX 마일스톤#2 완료</div>
     <div class="meta">
@@ -390,7 +482,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-05</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="18ac5d84-0162-46ac-a9d2-57fbf1fa21f7" onclick="openModal('18ac5d84-0162-46ac-a9d2-57fbf1fa21f7')">
     <span class="dday badge-soon">#29</span>
     <div class="title">브랜업업무텔래봇vs슬랙봇 비교조사</div>
     <div class="meta">
@@ -398,7 +490,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-05</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="826b87b5-de76-4edb-bcbf-5b746074a1cc" onclick="openModal('826b87b5-de76-4edb-bcbf-5b746074a1cc')">
     <span class="dday badge-soon">#31</span>
     <div class="title">PL보험 상공회의소,중진청 견적분석</div>
     <div class="meta">
@@ -406,7 +498,7 @@ body {
         <span class="assignee">👤 이향석</span>
         <span class="due">📅 2026-06-05</span>
     </div>
-</div><div class="card" data-assignee="이향석">
+</div><div class="card" data-assignee="이향석" data-task-id="813dab5d-e202-4701-b2e9-df4d3fd7260b" onclick="openModal('813dab5d-e202-4701-b2e9-df4d3fd7260b')">
     <span class="dday badge-soon">#34</span>
     <div class="title">투권인 퇴직연금 시험</div>
     <div class="meta">
@@ -422,7 +514,7 @@ body {
 </div>
 <div class="divider">✅ 완료된 업무</div><div class="section-title">📅 주 단위</div><div class="board"><div class="column" data-col="week-1">
     <div class="col-header">W1 · 이번주 <span class="count">1</span></div>
-    <div class="card done" data-assignee="전경표">
+    <div class="card done" data-assignee="전경표" data-task-id="c4dec916-6ee5-4cd0-8c61-29a71acccb45" onclick="openModal('c4dec916-6ee5-4cd0-8c61-29a71acccb45')">
     <span class="dday badge-done">W1 · 이번주</span>
     <div class="title">컨벤션 영상 제작 - 대본 영번역 작업</div>
     <div class="meta">
@@ -432,63 +524,63 @@ body {
 </div>
 </div><div class="column" data-col="week-2">
     <div class="col-header">W2 · 지난주 <span class="count">9</span></div>
-    <div class="card done" data-assignee="이향석">
+    <div class="card done" data-assignee="이향석" data-task-id="4e6ca8aa-6e81-4bac-b9e2-5c5f4a85dcd0" onclick="openModal('4e6ca8aa-6e81-4bac-b9e2-5c5f4a85dcd0')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">PL보험요청서+보험사견적서</div>
     <div class="meta">
         <span class="assignee">👤 이향석</span>
         <span class="due">✅ 05/30 완료</span>
     </div>
-</div><div class="card done" data-assignee="이향석">
+</div><div class="card done" data-assignee="이향석" data-task-id="ffa6d890-9280-4e3f-8ba5-2231dc159c47" onclick="openModal('ffa6d890-9280-4e3f-8ba5-2231dc159c47')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">정경원 프로그램 메뉴얼 만들기</div>
     <div class="meta">
         <span class="assignee">👤 이향석</span>
         <span class="due">✅ 05/30 완료</span>
     </div>
-</div><div class="card done" data-assignee="이향석">
+</div><div class="card done" data-assignee="이향석" data-task-id="def3a8a1-d257-4f43-a8d5-ca38dab3d5e7" onclick="openModal('def3a8a1-d257-4f43-a8d5-ca38dab3d5e7')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">에나지크 배치적용 할 철강/알루미늄 환율에 따른 비율/가격/중량 계산 엑셀파일</div>
     <div class="meta">
         <span class="assignee">👤 이향석</span>
         <span class="due">✅ 05/30 완료</span>
     </div>
-</div><div class="card done" data-assignee="강경철">
+</div><div class="card done" data-assignee="강경철" data-task-id="d2d123ea-d609-4148-bbc4-88144ffd0506" onclick="openModal('d2d123ea-d609-4148-bbc4-88144ffd0506')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">에나지크 2차 파일럿 결제 타임라인 업데이트</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="강경철">
+</div><div class="card done" data-assignee="강경철" data-task-id="616cc85a-a48b-4ac0-a58e-15529b47c6cc" onclick="openModal('616cc85a-a48b-4ac0-a58e-15529b47c6cc')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">두코 발주서 작성 (2만세트 *2%)</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="전경표">
+</div><div class="card done" data-assignee="전경표" data-task-id="a4c1415e-c5de-44cb-bdff-3081f7c90cd2" onclick="openModal('a4c1415e-c5de-44cb-bdff-3081f7c90cd2')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">CellaDerm / Pharmaskin Lab / FanMind / Dermalogic / DermatoCell / Dermazing 회사이름, 브랜드 등록되는지 확인</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="전경표">
+</div><div class="card done" data-assignee="전경표" data-task-id="250eb6c7-8b9a-4505-8566-503fbe61875f" onclick="openModal('250eb6c7-8b9a-4505-8566-503fbe61875f')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">최이사님 된장남 재고/유통기한 확인 및 물량 소모 아이디어</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="전경표">
+</div><div class="card done" data-assignee="전경표" data-task-id="7c2edd4f-da7d-4da9-89ff-ea2edf10e267" onclick="openModal('7c2edd4f-da7d-4da9-89ff-ea2edf10e267')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">소라살롱 및 르꼬르망 추석 협업상품 컨택(프로젝트 진행 여부, 상품 아이디어 요청)</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="이향석">
+</div><div class="card done" data-assignee="이향석" data-task-id="14cdf48b-1456-4bd0-8f20-e028909ab293" onclick="openModal('14cdf48b-1456-4bd0-8f20-e028909ab293')">
     <span class="dday badge-done">W2 · 지난주</span>
     <div class="title">급여지급</div>
     <div class="meta">
@@ -504,7 +596,7 @@ body {
     <div class="empty">없음</div>
 </div></div><div class="section-title">📆 월 단위</div><div class="board"><div class="column" data-col="month-1">
     <div class="col-header">M1 · 이번달 <span class="count">1</span></div>
-    <div class="card done" data-assignee="전경표">
+    <div class="card done" data-assignee="전경표" data-task-id="c4dec916-6ee5-4cd0-8c61-29a71acccb45" onclick="openModal('c4dec916-6ee5-4cd0-8c61-29a71acccb45')">
     <span class="dday badge-done">M1 · 이번달</span>
     <div class="title">컨벤션 영상 제작 - 대본 영번역 작업</div>
     <div class="meta">
@@ -514,63 +606,63 @@ body {
 </div>
 </div><div class="column" data-col="month-2">
     <div class="col-header">M2 · 지난달 <span class="count">9</span></div>
-    <div class="card done" data-assignee="이향석">
+    <div class="card done" data-assignee="이향석" data-task-id="4e6ca8aa-6e81-4bac-b9e2-5c5f4a85dcd0" onclick="openModal('4e6ca8aa-6e81-4bac-b9e2-5c5f4a85dcd0')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">PL보험요청서+보험사견적서</div>
     <div class="meta">
         <span class="assignee">👤 이향석</span>
         <span class="due">✅ 05/30 완료</span>
     </div>
-</div><div class="card done" data-assignee="이향석">
+</div><div class="card done" data-assignee="이향석" data-task-id="ffa6d890-9280-4e3f-8ba5-2231dc159c47" onclick="openModal('ffa6d890-9280-4e3f-8ba5-2231dc159c47')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">정경원 프로그램 메뉴얼 만들기</div>
     <div class="meta">
         <span class="assignee">👤 이향석</span>
         <span class="due">✅ 05/30 완료</span>
     </div>
-</div><div class="card done" data-assignee="이향석">
+</div><div class="card done" data-assignee="이향석" data-task-id="def3a8a1-d257-4f43-a8d5-ca38dab3d5e7" onclick="openModal('def3a8a1-d257-4f43-a8d5-ca38dab3d5e7')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">에나지크 배치적용 할 철강/알루미늄 환율에 따른 비율/가격/중량 계산 엑셀파일</div>
     <div class="meta">
         <span class="assignee">👤 이향석</span>
         <span class="due">✅ 05/30 완료</span>
     </div>
-</div><div class="card done" data-assignee="강경철">
+</div><div class="card done" data-assignee="강경철" data-task-id="d2d123ea-d609-4148-bbc4-88144ffd0506" onclick="openModal('d2d123ea-d609-4148-bbc4-88144ffd0506')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">에나지크 2차 파일럿 결제 타임라인 업데이트</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="강경철">
+</div><div class="card done" data-assignee="강경철" data-task-id="616cc85a-a48b-4ac0-a58e-15529b47c6cc" onclick="openModal('616cc85a-a48b-4ac0-a58e-15529b47c6cc')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">두코 발주서 작성 (2만세트 *2%)</div>
     <div class="meta">
         <span class="assignee">👤 강경철</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="전경표">
+</div><div class="card done" data-assignee="전경표" data-task-id="a4c1415e-c5de-44cb-bdff-3081f7c90cd2" onclick="openModal('a4c1415e-c5de-44cb-bdff-3081f7c90cd2')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">CellaDerm / Pharmaskin Lab / FanMind / Dermalogic / DermatoCell / Dermazing 회사이름, 브랜드 등록되는지 확인</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="전경표">
+</div><div class="card done" data-assignee="전경표" data-task-id="250eb6c7-8b9a-4505-8566-503fbe61875f" onclick="openModal('250eb6c7-8b9a-4505-8566-503fbe61875f')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">최이사님 된장남 재고/유통기한 확인 및 물량 소모 아이디어</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="전경표">
+</div><div class="card done" data-assignee="전경표" data-task-id="7c2edd4f-da7d-4da9-89ff-ea2edf10e267" onclick="openModal('7c2edd4f-da7d-4da9-89ff-ea2edf10e267')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">소라살롱 및 르꼬르망 추석 협업상품 컨택(프로젝트 진행 여부, 상품 아이디어 요청)</div>
     <div class="meta">
         <span class="assignee">👤 전경표</span>
         <span class="due">✅ 05/29 완료</span>
     </div>
-</div><div class="card done" data-assignee="이향석">
+</div><div class="card done" data-assignee="이향석" data-task-id="14cdf48b-1456-4bd0-8f20-e028909ab293" onclick="openModal('14cdf48b-1456-4bd0-8f20-e028909ab293')">
     <span class="dday badge-done">M2 · 지난달</span>
     <div class="title">급여지급</div>
     <div class="meta">
@@ -585,8 +677,51 @@ body {
     <div class="col-header">M4 · 3달전 <span class="count">0</span></div>
     <div class="empty">없음</div>
 </div></div>
-<div class="footer">브랜업 대시보드 · 2026-06-01 12:20 · 10분 자동갱신</div>
+
+<!-- ── 모달 ── -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h2 id="modalTitle">업무 상세</h2>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-status" id="modalMeta"></div>
+            <div class="modal-field">
+                <label>제목</label>
+                <input type="text" id="editTitle" placeholder="업무 제목">
+            </div>
+            <div class="modal-field">
+                <label>담당자</label>
+                <select id="editAssignee">
+                    <option value="">미정</option>
+                    <option value="강경철">강경철</option><option value="노수민">노수민</option><option value="이향석">이향석</option><option value="전경표">전경표</option><option value="모두">모두</option><option value="미정">미정</option>
+                </select>
+            </div>
+            <div class="modal-field">
+                <label>마감일</label>
+                <input type="date" id="editDue">
+            </div>
+            <div class="modal-field">
+                <label>요약</label>
+                <textarea id="editSummary" placeholder="업무 요약..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-save" onclick="saveTask()">💾 저장</button>
+                <button class="btn-complete" id="btnComplete" onclick="completeTask()">✅ 완료 처리</button>
+                <button class="btn-delete" onclick="deleteTask()">🗑 삭제</button>
+                <button class="btn-cancel" onclick="closeModal()">취소</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<div class="footer">브랜업 대시보드 · 2026-06-01 12:55 · 10분 자동갱신 · API: 8800</div>
 <script>
+var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:8800' : (window.location.origin + '/api');
+var currentTaskId = null;
+
 function forceRefresh() {
     var url = new URL(window.location.href);
     url.searchParams.set('_', Date.now());
@@ -598,7 +733,6 @@ function countVisible(col) {
 }
 
 function updateCounts() {
-    // 컬럼별 카운트 배지 업데이트 + 개별 스탯
     var statMap = {
         'delayed': 'stat-delayed',
         'today': 'stat-today',
@@ -617,7 +751,6 @@ function updateCounts() {
         }
     });
 
-    // 집계: 고유 카드 기준 (주/월 중복 방지 — week 컬럼만 집계)
     var activeTotal = document.querySelectorAll('.card:not(.done):not(.hidden)').length;
     var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden)').length;
 
@@ -653,6 +786,151 @@ function filterAssignee(name) {
     });
 
     updateCounts();
+}
+
+// ── Toast ──
+function showToast(msg, isError) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + (isError ? 'error' : '');
+    setTimeout(function() { t.classList.add('show'); }, 10);
+    setTimeout(function() { t.classList.remove('show'); }, 2000);
+}
+
+// ── 모달 ──
+function openModal(taskId) {
+    currentTaskId = taskId;
+    fetch(API + '/api/tasks/' + taskId)
+        .then(function(r) { return r.json(); })
+        .then(function(task) {
+            if (task.error) {
+                showToast('업무를 불러올 수 없습니다', true);
+                return;
+            }
+            document.getElementById('modalTitle').textContent = '#' + task.display_num + ' 업무 상세';
+            document.getElementById('editTitle').value = task.title || '';
+            document.getElementById('editDue').value = task.due_at ? task.due_at.slice(0,10) : '';
+
+            var sel = document.getElementById('editAssignee');
+            var found = false;
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === (task.assignee || '')) {
+                    sel.selectedIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && task.assignee) {
+                var opt = document.createElement('option');
+                opt.value = task.assignee;
+                opt.textContent = task.assignee;
+                opt.selected = true;
+                sel.appendChild(opt);
+            }
+
+            document.getElementById('editSummary').value = task.summary || '';
+
+            var created = task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-';
+            var updated = task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-';
+            document.getElementById('modalMeta').innerHTML =
+                '<strong>상태:</strong> ' + (task.status || '진행중') +
+                ' &nbsp;|&nbsp; <strong>생성:</strong> ' + created +
+                ' &nbsp;|&nbsp; <strong>수정:</strong> ' + updated;
+
+            var btnComplete = document.getElementById('btnComplete');
+            if (task.status === '완료') {
+                btnComplete.style.display = 'none';
+            } else {
+                btnComplete.style.display = '';
+            }
+
+            document.getElementById('modalOverlay').classList.add('active');
+        })
+        .catch(function(e) {
+            showToast('API 서버 연결 실패 (localhost:8800)', true);
+        });
+}
+
+function closeModal(e) {
+    if (e && e.target !== document.getElementById('modalOverlay')) return;
+    document.getElementById('modalOverlay').classList.remove('active');
+    currentTaskId = null;
+}
+
+function saveTask() {
+    if (!currentTaskId) return;
+    var data = {
+        title: document.getElementById('editTitle').value.trim(),
+        assignee: document.getElementById('editAssignee').value,
+        due_at: document.getElementById('editDue').value || null,
+        summary: document.getElementById('editSummary').value.trim()
+    };
+    if (!data.title) {
+        showToast('제목은 필수입니다', true);
+        return;
+    }
+
+    fetch(API + '/api/tasks/' + currentTaskId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(task) {
+        if (task.error) {
+            showToast('저장 실패: ' + task.error, true);
+            return;
+        }
+        showToast('저장 완료!');
+        setTimeout(function() { forceRefresh(); }, 500);
+    })
+    .catch(function(e) {
+        showToast('API 서버 연결 실패', true);
+    });
+}
+
+function completeTask() {
+    if (!currentTaskId) return;
+    if (!confirm('정말 완료 처리하시겠습니까?')) return;
+
+    fetch(API + '/api/tasks/' + currentTaskId + '/complete', {
+        method: 'POST'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(task) {
+        if (task.error) {
+            showToast('완료 처리 실패', true);
+            return;
+        }
+        showToast('완료 처리되었습니다!');
+        setTimeout(function() { forceRefresh(); }, 500);
+    })
+    .catch(function(e) {
+        showToast('API 서버 연결 실패', true);
+    });
+}
+
+function deleteTask() {
+    if (!currentTaskId) return;
+    if (!confirm('정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+
+    fetch(API + '/api/tasks/' + currentTaskId, {
+        method: 'DELETE'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.error) {
+            showToast('삭제 실패', true);
+            return;
+        }
+        showToast('삭제 완료!');
+        document.getElementById('modalOverlay').classList.remove('active');
+        currentTaskId = null;
+        setTimeout(function() { forceRefresh(); }, 500);
+    })
+    .catch(function(e) {
+        showToast('API 서버 연결 실패', true);
+    });
 }
 </script>
 </body>
