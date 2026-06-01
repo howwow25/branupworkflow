@@ -108,8 +108,6 @@ body {
 .badge-ok { background: #58a6ff; color: #000; }
 .badge-nodue { background: #484f5a; color: #ccc; }
 .badge-done { background: #1a3a2a; color: #3fb950; }
-.prio-high { background: #f85149 !important; color: #fff !important; }
-.prio-low { background: #8b949e !important; color: #fff !important; }
 .dday {
     display: inline-block; padding: 2px 8px;
     border-radius: 4px; font-size: 11px;
@@ -341,7 +339,7 @@ body {
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
-    <div class="sub">마지막 갱신: 2026-06-01 19:45 | 진행 <span id="hdr-active">38</span>건 · 완료 <span id="hdr-done">12</span>건</div>
+    <div class="sub">마지막 갱신: 2026-06-01 19:48 | 진행 <span id="hdr-active">38</span>건 · 완료 <span id="hdr-done">12</span>건</div>
 </div>
 <div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이상원')">이상원</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
 <div class="stats">
@@ -370,7 +368,7 @@ body {
 <div class="column" data-col="delayed">
     <div class="col-header">🔥 지연 <span class="count">2</span></div>
     <div class="card" data-assignee="전경표" data-task-id="0d3ed24e-7874-40bf-bf52-59fee8878e4f" onclick="openModal('0d3ed24e-7874-40bf-bf52-59fee8878e4f')">
-    <span class="dday badge-delayed ">#10</span>
+    <span class="dday badge-delayed">#10</span>
     <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
     <div class="meta">
         <span class="dday badge-delayed">D+3</span>
@@ -378,7 +376,7 @@ body {
         <span class="due">📅 2026-05-29</span>
     </div>
 </div><div class="card" data-assignee="전경표" data-task-id="559bbf83-6d06-4892-8996-e9cd79632b9a" onclick="openModal('559bbf83-6d06-4892-8996-e9cd79632b9a')">
-    <span class="dday badge-delayed ">#11</span>
+    <span class="dday badge-delayed">#11</span>
     <div class="title">제약사 더마코스메틱을 위한 마케팅 직무 구인 방법 리서치 및 브랜업의 더마코스메틱 마케팅 직무 채요을 위한 도입방안 제안</div>
     <div class="meta">
         <span class="dday badge-delayed">D+3</span>
@@ -389,7 +387,7 @@ body {
 </div><div class="column" data-col="no_due">
     <div class="col-header">⬜ 미정 <span class="count">11</span></div>
     <div class="card" data-assignee="전경표" data-task-id="72ba1ae7-769a-4f50-b125-e017fb326482" onclick="openModal('72ba1ae7-769a-4f50-b125-e017fb326482')">
-    <span class="dday badge-nodue ">#7</span>
+    <span class="dday badge-nodue">#7</span>
     <div class="title">(추석) 정육공방 법인 영업/마케팅 효율적으로 아웃소싱 할 방법 리서치 (텔레마케팅, 오프라인 영업)</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -397,7 +395,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="전경표" data-task-id="3896a2e0-e318-4665-842d-85559e73b800" onclick="openModal('3896a2e0-e318-4665-842d-85559e73b800')">
-    <span class="dday badge-nodue ">#8</span>
+    <span class="dday badge-nodue">#8</span>
     <div class="title">(추석) 정육공방 키메디 상품 제안서 제작 및 발송</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -405,7 +403,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="전경표" data-task-id="e7a95dae-e50c-404c-8be0-1193f66f9de9" onclick="openModal('e7a95dae-e50c-404c-8be0-1193f66f9de9')">
-    <span class="dday badge-nodue ">#9</span>
+    <span class="dday badge-nodue">#9</span>
     <div class="title">제이엠솔루션-안목고수 구조 연구분석 및 브랜업의 도입 방안 검토</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -413,7 +411,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="강경철" data-task-id="47e77bc7-bb6f-446f-b80f-76b44ac89e47" onclick="openModal('47e77bc7-bb6f-446f-b80f-76b44ac89e47')">
-    <span class="dday badge-nodue ">#14</span>
+    <span class="dday badge-nodue">#14</span>
     <div class="title">아이젤 1만세트 추가분 선금 결제 시기 파악</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -421,7 +419,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="강경철" data-task-id="aa64f366-6966-4cdc-bf93-385a4e4a4afa" onclick="openModal('aa64f366-6966-4cdc-bf93-385a4e4a4afa')">
-    <span class="dday badge-nodue ">#15</span>
+    <span class="dday badge-nodue">#15</span>
     <div class="title">원석 괄사 업체 추가 파악</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -429,7 +427,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="미정" data-task-id="59aaec2e-bde5-46ea-97d5-09b4ef8530f9" onclick="openModal('59aaec2e-bde5-46ea-97d5-09b4ef8530f9')">
-    <span class="dday badge-nodue ">#18</span>
+    <span class="dday badge-nodue">#18</span>
     <div class="title">협력업체들 계약서 정리 안된업체 늦어도 주초까진 마무리</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -437,7 +435,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="미정" data-task-id="f639304c-0fb1-4ab9-bdb3-5f4624b983c2" onclick="openModal('f639304c-0fb1-4ab9-bdb3-5f4624b983c2')">
-    <span class="dday badge-nodue ">#19</span>
+    <span class="dday badge-nodue">#19</span>
     <div class="title">월요일 한시에 한솔 바이오 화상공장 저 방문 그후에 이혜원 로레알 헤드 비엠 미팅 면접 월</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -445,7 +443,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="강경철" data-task-id="b92d7cca-c93b-4d07-ae35-de414ca1254d" onclick="openModal('b92d7cca-c93b-4d07-ae35-de414ca1254d')">
-    <span class="dday badge-nodue ">#21</span>
+    <span class="dday badge-nodue">#21</span>
     <div class="title">괄사 견적 요청 (첨부 이미지 - 다우오피스)</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -453,7 +451,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="노수민" data-task-id="de6810f4-aa75-4165-90b2-e598d36b201c" onclick="openModal('de6810f4-aa75-4165-90b2-e598d36b201c')">
-    <span class="dday badge-nodue ">#23</span>
+    <span class="dday badge-nodue">#23</span>
     <div class="title">사이트 수정</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -461,7 +459,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="미정" data-task-id="1e1d9033-2592-4689-9818-4d1f6c06a130" onclick="openModal('1e1d9033-2592-4689-9818-4d1f6c06a130')">
-    <span class="dday badge-nodue ">#37</span>
+    <span class="dday badge-nodue">#37</span>
     <div class="title">캐나다 수출 법률리스크 체크</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -469,7 +467,7 @@ body {
         <span class="due">📅 미정</span>
     </div>
 </div><div class="card" data-assignee="미정" data-task-id="90e1ffd2-d3b0-42fe-9d09-43283f2d2f69" onclick="openModal('90e1ffd2-d3b0-42fe-9d09-43283f2d2f69')">
-    <span class="dday badge-nodue ">#38</span>
+    <span class="dday badge-nodue">#38</span>
     <div class="title">명함에 인스타연결 혹은 홈페이지 연결</div>
     <div class="meta">
         <span class="dday badge-nodue">미정</span>
@@ -480,7 +478,7 @@ body {
 </div><div class="column" data-col="today">
     <div class="col-header">🚨 오늘마감 <span class="count">4</span></div>
     <div class="card" data-assignee="모두" data-task-id="a1f436d7-65b2-447a-a2ca-8f0fcd1e1f11" onclick="openModal('a1f436d7-65b2-447a-a2ca-8f0fcd1e1f11')">
-    <span class="dday badge-today ">#3</span>
+    <span class="dday badge-today">#3</span>
     <div class="title">위시트랜드2.0 벤치마킹 아이디어</div>
     <div class="meta">
         <span class="dday badge-today">D-DAY</span>
@@ -488,7 +486,7 @@ body {
         <span class="due">📅 2026-06-01</span>
     </div>
 </div><div class="card" data-assignee="강경철" data-task-id="7fc735df-f098-40cf-acdd-677184739e71" onclick="openModal('7fc735df-f098-40cf-acdd-677184739e71')">
-    <span class="dday badge-today ">#16</span>
+    <span class="dday badge-today">#16</span>
     <div class="title">아이젤 COA 자료 줄리어스 대표님 검토 요청</div>
     <div class="meta">
         <span class="dday badge-today">D-DAY</span>
@@ -496,7 +494,7 @@ body {
         <span class="due">📅 2026-06-01</span>
     </div>
 </div><div class="card" data-assignee="강경철" data-task-id="1e51db07-ce91-48fa-996f-7cbef40e3a2d" onclick="openModal('1e51db07-ce91-48fa-996f-7cbef40e3a2d')">
-    <span class="dday badge-today ">#20</span>
+    <span class="dday badge-today">#20</span>
     <div class="title">프리랜서 영상 계약서 준비</div>
     <div class="meta">
         <span class="dday badge-today">D-DAY</span>
@@ -504,7 +502,7 @@ body {
         <span class="due">📅 2026-06-01</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="0d802e01-8a2b-48f4-bb48-121191cefd13" onclick="openModal('0d802e01-8a2b-48f4-bb48-121191cefd13')">
-    <span class="dday badge-today ">#30</span>
+    <span class="dday badge-today">#30</span>
     <div class="title">대표님 맥미니 Openclaw, Hermes 에이전트 정검</div>
     <div class="meta">
         <span class="dday badge-today">D-DAY</span>
@@ -515,7 +513,7 @@ body {
 </div><div class="column" data-col="d3">
     <div class="col-header">⚠️ D-3 <span class="count">14</span></div>
     <div class="card" data-assignee="이향석" data-task-id="565ea2c8-8fda-4070-83a5-5b48a827bfb1" onclick="openModal('565ea2c8-8fda-4070-83a5-5b48a827bfb1')">
-    <span class="dday badge-urgent ">#1</span>
+    <span class="dday badge-urgent">#1</span>
     <div class="title">아이젤 계약서 조영길이사와 사전 조율</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -523,7 +521,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="8199b058-dafb-4bf4-9222-173723f59b2c" onclick="openModal('8199b058-dafb-4bf4-9222-173723f59b2c')">
-    <span class="dday badge-urgent ">#28</span>
+    <span class="dday badge-urgent">#28</span>
     <div class="title">자금일정정검-브랜업/어니스트</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -531,7 +529,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="0594ce4d-01df-4e3d-a655-430b7a00b47a" onclick="openModal('0594ce4d-01df-4e3d-a655-430b7a00b47a')">
-    <span class="dday badge-urgent ">#32</span>
+    <span class="dday badge-urgent">#32</span>
     <div class="title">신우, 태평양 월별 자문계획 수립</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -539,7 +537,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="303d901c-040b-4dd0-8a62-ed5ec2806bab" onclick="openModal('303d901c-040b-4dd0-8a62-ed5ec2806bab')">
-    <span class="dday badge-urgent ">#33</span>
+    <span class="dday badge-urgent">#33</span>
     <div class="title">정경원 itrader 메뉴얼 작성</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -547,7 +545,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="08c3c548-8432-4cad-a578-aad3a4734b4e" onclick="openModal('08c3c548-8432-4cad-a578-aad3a4734b4e')">
-    <span class="dday badge-urgent ">#35</span>
+    <span class="dday badge-urgent">#35</span>
     <div class="title">3차 배치 인보이스 작성</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -555,7 +553,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="4ff71814-e13b-4712-9fd2-13b86a263d66" onclick="openModal('4ff71814-e13b-4712-9fd2-13b86a263d66')">
-    <span class="dday badge-urgent ">#36</span>
+    <span class="dday badge-urgent">#36</span>
     <div class="title">Flow 조사</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -563,7 +561,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이상원, 노수민" data-task-id="129b62e8-800c-46a2-8a5a-afe0b6d0134e" onclick="openModal('129b62e8-800c-46a2-8a5a-afe0b6d0134e')">
-    <span class="dday badge-urgent ">#40</span>
+    <span class="dday badge-urgent">#40</span>
     <div class="title">컨벤션 영상 회의</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -571,7 +569,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이상원, 노수민" data-task-id="0bbdda3e-9f14-428e-97d6-61242794b747" onclick="openModal('0bbdda3e-9f14-428e-97d6-61242794b747')">
-    <span class="dday badge-urgent ">#41</span>
+    <span class="dday badge-urgent">#41</span>
     <div class="title">괄사 회의</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -579,7 +577,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이상원, 강경철, 노수민" data-task-id="39f7821f-8d87-4084-8381-bfac4a4a9c0c" onclick="openModal('39f7821f-8d87-4084-8381-bfac4a4a9c0c')">
-    <span class="dday badge-urgent ">#43</span>
+    <span class="dday badge-urgent">#43</span>
     <div class="title">펌텍 용기 회의</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -587,7 +585,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="강경철, 노수민" data-task-id="f2102eda-96e0-4c44-8ab2-e6a66c8c014d" onclick="openModal('f2102eda-96e0-4c44-8ab2-e6a66c8c014d')">
-    <span class="dday badge-urgent ">#45</span>
+    <span class="dday badge-urgent">#45</span>
     <div class="title">박상혁님 계약서 교부</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -595,7 +593,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="노수민" data-task-id="01ee17ed-1c64-4c00-b038-fe0e749a4405" onclick="openModal('01ee17ed-1c64-4c00-b038-fe0e749a4405')">
-    <span class="dday badge-urgent ">#46</span>
+    <span class="dday badge-urgent">#46</span>
     <div class="title">대표님 요청분 이미지 제작 (칸겐 뷰티)</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -603,7 +601,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="이상원, 노수민" data-task-id="76f3f90f-d5bf-4f92-9009-e2f87cffe872" onclick="openModal('76f3f90f-d5bf-4f92-9009-e2f87cffe872')">
-    <span class="dday badge-urgent ">#48</span>
+    <span class="dday badge-urgent">#48</span>
     <div class="title">컨벤션 인쇄물 회의</div>
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
@@ -611,7 +609,7 @@ body {
         <span class="due">📅 2026-06-02</span>
     </div>
 </div><div class="card" data-assignee="노수민" data-task-id="d4d0f4da-f8cc-47fb-bdef-737c61e4e17b" onclick="openModal('d4d0f4da-f8cc-47fb-bdef-737c61e4e17b')">
-    <span class="dday badge-urgent ">#44</span>
+    <span class="dday badge-urgent">#44</span>
     <div class="title">nfc 명함 업체 컨택 후 발주</div>
     <div class="meta">
         <span class="dday badge-urgent">D-3</span>
@@ -619,7 +617,7 @@ body {
         <span class="due">📅 2026-06-04</span>
     </div>
 </div><div class="card" data-assignee="노수민" data-task-id="1a49c0a2-a53d-4331-b5ab-f2182d1b511d" onclick="openModal('1a49c0a2-a53d-4331-b5ab-f2182d1b511d')">
-    <span class="dday badge-urgent ">#50</span>
+    <span class="dday badge-urgent">#50</span>
     <div class="title">홈페이지 모바일 수정</div>
     <div class="meta">
         <span class="dday badge-urgent">D-3</span>
@@ -630,7 +628,7 @@ body {
 </div><div class="column" data-col="d7">
     <div class="col-header">📋 D-7 <span class="count">7</span></div>
     <div class="card" data-assignee="이향석" data-task-id="ab03808a-4180-4f10-9a16-ceed2e114567" onclick="openModal('ab03808a-4180-4f10-9a16-ceed2e114567')">
-    <span class="dday badge-soon prio-high">#27</span>
+    <span class="dday badge-soon">#27 ⭐</span>
     <div class="title">TSonaX 마일스톤#2 완료</div>
     <div class="meta">
         <span class="dday badge-soon">D-4</span>
@@ -638,7 +636,7 @@ body {
         <span class="due">📅 2026-06-05</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="18ac5d84-0162-46ac-a9d2-57fbf1fa21f7" onclick="openModal('18ac5d84-0162-46ac-a9d2-57fbf1fa21f7')">
-    <span class="dday badge-soon ">#29</span>
+    <span class="dday badge-soon">#29</span>
     <div class="title">브랜업업무텔래봇vs슬랙봇 비교조사</div>
     <div class="meta">
         <span class="dday badge-soon">D-4</span>
@@ -646,7 +644,7 @@ body {
         <span class="due">📅 2026-06-05</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="826b87b5-de76-4edb-bcbf-5b746074a1cc" onclick="openModal('826b87b5-de76-4edb-bcbf-5b746074a1cc')">
-    <span class="dday badge-soon ">#31</span>
+    <span class="dday badge-soon">#31</span>
     <div class="title">PL보험 상공회의소,중진청 견적분석</div>
     <div class="meta">
         <span class="dday badge-soon">D-4</span>
@@ -654,7 +652,7 @@ body {
         <span class="due">📅 2026-06-05</span>
     </div>
 </div><div class="card" data-assignee="노수민" data-task-id="322deea0-2af4-4cc0-a120-b10df8f3312a" onclick="openModal('322deea0-2af4-4cc0-a120-b10df8f3312a')">
-    <span class="dday badge-soon ">#42</span>
+    <span class="dday badge-soon">#42</span>
     <div class="title">스프레이 수배</div>
     <div class="meta">
         <span class="dday badge-soon">D-4</span>
@@ -662,7 +660,7 @@ body {
         <span class="due">📅 2026-06-05</span>
     </div>
 </div><div class="card" data-assignee="노수민" data-task-id="22076641-1d9a-4401-b2fa-22045e3114f9" onclick="openModal('22076641-1d9a-4401-b2fa-22045e3114f9')">
-    <span class="dday badge-soon ">#47</span>
+    <span class="dday badge-soon">#47</span>
     <div class="title">에나지크 인스타그램 이미지 제작 4개</div>
     <div class="meta">
         <span class="dday badge-soon">D-4</span>
@@ -670,7 +668,7 @@ body {
         <span class="due">📅 2026-06-05</span>
     </div>
 </div><div class="card" data-assignee="노수민" data-task-id="efe72a3f-1830-4dc7-ae25-8627bb6f227d" onclick="openModal('efe72a3f-1830-4dc7-ae25-8627bb6f227d')">
-    <span class="dday badge-soon ">#49</span>
+    <span class="dday badge-soon">#49</span>
     <div class="title">홈페이지 수정</div>
     <div class="meta">
         <span class="dday badge-soon">D-4</span>
@@ -678,7 +676,7 @@ body {
         <span class="due">📅 2026-06-05</span>
     </div>
 </div><div class="card" data-assignee="이향석" data-task-id="813dab5d-e202-4701-b2e9-df4d3fd7260b" onclick="openModal('813dab5d-e202-4701-b2e9-df4d3fd7260b')">
-    <span class="dday badge-soon ">#34</span>
+    <span class="dday badge-soon">#34</span>
     <div class="title">투권인 퇴직연금 시험</div>
     <div class="meta">
         <span class="dday badge-soon">D-5</span>
@@ -954,7 +952,7 @@ body {
     </div>
 </div>
 
-<div class="footer">브랜업 대시보드 · 2026-06-01 19:45 · 10분 자동갱신</div>
+<div class="footer">브랜업 대시보드 · 2026-06-01 19:48 · 10분 자동갱신</div>
 <script>
 var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:8800' : (window.location.origin + '/api');
 var currentTaskId = null;
