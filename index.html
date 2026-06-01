@@ -339,9 +339,9 @@ body {
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
-    <div class="sub">마지막 갱신: 2026-06-01 18:14 | 진행 <span id="hdr-active">27</span>건 · 완료 <span id="hdr-done">12</span>건</div>
+    <div class="sub">마지막 갱신: 2026-06-01 18:16 | 진행 <span id="hdr-active">28</span>건 · 완료 <span id="hdr-done">12</span>건</div>
 </div>
-<div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('모두')">모두</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
+<div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이상원, 노수민')">이상원, 노수민</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('모두')">모두</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
 <div class="stats">
     <div class="stat danger" id="stat-delayed">
         <div class="num">2</div>
@@ -356,7 +356,7 @@ body {
         <div class="label">마감 미정</div>
     </div>
     <div class="stat" id="stat-active">
-        <div class="num">27</div>
+        <div class="num">28</div>
         <div class="label">진행중</div>
     </div>
     <div class="stat done" id="stat-done">
@@ -519,7 +519,7 @@ body {
     </div>
 </div>
 </div><div class="column" data-col="d3">
-    <div class="col-header">⚠️ D-3 <span class="count">5</span></div>
+    <div class="col-header">⚠️ D-3 <span class="count">6</span></div>
     <div class="card" data-assignee="이향석" data-task-id="565ea2c8-8fda-4070-83a5-5b48a827bfb1" onclick="openModal('565ea2c8-8fda-4070-83a5-5b48a827bfb1')">
     <span class="dday badge-urgent">#1</span>
     <div class="title">아이젤 계약서 조영길이사와 사전 조율</div>
@@ -558,6 +558,14 @@ body {
     <div class="meta">
         <span class="dday badge-urgent">D-1</span>
         <span class="assignee">👤 이향석</span>
+        <span class="due">📅 2026-06-02</span>
+    </div>
+</div><div class="card" data-assignee="이상원, 노수민" data-task-id="129b62e8-800c-46a2-8a5a-afe0b6d0134e" onclick="openModal('129b62e8-800c-46a2-8a5a-afe0b6d0134e')">
+    <span class="dday badge-urgent">#40</span>
+    <div class="title">컨벤션 영상 회의</div>
+    <div class="meta">
+        <span class="dday badge-urgent">D-1</span>
+        <span class="assignee">👤 이상원, 노수민</span>
         <span class="due">📅 2026-06-02</span>
     </div>
 </div>
@@ -812,7 +820,7 @@ body {
                 <label>담당자</label>
                 <select id="editAssignee">
                     <option value="">미정</option>
-                    <option value="강경철">강경철</option><option value="노수민">노수민</option><option value="이향석">이향석</option><option value="전경표">전경표</option><option value="모두">모두</option><option value="미정">미정</option>
+                    <option value="강경철">강경철</option><option value="노수민">노수민</option><option value="이상원, 노수민">이상원, 노수민</option><option value="이향석">이향석</option><option value="전경표">전경표</option><option value="모두">모두</option><option value="미정">미정</option>
                 </select>
             </div>
             <div class="modal-field">
@@ -855,7 +863,7 @@ body {
     </div>
 </div>
 
-<div class="footer">브랜업 대시보드 · 2026-06-01 18:14 · 10분 자동갱신</div>
+<div class="footer">브랜업 대시보드 · 2026-06-01 18:16 · 10분 자동갱신</div>
 <script>
 var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:8800' : (window.location.origin + '/api');
 var currentTaskId = null;
