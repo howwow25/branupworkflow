@@ -70,9 +70,10 @@ def render_card(t, dd):
     task_id = t.get("id", "")
     prio = t.get("priority", "중간")
     prio_icon = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
+    prio_html = f'<span class="prio-icon">{prio_icon}</span>' if prio_icon else ""
 
     return f"""<div class="card" data-assignee="{assignee}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-{css}">#{num}{" " + prio_icon if prio_icon else ""}</span>
+    <span class="dday badge-{css}">#{num}</span>{prio_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="dday badge-{css}">{label}</span>
@@ -333,6 +334,10 @@ body {{
 .badge-ok {{ background: #58a6ff; color: #000; }}
 .badge-nodue {{ background: #484f5a; color: #ccc; }}
 .badge-done {{ background: #1a3a2a; color: #3fb950; }}
+.prio-icon {{
+    font-size: 14px; margin-left: 4px;
+    vertical-align: middle;
+}}
 .dday {{
     display: inline-block; padding: 2px 8px;
     border-radius: 4px; font-size: 11px;
