@@ -340,7 +340,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return self._delete_task(int(m.group(1)))
 
         # ── #N 내용추가 / #N 내용 / #N 피드백 ──
-        m = re.search(r'#(\d+)\s*(내용추가|내용|피드백)\s*[:：]\s*(.+)', text, re.IGNORECASE | re.DOTALL)
+        m = re.search(r'#(\d+)\s*(?:번\s*)?(?:업무\s*)?(내용추가|내용|피드백)\s*[:：]\s*(.+)', text, re.IGNORECASE | re.DOTALL)
         if m:
             display_num = int(m.group(1))
             field = m.group(2)
