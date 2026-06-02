@@ -6,13 +6,16 @@ import os
 import json
 import urllib.request
 import urllib.error
+import urllib.parse
 
 API_URL = os.environ.get("BRANUP_API_URL", "").rstrip("/")
 
 
 def _api(path, method="GET", body=None):
     """API 호출 헬퍼"""
-    url = f"{API_URL}{path}"
+    # URL 경로에 한글 등 비ASCII 문자 URL 인코딩
+    safe_path = urllib.parse.quote(path, safe="/:")
+    url = f"{API_URL}{safe_path}"
     data = json.dumps(body).encode("utf-8") if body else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Content-Type", "application/json")

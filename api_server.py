@@ -16,7 +16,7 @@ import sys
 import re
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
     str(Path(__file__).parent.parent / "data"))
@@ -168,7 +168,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/rooms/<chat_id> → room 조회
         m = re.match(r'^/api/rooms/([^/]+)$', path)
         if m:
-            room = get_room_by_chat_id(m.group(1))
+            room = get_room_by_chat_id(unquote(m.group(1)))
             if room:
                 self._send_json(room)
             else:
@@ -178,7 +178,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/rooms/<room_id>/tasks → room별 업무
         m = re.match(r'^/api/rooms/([^/]+)/tasks$', path)
         if m:
-            tasks = get_tasks_by_room(m.group(1))
+            tasks = get_tasks_by_room(unquote(m.group(1)))
             self._send_json(tasks)
             return
 
