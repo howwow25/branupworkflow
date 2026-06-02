@@ -1151,6 +1151,10 @@ function quickRegister() {{
 
 
 if __name__ == "__main__":
-    OUTPUT_PATH.write_text(render(), encoding="utf-8")
+    html = render()
+    OUTPUT_PATH.write_text(html, encoding="utf-8")
+    # 웹 서빙용 index.html도 함께 생성
+    index_path = Path(DATA_DIR).parent / "index.html"
+    index_path.write_text(html, encoding="utf-8")
     print(f"✅ HTML 대시보드 생성 완료: {OUTPUT_PATH}")
-    print(f"   열기: open {OUTPUT_PATH}")
+    print(f"   웹 서빙: {index_path}")

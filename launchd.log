@@ -399,3 +399,7 @@ After doing this, you may fix the identity used for this commit with:
    열기: open /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
 [main f8dec6a] 2026-06-02 16:22 대시보드 갱신
  1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   열기: open /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+[main 7318dac] 2026-06-02 17:22 대시보드 갱신
+ 1 file changed, 6 insertions(+), 14 deletions(-)
