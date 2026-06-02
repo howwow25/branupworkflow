@@ -325,6 +325,34 @@ class APIHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # ── Telegram 중계 (TELEGRAM_BOT_TOKEN 설정 시 Mac Mini Hermes로 전달) ──
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        forward_chat = os.environ.get("TELEGRAM_FORWARD_CHAT_ID", "")
+        if bot_token and forward_chat:
+            try:
+                import urllib.request as _tg_req
+                tg_body = json.dumps({
+                    "chat_id": forward_chat,
+                    "text": text,
+                }).encode("utf-8")
+                tg_req = _tg_req.Request(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    data=tg_body,
+                    method="POST",
+                )
+                tg_req.add_header("Content-Type", "application/json")
+                with _tg_req.urlopen(tg_req) as resp:
+                    tg_result = json.loads(resp.read().decode("utf-8"))
+                if tg_result.get("ok"):
+                    self._send_json({
+                        "type": "telegram_forward",
+                        "message": f"📤 Hermes로 전달 완료\n> {text[:80]}"
+                    })
+                    return
+            except Exception:
+                pass  # 실패 시 로컬 처리로 폴백
+
+        # ── 로컬 처리 (폴백) ──
         result = self._process_command(text, assignee_filter)
         self._send_json(result)
 
