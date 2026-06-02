@@ -14,7 +14,11 @@ OUTPUT_PATH = Path(DATA_DIR) / "dashboard.html"
 API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from db import get_active_tasks, get_completed_tasks
+import os as _os_dash
+if _os_dash.environ.get("BRANUP_API_URL"):
+    from branup_api import get_active_tasks, get_completed_tasks
+else:
+    from db import get_active_tasks, get_completed_tasks
 
 
 def dday(due_str):
@@ -162,6 +166,10 @@ def render():
     sorted_assignees = sorted(all_assignees, key=lambda x: (x == "미정", x == "모두", x))
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
+    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num"]} for t in tasks + completed}
+    tasks_json = json.dumps(all_tasks, ensure_ascii=False)
 
     columns = [
         ("🔥 지연", "delayed", groups["delayed"]),
@@ -446,6 +454,12 @@ body {{
     background: #1c1f2a; color: #8b949e;
 }}
 .btn-cancel:hover {{ color: #e1e4e8; }}
+.btn-save.disabled, .btn-complete.disabled, .btn-delete.disabled {{
+    filter: grayscale(1);
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}}
 .modal-status {{
     font-size: 12px; color: #8b949e; margin-bottom: 16px;
     padding: 8px 12px; background: #1c1f2a; border-radius: 8px;
@@ -460,6 +474,23 @@ body {{
 }}
 .toast.show {{ opacity: 1; }}
 .toast.error {{ background: #f85149; }}
+
+/* ── 생성 FAB ── */
+.create-fab {{
+    position: fixed; bottom: 96px; right: 24px;
+    width: 56px; height: 56px;
+    border-radius: 50%; border: none;
+    background: linear-gradient(135deg, #3fb950, #238636);
+    color: #fff; font-size: 24px; font-weight: 700;
+    cursor: pointer; z-index: 500;
+    box-shadow: 0 4px 20px rgba(63,185,80,0.3);
+    transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
+}}
+.create-fab:hover {{
+    transform: scale(1.08);
+    box-shadow: 0 6px 28px rgba(63,185,80,0.5);
+}}
 
 /* ── 에이전트 보드 ── */
 .agent-fab {{
@@ -623,9 +654,13 @@ body {{
                 <label>마감일</label>
                 <input type="date" id="editDue">
             </div>
-            <div class="modal-field">
-                <label>요약</label>
-                <textarea id="editSummary" placeholder="업무 요약..."></textarea>
+            <div class="modal-field" id="contentField">
+                <label>📝 내용</label>
+                <textarea id="editSummary" placeholder="업무 내용..." rows="4"></textarea>
+            </div>
+            <div class="modal-field" id="feedbackField" style="display:none">
+                <label>💬 피드백</label>
+                <textarea id="editFeedback" placeholder="완료 후기, 결과, 특이사항 등..."></textarea>
             </div>
             <div class="modal-field">
                 <label>우선순위</label>
@@ -637,9 +672,10 @@ body {{
                 </select>
             </div>
             <div class="modal-actions">
-                <button class="btn-save" onclick="saveTask()">💾 저장</button>
+                <button class="btn-save" id="btnSave" onclick="saveTask()">💾 저장</button>
+                <button class="btn-save" id="btnCreate" onclick="createTask()" style="display:none">➕ 추가</button>
                 <button class="btn-complete" id="btnComplete" onclick="completeTask()">✅ 완료 처리</button>
-                <button class="btn-delete" onclick="deleteTask()">🗑 삭제</button>
+                <button class="btn-delete" id="btnDelete" onclick="deleteTask()">🗑 삭제</button>
                 <button class="btn-cancel" onclick="closeModal()">취소</button>
             </div>
         </div>
@@ -648,6 +684,7 @@ body {{
 <div class="toast" id="toast"></div>
 
 <!-- ── 에이전트 보드 ── -->
+<button class="create-fab" onclick="openCreateModal()" title="새 업무">＋</button>
 <button class="agent-fab" id="agentFab" onclick="toggleAgent()" title="에이전트 보드">🤖</button>
 <div class="agent-panel" id="agentPanel">
     <div class="agent-messages" id="agentMessages">
@@ -656,7 +693,6 @@ body {{
     </div>
     <div class="agent-chips" id="agentChips">
         <span class="agent-chip" onclick="sendAgent('전체 업무')">📋 전체 업무</span>
-        <span class="agent-chip" onclick="sendAgent('내 업무')">👤 내 업무</span>
         <span class="agent-chip" onclick="quickRegister()">➕ 등록</span>
         <span class="agent-chip" onclick="sendAgent('5번 완료')" style="display:none" id="chipComplete">✅ 완료예시</span>
     </div>
@@ -670,10 +706,54 @@ body {{
 
 <div class="footer">브랜업 대시보드 · {now_str} · 10분 자동갱신</div>
 <script>
-var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:{API_PORT}' : (window.location.origin + '/api');
+var TASKS_DATA = {tasks_json};
+var API = (window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api');
 var currentTaskId = null;
+var isStaticHost = false;
+var modalMode = 'edit';  // 'edit' or 'create'
+
+// 페이지 로드 시 API 연결 확인 → 연결 안 되면 Mac Mini API로 폴백
+(function() {{
+    function tryAPI(url, callback) {{
+        fetch(url + '/agent', {{ method: 'OPTIONS' }})
+            .then(function(r) {{
+                if (r.status === 204) callback(url);
+                else throw new Error('no api');
+            }})
+            .catch(function() {{ callback(null); }});
+    }}
+
+    tryAPI(API, function(ok) {{
+        if (ok) return;  // 기본 API 정상
+        // 폴백: 같은 호스트의 8800 포트
+        var fallback = window.location.protocol + '//' + window.location.hostname + ':8800/api';
+        tryAPI(fallback, function(ok2) {{
+            if (ok2) {{
+                API = ok2;
+                return;
+            }}
+            // 최종 폴백: Mac Mini
+            tryAPI('http://192.168.45.98:{API_PORT}/api', function(ok3) {{
+                if (ok3) {{
+                    API = ok3;
+                    return;
+                }}
+                // 모두 안 되면 비활성화
+                isStaticHost = true;
+                document.querySelectorAll('.btn-save, .btn-complete, .btn-delete').forEach(function(btn) {{
+                    btn.classList.add('disabled');
+                }});
+            }});
+        }});
+    }});
+}})();
 
 function forceRefresh() {{
+    // API 서버가 같은 호스트의 다른 포트거나 로컬이면 API 서버의 대시보드로 리디렉션
+    if (API.indexOf(':8800') !== -1) {{
+        window.location.href = API.replace('/api', '/index.html');
+        return;
+    }}
     var url = new URL(window.location.href);
     url.searchParams.set('_', Date.now());
     window.location.href = url.toString();
@@ -748,59 +828,99 @@ function showToast(msg, isError) {{
 }}
 
 // ── 모달 ──
+function populateModal(task) {{
+    // edit 모드로 복원
+    modalMode = 'edit';
+    document.getElementById('btnSave').style.display = '';
+    document.getElementById('btnComplete').style.display = '';
+    document.getElementById('btnDelete').style.display = '';
+    document.getElementById('btnCreate').style.display = 'none';
+    document.getElementById('modalMeta').style.display = '';
+    document.getElementById('contentField').style.display = '';
+    document.getElementById('feedbackField').style.display = '';
+    // 정적 호스트 비활성화 재적용
+    if (isStaticHost) {{
+        document.querySelectorAll('.btn-save, .btn-complete, .btn-delete').forEach(function(btn) {{ btn.classList.add('disabled'); }});
+    }}
+
+    document.getElementById('modalTitle').textContent = '#' + task.display_num + ' 업무 상세';
+    document.getElementById('editTitle').value = task.title || '';
+    document.getElementById('editDue').value = task.due_at ? task.due_at.slice(0,10) : '';
+
+    var sel = document.getElementById('editAssignee');
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {{
+        if (sel.options[i].value === (task.assignee || '')) {{
+            sel.selectedIndex = i;
+            found = true;
+            break;
+        }}
+    }}
+    if (!found && task.assignee) {{
+        var opt = document.createElement('option');
+        opt.value = task.assignee;
+        opt.textContent = task.assignee;
+        opt.selected = true;
+        sel.appendChild(opt);
+    }}
+
+    document.getElementById('editSummary').value = task.summary || '';
+
+    // 내용이 비어있으면 내용 필드 숨김
+    var contentField = document.getElementById('contentField');
+    if (task.summary && task.summary.trim()) {{
+        contentField.style.display = '';
+    }} else {{
+        contentField.style.display = 'none';
+    }}
+
+    document.getElementById('editFeedback').value = task.feedback || '';
+    var feedbackField = document.getElementById('feedbackField');
+    if (task.status === '완료') {{
+        feedbackField.style.display = '';
+    }} else {{
+        feedbackField.style.display = 'none';
+    }}
+
+    var prio = task.priority || '중간';
+    document.getElementById('editPriority').value = prio;
+
+    var created = task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-';
+    var updated = task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-';
+    var closed = task.closed_at ? ' | <strong>완료:</strong> ' + task.closed_at.slice(0,16).replace('T',' ') : '';
+    document.getElementById('modalMeta').innerHTML =
+        '<strong>상태:</strong> ' + (task.status || '진행중') +
+        ' &nbsp;|&nbsp; <strong>생성:</strong> ' + created +
+        ' &nbsp;|&nbsp; <strong>수정:</strong> ' + updated + closed;
+
+    var btnComplete = document.getElementById('btnComplete');
+    if (task.status === '완료') {{
+        btnComplete.style.display = 'none';
+    }} else {{
+        btnComplete.style.display = '';
+    }}
+
+    document.getElementById('modalOverlay').classList.add('active');
+}}
+
 function openModal(taskId) {{
     currentTaskId = taskId;
+
+    // 1) 내장 데이터 우선 조회 (API 없이 즉시 열림)
+    var local = TASKS_DATA[taskId];
+    if (local) {{
+        populateModal(local);
+    }}
+
+    // 2) 백그라운드로 API 조회 → 최신 데이터로 갱신 시도
     fetch(API + '/tasks/' + taskId)
         .then(function(r) {{ return r.json(); }})
         .then(function(task) {{
-            if (task.error) {{
-                showToast('업무를 불러올 수 없습니다', true);
-                return;
-            }}
-            document.getElementById('modalTitle').textContent = '#' + task.display_num + ' 업무 상세';
-            document.getElementById('editTitle').value = task.title || '';
-            document.getElementById('editDue').value = task.due_at ? task.due_at.slice(0,10) : '';
-
-            var sel = document.getElementById('editAssignee');
-            var found = false;
-            for (var i = 0; i < sel.options.length; i++) {{
-                if (sel.options[i].value === (task.assignee || '')) {{
-                    sel.selectedIndex = i;
-                    found = true;
-                    break;
-                }}
-            }}
-            if (!found && task.assignee) {{
-                var opt = document.createElement('option');
-                opt.value = task.assignee;
-                opt.textContent = task.assignee;
-                opt.selected = true;
-                sel.appendChild(opt);
-            }}
-
-            document.getElementById('editSummary').value = task.summary || '';
-
-            var prio = task.priority || '중간';
-            document.getElementById('editPriority').value = prio;
-
-            var created = task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-';
-            var updated = task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-';
-            document.getElementById('modalMeta').innerHTML =
-                '<strong>상태:</strong> ' + (task.status || '진행중') +
-                ' &nbsp;|&nbsp; <strong>생성:</strong> ' + created +
-                ' &nbsp;|&nbsp; <strong>수정:</strong> ' + updated;
-
-            var btnComplete = document.getElementById('btnComplete');
-            if (task.status === '완료') {{
-                btnComplete.style.display = 'none';
-            }} else {{
-                btnComplete.style.display = '';
-            }}
-
-            document.getElementById('modalOverlay').classList.add('active');
+            if (task.error) return;
+            populateModal(task);
         }})
         .catch(function(e) {{
-            showToast('API 서버 연결 실패', true);
+            // API 없으면 내장 데이터만으로 충분 (조용히 무시)
         }});
 }}
 
@@ -808,6 +928,61 @@ function closeModal(e) {{
     if (e && e.target !== document.getElementById('modalOverlay')) return;
     document.getElementById('modalOverlay').classList.remove('active');
     currentTaskId = null;
+    modalMode = 'edit';
+}}
+
+// ── 새 업무 생성 ──
+function openCreateModal() {{
+    modalMode = 'create';
+    document.getElementById('modalTitle').textContent = '✨ 새 업무';
+    document.getElementById('editTitle').value = '';
+    document.getElementById('editDue').value = '';
+    document.getElementById('editAssignee').selectedIndex = 0;
+    document.getElementById('editSummary').value = '';
+    document.getElementById('editFeedback').value = '';
+    document.getElementById('editPriority').value = '중간';
+    document.getElementById('modalMeta').style.display = 'none';
+    document.getElementById('contentField').style.display = '';
+    document.getElementById('feedbackField').style.display = 'none';
+    document.getElementById('btnSave').style.display = 'none';
+    document.getElementById('btnComplete').style.display = 'none';
+    document.getElementById('btnDelete').style.display = 'none';
+    document.getElementById('btnCreate').style.display = '';
+    document.getElementById('modalOverlay').classList.add('active');
+}}
+
+function createTask() {{
+    var title = document.getElementById('editTitle').value.trim();
+    if (!title) {{
+        showToast('제목은 필수입니다', true);
+        return;
+    }}
+    var data = {{
+        title: title,
+        assignee: document.getElementById('editAssignee').value,
+        due_at: document.getElementById('editDue').value || null,
+        summary: document.getElementById('editSummary').value.trim(),
+        priority: document.getElementById('editPriority').value
+    }};
+
+    fetch(API + '/tasks', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(data)
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(task) {{
+        if (task.error) {{
+            showToast('등록 실패: ' + task.error, true);
+            return;
+        }}
+        showToast('✨ #' + task.display_num + ' 등록 완료!');
+        closeModal();
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function(e) {{
+        showToast('⚠️ API 서버 연결 실패', true);
+    }});
 }}
 
 function saveTask() {{
@@ -817,6 +992,7 @@ function saveTask() {{
         assignee: document.getElementById('editAssignee').value,
         due_at: document.getElementById('editDue').value || null,
         summary: document.getElementById('editSummary').value.trim(),
+        feedback: document.getElementById('editFeedback').value.trim(),
         priority: document.getElementById('editPriority').value
     }};
     if (!data.title) {{
@@ -839,7 +1015,7 @@ function saveTask() {{
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
     .catch(function(e) {{
-        showToast('API 서버 연결 실패', true);
+        showToast('⚠️ 현재 환경에서는 편집이 불가능합니다 (API 서버 연결 필요)', true);
     }});
 }}
 
@@ -860,7 +1036,7 @@ function completeTask() {{
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
     .catch(function(e) {{
-        showToast('API 서버 연결 실패', true);
+        showToast('⚠️ 현재 환경에서는 완료 처리가 불가능합니다 (API 서버 연결 필요)', true);
     }});
 }}
 
@@ -883,7 +1059,7 @@ function deleteTask() {{
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
     .catch(function(e) {{
-        showToast('API 서버 연결 실패', true);
+        showToast('⚠️ 현재 환경에서는 삭제가 불가능합니다 (API 서버 연결 필요)', true);
     }});
 }}
 
@@ -963,7 +1139,7 @@ function sendAgent(text) {{
 
 function quickRegister() {{
     var input = document.getElementById('agentInput');
-    input.value = '업무지시 제목: 담당: 마감:';
+    input.value = '업무지시 제목: 담당: 마감: 우선순위:중간 내용: ';
     if (!agentOpen) toggleAgent();
     input.focus();
     input.setSelectionRange(5, 5);

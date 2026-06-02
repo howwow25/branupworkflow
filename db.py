@@ -76,6 +76,11 @@ def _ensure_schema(conn):
     CREATE INDEX IF NOT EXISTS idx_tasks_room
         ON tasks(room_id, status);
     """)
+    # ── migration: add feedback column ──
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN feedback TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass  # already exists
     # ── migration: add display_num to existing DB ──
     try:
         conn.execute("ALTER TABLE tasks ADD COLUMN display_num INTEGER")
@@ -151,7 +156,7 @@ def create_task(room_id: str, title: str, summary: str = "",
 
 def update_task(task_id: str, **kwargs):
     conn = get_conn()
-    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at"}
+    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at", "feedback"}
     sets, vals = ["updated_at=?"], [now_iso()]
     for k, v in kwargs.items():
         if k in allowed:

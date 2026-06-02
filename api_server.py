@@ -31,16 +31,21 @@ PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
 
 
 def parse_text(text):
-    """자연어 텍스트에서 제목/담당/마감 추출 (task_manager.py 로직 그대로)"""
-    title, assignee, due, priority = None, None, None, None
+    """자연어 텍스트에서 제목/담당/마감/내용 추출"""
+    title, assignee, due, priority, content = None, None, None, None, None
+
+    # 내용 추출 (제일 먼저 — 줄바꿈 포함할 수 있으므로)
+    m = re.search(r'내용\s*[:：]\s*(.+?)(?:\n(?:제목|담당|마감|우선|피드백)\s*[:：]|$)', text, re.IGNORECASE | re.DOTALL)
+    if m:
+        content = m.group(1).strip()
 
     # 제목 추출
-    m = re.search(r'제목\s*[:：]\s*(.+?)(?:\n|담당|마감|우선|$)', text, re.IGNORECASE)
+    m = re.search(r'제목\s*[:：]\s*(.+?)(?:\n|담당|마감|우선|내용|$)', text, re.IGNORECASE)
     if m:
         title = m.group(1).strip()
 
     # 담당자 추출
-    m = re.search(r'담당(?:자)?\s*[:：]\s*(.+?)(?:\n|마감|제목|우선|$)', text, re.IGNORECASE)
+    m = re.search(r'담당(?:자)?\s*[:：]\s*(.+?)(?:\n|마감|제목|우선|내용|$)', text, re.IGNORECASE)
     if m:
         assignee = m.group(1).strip()
 
@@ -50,7 +55,7 @@ def parse_text(text):
         priority = m.group(1)
 
     # 마감 추출 및 날짜 변환
-    m = re.search(r'마감\s*[:：]\s*(.+?)(?:\n|제목|담당|우선|$)', text, re.IGNORECASE)
+    m = re.search(r'마감\s*[:：]\s*(.+?)(?:\n|제목|담당|내용|$)', text, re.IGNORECASE)
     if m:
         raw_due = m.group(1).strip()
         if re.match(r'\d{4}-\d{2}-\d{2}', raw_due):
@@ -76,7 +81,7 @@ def parse_text(text):
         if not title and lines:
             title = lines[0][:50]
 
-    return title, assignee, due, priority
+    return title, assignee, due, priority, content
 
 
 class APIHandler(BaseHTTPRequestHandler):
@@ -93,6 +98,20 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _refresh_dashboard(self):
+        """DB 변경 후 대시보드 HTML 재생성 (백그라운드)"""
+        try:
+            import subprocess
+            scripts_dir = Path(__file__).parent
+            subprocess.Popen(
+                [sys.executable, str(scripts_dir / "dashboard_html.py")],
+                env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
 
     def _parse_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -115,6 +134,54 @@ class APIHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # 대시보드 HTML 서빙
+        if path == "/" or path == "/dashboard.html" or path == "/index.html":
+            dashboard_path = Path(DATA_DIR) / "dashboard.html"
+            if dashboard_path.exists():
+                html = dashboard_path.read_text(encoding="utf-8")
+                body = html.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self._cors_headers()
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self._send_json({"error": "dashboard not found"}, 404)
+            return
+
+        # /api/tasks/list → 전체 활성 업무
+        if path == "/api/tasks/list":
+            tasks = get_active_tasks()
+            self._send_json(tasks)
+            return
+
+        # /api/tasks/completed → 전체 완료 업무
+        if path == "/api/tasks/completed":
+            tasks = get_completed_tasks()
+            self._send_json(tasks)
+            return
+
+        # /api/rooms/<chat_id> → room 조회
+        m = re.match(r'^/api/rooms/([^/]+)$', path)
+        if m:
+            room = get_room_by_chat_id(m.group(1))
+            if room:
+                self._send_json(room)
+            else:
+                self._send_json({"error": "not found"}, 404)
+            return
+
+        # /api/rooms/<room_id>/tasks → room별 업무
+        m = re.match(r'^/api/rooms/([^/]+)/tasks$', path)
+        if m:
+            tasks = get_tasks_by_room(m.group(1))
+            self._send_json(tasks)
+            return
+
         task_id, _ = self._extract_task_id()
         if not task_id:
             self._send_json({"error": "not found"}, 404)
@@ -139,7 +206,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         body = self._parse_body()
-        allowed = {"title", "assignee", "due_at", "summary", "priority"}
+        allowed = {"title", "assignee", "due_at", "summary", "priority", "feedback"}
         updates = {k: v for k, v in body.items() if k in allowed}
         if not updates:
             self._send_json({"error": "no valid fields"}, 400)
@@ -147,6 +214,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         update_task(task_id, **updates)
         task = get_task_by_id(task_id)
+        self._refresh_dashboard()
         self._send_json(task)
 
     def do_DELETE(self):
@@ -163,6 +231,7 @@ class APIHandler(BaseHTTPRequestHandler):
         conn = get_conn()
         conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         conn.commit()
+        self._refresh_dashboard()
         self._send_json({"deleted": True, "id": task_id})
 
     def do_POST(self):
@@ -171,6 +240,16 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/agent → 에이전트 명령어
         if len(parts) >= 2 and parts[0] == "api" and parts[1] == "agent":
             self._handle_agent()
+            return
+
+        # /api/tasks → 새 업무 생성
+        if len(parts) == 2 and parts[0] == "api" and parts[1] == "tasks":
+            self._handle_create()
+            return
+
+        # /api/rooms → room 생성/조회
+        if len(parts) == 2 and parts[0] == "api" and parts[1] == "rooms":
+            self._handle_rooms_create()
             return
 
         # /api/tasks/<id>/complete
@@ -187,9 +266,43 @@ class APIHandler(BaseHTTPRequestHandler):
         ts = now_iso()
         update_task(task_id, status="완료", closed_at=ts)
         task = get_task_by_id(task_id)
+        self._refresh_dashboard()
         self._send_json(task)
 
     # ── 에이전트 명령어 처리 ──────────────────────────
+
+    def _handle_create(self):
+        """POST /api/tasks → 새 업무 생성"""
+        body = self._parse_body()
+        title = body.get("title", "").strip()
+        if not title:
+            self._send_json({"error": "제목은 필수입니다"}, 400)
+            return
+
+        room = get_room_by_chat_id("dashboard")
+        if not room:
+            room = upsert_room("dashboard", "web", "대시보드")
+
+        task = create_task(
+            room["id"],
+            title=title,
+            summary=body.get("summary", ""),
+            due_at=body.get("due_at"),
+            assignee=body.get("assignee"),
+            priority=body.get("priority", "중간"),
+        )
+        self._refresh_dashboard()
+        self._send_json(task)
+
+    def _handle_rooms_create(self):
+        """POST /api/rooms → room 생성"""
+        body = self._parse_body()
+        room = upsert_room(
+            body.get("chat_id", ""),
+            body.get("chat_type", "supergroup"),
+            body.get("name", "브랜업"),
+        )
+        self._send_json(room)
 
     def _handle_agent(self):
         body = self._parse_body()
@@ -225,6 +338,14 @@ class APIHandler(BaseHTTPRequestHandler):
         m = re.search(r'(\d+)\s*번\s*(업무\s*)?(삭제|지워)', text)
         if m:
             return self._delete_task(int(m.group(1)))
+
+        # ── #N 내용추가 / #N 내용 / #N 피드백 ──
+        m = re.search(r'#(\d+)\s*(내용추가|내용|피드백)\s*[:：]\s*(.+)', text, re.IGNORECASE | re.DOTALL)
+        if m:
+            display_num = int(m.group(1))
+            field = m.group(2)
+            value = m.group(3).strip()
+            return self._update_field(display_num, field, value)
 
         # ── 조회 ──
         list_patterns = [
@@ -289,7 +410,7 @@ class APIHandler(BaseHTTPRequestHandler):
                      bool(re.search(r'담당\s*[:：]', text))
 
         if is_register or has_fields:
-            title, assignee, due, priority = parse_text(text)
+            title, assignee, due, priority, content = parse_text(text)
             if not title:
                 return {
                     "type": "error",
@@ -303,7 +424,7 @@ class APIHandler(BaseHTTPRequestHandler):
             task = create_task(
                 room["id"],
                 title=title,
-                summary=text,
+                summary=content or "",
                 due_at=due,
                 assignee=assignee,
                 priority=priority or "중간",
@@ -344,6 +465,44 @@ class APIHandler(BaseHTTPRequestHandler):
                 "💡 카드 클릭 → 모달에서 상세 편집 가능"
             )
         }
+
+    def _update_field(self, display_num, field, value):
+        """#N 내용추가 / #N 내용 / #N 피드백 처리"""
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE display_num=?", (display_num,)
+        ).fetchone()
+        if not row:
+            return {
+                "type": "error",
+                "message": f"❌ #{display_num} 업무를 찾을 수 없습니다."
+            }
+        task = dict(row)
+
+        if field == "내용추가":
+            current = task.get("summary") or ""
+            new_summary = (current + "\n" + value).strip()
+            update_task(task["id"], summary=new_summary)
+            self._refresh_dashboard()
+            return {
+                "type": "update",
+                "message": f"📝 #{display_num} '{task['title']}' 내용 추가 완료\n> {value}"
+            }
+        elif field == "내용":
+            update_task(task["id"], summary=value)
+            self._refresh_dashboard()
+            return {
+                "type": "update",
+                "message": f"📝 #{display_num} '{task['title']}' 내용 수정 완료\n> {value}"
+            }
+        elif field == "피드백":
+            update_task(task["id"], feedback=value)
+            self._refresh_dashboard()
+            return {
+                "type": "update",
+                "message": f"💬 #{display_num} '{task['title']}' 피드백 저장 완료\n> {value}"
+            }
+        return {"type": "error", "message": "알 수 없는 필드"}
 
     def _complete_task(self, display_num):
         conn = get_conn()
@@ -395,8 +554,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = HTTPServer(("127.0.0.1", PORT), APIHandler)
-    print(f"🔌 브랜업 API 서버 시작: http://127.0.0.1:{PORT}")
+    server = HTTPServer(("0.0.0.0", PORT), APIHandler)
+    print(f"🔌 브랜업 API 서버 시작: http://0.0.0.0:{PORT}")
+    print(f"   대시보드: http://localhost:{PORT}")
     print(f"   엔드포인트: /api/tasks/* | /api/agent")
     print(f"   종료: Ctrl+C")
     try:
