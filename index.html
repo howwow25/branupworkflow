@@ -343,12 +343,12 @@ body {
 <body>
 <div class="header">
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
-    <div class="sub">마지막 갱신: 2026-06-02 10:22 | 진행 <span id="hdr-active">38</span>건 · 완료 <span id="hdr-done">12</span>건</div>
+    <div class="sub">마지막 갱신: 2026-06-02 10:42 | 진행 <span id="hdr-active">37</span>건 · 완료 <span id="hdr-done">13</span>건</div>
 </div>
 <div class="filters"><button class="filter-btn active" onclick="filterAssignee('ALL')">ALL</button><button class="filter-btn" onclick="filterAssignee('강경철')">강경철</button><button class="filter-btn" onclick="filterAssignee('노수민')">노수민</button><button class="filter-btn" onclick="filterAssignee('이상원')">이상원</button><button class="filter-btn" onclick="filterAssignee('이향석')">이향석</button><button class="filter-btn" onclick="filterAssignee('전경표')">전경표</button><button class="filter-btn" onclick="filterAssignee('미정')">미정</button></div>
 <div class="stats">
     <div class="stat danger" id="stat-delayed">
-        <div class="num">5</div>
+        <div class="num">4</div>
         <div class="label">지연</div>
     </div>
     <div class="stat" id="stat-today">
@@ -360,26 +360,18 @@ body {
         <div class="label">마감 미정</div>
     </div>
     <div class="stat" id="stat-active">
-        <div class="num">38</div>
+        <div class="num">37</div>
         <div class="label">진행중</div>
     </div>
     <div class="stat done" id="stat-done">
-        <div class="num">12</div>
+        <div class="num">13</div>
         <div class="label">완료</div>
     </div>
 </div>
 <div class="board">
 <div class="column" data-col="delayed">
-    <div class="col-header">🔥 지연 <span class="count">5</span></div>
-    <div class="card" data-assignee="전경표" data-task-id="0d3ed24e-7874-40bf-bf52-59fee8878e4f" onclick="openModal('0d3ed24e-7874-40bf-bf52-59fee8878e4f')">
-    <span class="dday badge-delayed">#10</span>
-    <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
-    <div class="meta">
-        <span class="dday badge-delayed">D+4</span>
-        <span class="assignee">👤 전경표</span>
-        <span class="due">📅 2026-05-29</span>
-    </div>
-</div><div class="card" data-assignee="전경표" data-task-id="559bbf83-6d06-4892-8996-e9cd79632b9a" onclick="openModal('559bbf83-6d06-4892-8996-e9cd79632b9a')">
+    <div class="col-header">🔥 지연 <span class="count">4</span></div>
+    <div class="card" data-assignee="전경표" data-task-id="559bbf83-6d06-4892-8996-e9cd79632b9a" onclick="openModal('559bbf83-6d06-4892-8996-e9cd79632b9a')">
     <span class="dday badge-delayed">#11</span>
     <div class="title">제약사 더마코스메틱을 위한 마케팅 직무 구인 방법 리서치 및 브랜업의 더마코스메틱 마케팅 직무 채요을 위한 도입방안 제안</div>
     <div class="meta">
@@ -694,8 +686,15 @@ body {
 </div>
 </div>
 <div class="divider">✅ 완료된 업무</div><div class="section-title">📅 주 단위</div><div class="board"><div class="column" data-col="week-1">
-    <div class="col-header">W1 · 이번주 <span class="count">3</span></div>
-    <div class="card done" data-assignee="전경표" data-task-id="c4dec916-6ee5-4cd0-8c61-29a71acccb45" onclick="openModal('c4dec916-6ee5-4cd0-8c61-29a71acccb45')">
+    <div class="col-header">W1 · 이번주 <span class="count">4</span></div>
+    <div class="card done" data-assignee="전경표" data-task-id="0d3ed24e-7874-40bf-bf52-59fee8878e4f" onclick="openModal('0d3ed24e-7874-40bf-bf52-59fee8878e4f')">
+    <span class="dday badge-done">W1 · 이번주</span>
+    <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 06/02 완료</span>
+    </div>
+</div><div class="card done" data-assignee="전경표" data-task-id="c4dec916-6ee5-4cd0-8c61-29a71acccb45" onclick="openModal('c4dec916-6ee5-4cd0-8c61-29a71acccb45')">
     <span class="dday badge-done">W1 · 이번주</span>
     <div class="title">컨벤션 영상 제작 - 대본 영번역 작업</div>
     <div class="meta">
@@ -790,8 +789,15 @@ body {
     <div class="col-header">W4 · 3주전 <span class="count">0</span></div>
     <div class="empty">없음</div>
 </div></div><div class="section-title">📆 월 단위</div><div class="board"><div class="column" data-col="month-1">
-    <div class="col-header">M1 · 이번달 <span class="count">3</span></div>
-    <div class="card done" data-assignee="전경표" data-task-id="c4dec916-6ee5-4cd0-8c61-29a71acccb45" onclick="openModal('c4dec916-6ee5-4cd0-8c61-29a71acccb45')">
+    <div class="col-header">M1 · 이번달 <span class="count">4</span></div>
+    <div class="card done" data-assignee="전경표" data-task-id="0d3ed24e-7874-40bf-bf52-59fee8878e4f" onclick="openModal('0d3ed24e-7874-40bf-bf52-59fee8878e4f')">
+    <span class="dday badge-done">M1 · 이번달</span>
+    <div class="title">정육공방이 만든 성과를 PR할 지표 검토(ROAS 등)</div>
+    <div class="meta">
+        <span class="assignee">👤 전경표</span>
+        <span class="due">✅ 06/02 완료</span>
+    </div>
+</div><div class="card done" data-assignee="전경표" data-task-id="c4dec916-6ee5-4cd0-8c61-29a71acccb45" onclick="openModal('c4dec916-6ee5-4cd0-8c61-29a71acccb45')">
     <span class="dday badge-done">M1 · 이번달</span>
     <div class="title">컨벤션 영상 제작 - 대본 영번역 작업</div>
     <div class="meta">
@@ -956,7 +962,7 @@ body {
     </div>
 </div>
 
-<div class="footer">브랜업 대시보드 · 2026-06-02 10:22 · 10분 자동갱신</div>
+<div class="footer">브랜업 대시보드 · 2026-06-02 10:42 · 10분 자동갱신</div>
 <script>
 var API = (window.location.protocol === 'file:') ? 'http://127.0.0.1:8800' : (window.location.origin + '/api');
 var currentTaskId = null;
