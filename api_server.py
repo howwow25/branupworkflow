@@ -100,16 +100,22 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _refresh_dashboard(self):
-        """DB 변경 후 대시보드 HTML 재생성 (백그라운드)"""
+        """DB 변경 후 대시보드 HTML 재생성 및 index.html 갱신"""
         try:
             import subprocess
+            import shutil
             scripts_dir = Path(__file__).parent
-            subprocess.Popen(
+            subprocess.run(
                 [sys.executable, str(scripts_dir / "dashboard_html.py")],
                 env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR},
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            # dashboard.html → index.html 복사 (웹 서빙용)
+            src = Path(DATA_DIR) / "dashboard.html"
+            dst = Path(DATA_DIR).parent / "index.html"
+            if src.exists():
+                shutil.copy2(src, dst)
         except Exception:
             pass
 
