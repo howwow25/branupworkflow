@@ -1,0 +1,1 @@
+0 * * * * /Users/eekek/.hermes/profiles/branup-watcher/scripts/deploy_dashboard.sh >> /Users/eekek/.hermes/profiles/branup-watcher/deploy/cron.log 2>&1
