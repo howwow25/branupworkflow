@@ -343,7 +343,7 @@ def cmd_register(chat_id, title=None, assignee=None, due=None, text=None, summar
     task = _db.create_task(
         room_id=room["id"],
         title=title,
-        summary=summary or (content or ""),
+        summary=summary or content or title,
         due_at=due,
         assignee=assignee,
         priority=priority or "중간",

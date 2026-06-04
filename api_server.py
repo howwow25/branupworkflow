@@ -286,7 +286,7 @@ class APIHandler(BaseHTTPRequestHandler):
         task = create_task(
             room["id"],
             title=title,
-            summary=body.get("summary", ""),
+            summary=body.get("summary") or title,
             due_at=body.get("due_at"),
             assignee=body.get("assignee"),
             priority=body.get("priority", "중간"),
@@ -452,7 +452,7 @@ class APIHandler(BaseHTTPRequestHandler):
             task = create_task(
                 room["id"],
                 title=title,
-                summary=content or "",
+                summary=content or title,
                 due_at=due,
                 assignee=assignee,
                 priority=priority or "중간",

@@ -403,3 +403,171 @@ After doing this, you may fix the identity used for this commit with:
    열기: open /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
 [main 7318dac] 2026-06-02 17:22 대시보드 갱신
  1 file changed, 6 insertions(+), 14 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main b4639fc] 2026-06-02 18:22 대시보드 갱신
+ 1 file changed, 153 insertions(+), 103 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 7d536b8] 2026-06-02 19:22 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 0fe7c54] 2026-06-02 20:22 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 9715ef6] 2026-06-02 21:22 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 0093afc] 2026-06-02 22:22 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 0f120f6] 2026-06-02 23:22 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main e72bfe3] 2026-06-03 00:22 대시보드 갱신
+ 1 file changed, 109 insertions(+), 109 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 6883540] 2026-06-03 01:22 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 383b771] 2026-06-03 02:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 6c438d2] 2026-06-03 03:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main df009b1] 2026-06-03 04:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 86d8bff] 2026-06-03 05:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 79c3a22] 2026-06-03 06:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 4d3f756] 2026-06-03 07:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 534e442] 2026-06-03 08:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 6ddedb8] 2026-06-03 09:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 660102b] 2026-06-03 10:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 76c4fd4] 2026-06-03 11:23 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main f289cb2] 2026-06-03 12:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main c871699] 2026-06-03 13:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 89c9ed5] 2026-06-03 14:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 234c1f4] 2026-06-03 15:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 5589019] 2026-06-03 16:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main f2c3991] 2026-06-03 17:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main f48c87b] 2026-06-03 18:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main bb192e8] 2026-06-03 19:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 7732bc6] 2026-06-03 20:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 50e9c72] 2026-06-03 21:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 252cb33] 2026-06-03 22:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 40e1e06] 2026-06-03 23:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main a609498] 2026-06-04 00:24 대시보드 갱신
+ 1 file changed, 37 insertions(+), 37 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 7251d3c] 2026-06-04 01:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 13811c3] 2026-06-04 02:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 90571a1] 2026-06-04 03:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 2d79f37] 2026-06-04 04:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 29a69bd] 2026-06-04 05:24 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main b809a0f] 2026-06-04 06:25 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main d99988b] 2026-06-04 07:25 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 3d52161] 2026-06-04 08:25 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main c5ead42] 2026-06-04 09:25 대시보드 갱신
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 2d7aeec] 2026-06-04 10:25 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 482fe51] 2026-06-04 11:25 대시보드 갱신
+ 1 file changed, 164 insertions(+), 144 deletions(-)
