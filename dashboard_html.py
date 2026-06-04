@@ -749,6 +749,11 @@ var modalMode = 'edit';  // 'edit' or 'create'
 }})();
 
 function forceRefresh() {{
+    // 현재 필터 상태 저장
+    var activeBtn = document.querySelector('.filter-btn.active');
+    if (activeBtn) {{
+        sessionStorage.setItem('branup_filter', activeBtn.textContent.trim());
+    }}
     // API 서버가 같은 호스트의 다른 포트거나 로컬이면 API 서버의 대시보드로 리디렉션
     if (API.indexOf(':8800') !== -1) {{
         window.location.href = API.replace('/api', '/index.html');
@@ -1140,6 +1145,28 @@ function quickRegister() {{
     input.focus();
     input.setSelectionRange(5, 5);
 }}
+
+// ── 페이지 로드 시 필터 복원 ──
+(function() {{
+    var saved = sessionStorage.getItem('branup_filter');
+    if (saved && saved !== 'ALL') {{
+        document.querySelectorAll('.filter-btn').forEach(function(btn) {{
+            btn.classList.remove('active');
+            if (btn.textContent.trim() === saved) {{
+                btn.classList.add('active');
+            }}
+        }});
+        document.querySelectorAll('.card').forEach(function(card) {{
+            var a = card.getAttribute('data-assignee') || '';
+            if (a.split(/,\\\\s*/).includes(saved) || a.split(/,\\\\s*/).includes('모두')) {{
+                card.classList.remove('hidden');
+            }} else {{
+                card.classList.add('hidden');
+            }}
+        }});
+        updateCounts();
+    }}
+}})();
 </script>
 </body>
 </html>"""
