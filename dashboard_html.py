@@ -864,15 +864,11 @@ function populateModal(task) {{
         sel.appendChild(opt);
     }}
 
-    document.getElementById('editSummary').value = task.summary || '';
+    document.getElementById('editSummary').value = task.summary || task.title || '';
 
-    // 내용이 비어있으면 내용 필드 숨김
+    // 내용 필드 항상 표시
     var contentField = document.getElementById('contentField');
-    if (task.summary && task.summary.trim()) {{
-        contentField.style.display = '';
-    }} else {{
-        contentField.style.display = 'none';
-    }}
+    contentField.style.display = '';
 
     document.getElementById('editFeedback').value = task.feedback || '';
     var feedbackField = document.getElementById('feedbackField');
