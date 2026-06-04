@@ -16,7 +16,9 @@ import argparse
 import importlib.util
 import subprocess
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+_KST = timezone(timedelta(hours=9))
 
 _scripts = Path(__file__).parent
 
@@ -64,7 +66,7 @@ def dday(due_str):
         return None
     try:
         due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
-        delta = (due_date - datetime.now().date()).days
+        delta = (due_date - datetime.now(_KST).date()).days
         return delta
     except Exception:
         return None
@@ -76,7 +78,7 @@ def cmd_dashboard():
         print("등록된 진행 중 업무가 없습니다.")
         return
 
-    today = datetime.now().strftime("%Y년 %m월 %d일 (%a)")
+    today = datetime.now(_KST).strftime("%Y년 %m월 %d일 (%a)")
     weekdays = {"Mon": "월", "Tue": "화", "Wed": "수", "Thu": "목", "Fri": "금", "Sat": "토", "Sun": "일"}
     for en, ko in weekdays.items():
         today = today.replace(en, ko)
@@ -198,14 +200,14 @@ def cmd_dashboard():
 
 
 def _week_range(w):
-    today = datetime.now().date()
+    today = datetime.now(_KST).date()
     monday = today - timedelta(days=today.weekday())
     start = monday - timedelta(weeks=w - 1)
     return start, start + timedelta(days=6)
 
 
 def _month_range(m):
-    today = datetime.now().date()
+    today = datetime.now(_KST).date()
     first = today.replace(day=1)
     for _ in range(m - 1):
         first = (first - timedelta(days=1)).replace(day=1)
@@ -301,7 +303,7 @@ def parse_text(text):
             dm = re.search(r'(\d{1,2})[/.](\d{1,2})', raw_due)
             if dm:
                 month, day = int(dm.group(1)), int(dm.group(2))
-                year = datetime.now().year
+                year = datetime.now(_KST).year
                 try:
                     due = f"{year}-{month:02d}-{day:02d}"
                 except Exception:

@@ -24,8 +24,10 @@ else:
 def dday(due_str):
     if not due_str: return None
     try:
+        from datetime import timezone, timedelta
+        KST = timezone(timedelta(hours=9))
         due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
-        return (due_date - datetime.now().date()).days
+        return (due_date - datetime.now(KST).date()).days
     except Exception:
         return None
 

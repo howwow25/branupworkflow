@@ -63,9 +63,9 @@ def parse_text(text):
         else:
             dm = re.search(r'(\d{1,2})[/.](\d{1,2})', raw_due)
             if dm:
-                from datetime import datetime
+                from datetime import datetime, timezone, timedelta
                 month, day = int(dm.group(1)), int(dm.group(2))
-                year = datetime.now().year
+                year = datetime.now(timezone(timedelta(hours=9))).year
                 try:
                     due = f"{year}-{month:02d}-{day:02d}"
                 except Exception:
