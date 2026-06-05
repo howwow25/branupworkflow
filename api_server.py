@@ -325,28 +325,32 @@ class APIHandler(BaseHTTPRequestHandler):
             })
             return
 
-        # ── Telegram 중계 (TELEGRAM_BOT_TOKEN 설정 시 Mac Mini Hermes로 전달) ──
-        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        forward_chat = os.environ.get("TELEGRAM_FORWARD_CHAT_ID", "")
-        if bot_token and forward_chat:
+        # ── Telethon 중계 (실제 계정으로 Hermes DM에 전달) ──
+        api_id = os.environ.get("TELEGRAM_API_ID", "")
+        api_hash = os.environ.get("TELEGRAM_API_HASH", "")
+        phone = os.environ.get("TELEGRAM_PHONE", "")
+        if api_id and api_hash and phone:
             try:
-                import urllib.request as _tg_req
-                tg_body = json.dumps({
-                    "chat_id": forward_chat,
-                    "text": text,
-                }).encode("utf-8")
-                tg_req = _tg_req.Request(
-                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                    data=tg_body,
-                    method="POST",
+                import subprocess
+                script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
+                env = os.environ.copy()
+                proc = subprocess.run(
+                    [sys.executable, script, "--msg", text, "--timeout", "45"],
+                    env=env,
+                    capture_output=True, text=True, timeout=60,
+                    cwd=os.path.dirname(__file__)
                 )
-                tg_req.add_header("Content-Type", "application/json")
-                with _tg_req.urlopen(tg_req) as resp:
-                    tg_result = json.loads(resp.read().decode("utf-8"))
-                if tg_result.get("ok"):
+                result = json.loads(proc.stdout.strip())
+                if result.get("ok") and result.get("response"):
                     self._send_json({
-                        "type": "telegram_forward",
-                        "message": f"📤 Hermes로 전달 완료\n> {text[:80]}"
+                        "type": "hermes_response",
+                        "message": result["response"]
+                    })
+                    return
+                elif result.get("ok") and result.get("response") is None:
+                    self._send_json({
+                        "type": "no_response",
+                        "message": f"⏰ Hermes 응답 대기 시간 초과\n> {text[:80]}"
                     })
                     return
             except Exception:
