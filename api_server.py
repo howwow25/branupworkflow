@@ -369,6 +369,11 @@ class APIHandler(BaseHTTPRequestHandler):
         if m:
             return self._delete_task(int(m.group(1)))
 
+        # ── #N 업무 마감 변경 ──
+        m = re.search(r'#(\d+)\s*(?:번\s*)?(?:업무\s*)?마감[은를]?\s*(.+?)(?:로|으로)?\s*(?:변경|수정)', text, re.IGNORECASE)
+        if m:
+            return self._update_field(int(m.group(1)), "마감", m.group(2).strip())
+
         # ── #N 내용추가 / #N 내용 / #N 피드백 ──
         m = re.search(r'#(\d+)\s*(?:번\s*)?(?:업무\s*)?(내용추가|내용|피드백)\s*[:：]\s*(.+)', text, re.IGNORECASE | re.DOTALL)
         if m:
@@ -524,6 +529,13 @@ class APIHandler(BaseHTTPRequestHandler):
             return {
                 "type": "update",
                 "message": f"📝 #{display_num} '{task['title']}' 내용 수정 완료\n> {value}"
+            }
+        elif field == "마감":
+            update_task(task["id"], due_at=value)
+            self._refresh_dashboard()
+            return {
+                "type": "update",
+                "message": f"📅 #{display_num} '{task['title']}' 마감 변경 완료\n> {value}"
             }
         elif field == "피드백":
             update_task(task["id"], feedback=value)
