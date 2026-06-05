@@ -47,24 +47,38 @@ async def send_and_wait(message: str, timeout: int = 45):
     api_id, api_hash, phone = get_auth()
     client = TelegramClient(SESSION_PATH, api_id, api_hash)
     
-    response_received = asyncio.Event()
-    response_text = None
-
+    responses = []
+    last_msg_time = [0]
+    done = asyncio.Event()
+    
     @client.on(events.NewMessage(chats=HERMES_CHAT, incoming=True))
     async def handler(event):
-        nonlocal response_text
+        nonlocal responses
         if event.is_private:
-            response_text = event.message.text
-            response_received.set()
-
+            responses.append(event.message.text)
+            last_msg_time[0] = asyncio.get_event_loop().time()
+    
     await client.start(phone=phone)
+    
+    # 이전 메시지들 무시를 위한 기준 시간
+    sent_time = asyncio.get_event_loop().time()
     await client.send_message(HERMES_CHAT, message)
     
+    # 마지막 메시지 후 5초간 새 메시지 없으면 종료
     try:
-        await asyncio.wait_for(response_received.wait(), timeout=timeout)
-        print(response_text or "(응답 없음)")
+        end_time = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < end_time:
+            await asyncio.sleep(1)
+            if responses and (asyncio.get_event_loop().time() - last_msg_time[0] > 5):
+                break
+        
+        if responses:
+            # 마지막 응답 출력 (가장 중요한 응답)
+            print(responses[-1])
+        else:
+            print(f"⏰ {timeout}초 내 응답 없음")
     except asyncio.TimeoutError:
-        print(f"⏰ {timeout}초 내 응답 없음")
+        pass
     finally:
         await client.disconnect()
 
