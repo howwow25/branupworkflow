@@ -5,7 +5,7 @@ import os, sys, json, asyncio, base64, argparse
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(SCRIPT_DIR, ".telethon.env")
 SESSION_PATH = os.path.join(SCRIPT_DIR, "telethon_session")
-HERMES_CHAT = 8773547509  # @hermes_eekek_mac_bot
+HERMES_CHAT = 8992344528  # 브랜업업무봇
 
 def load_env():
     env = {}
