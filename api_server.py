@@ -333,9 +333,9 @@ class APIHandler(BaseHTTPRequestHandler):
                 import subprocess
                 env = os.environ.copy()
                 proc = subprocess.run(
-                    [sys.executable, script, "--msg", text, "--timeout", "45"],
+                    [sys.executable, script, "--msg", text, "--timeout", "120"],
                     env=env,
-                    capture_output=True, text=True, timeout=60,
+                    capture_output=True, text=True, timeout=180,
                     cwd=os.path.dirname(__file__)
                 )
                 result = json.loads(proc.stdout.strip())

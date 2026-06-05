@@ -655,3 +655,35 @@ After doing this, you may fix the identity used for this commit with:
    웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
 [main 45d09f0] 2026-06-05 08:26 대시보드 갱신
  1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main b0584fd] 2026-06-05 09:26 대시보드 갱신
+ 1 file changed, 204 insertions(+), 214 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 19ed5a2] 2026-06-05 10:26 대시보드 갱신
+ 1 file changed, 204 insertions(+), 222 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main eb13966] 2026-06-05 11:26 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 623dc75] 2026-06-05 12:27 대시보드 갱신
+ 1 file changed, 206 insertions(+), 240 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 4c430ee] 2026-06-05 13:27 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main da54053] 2026-06-05 14:27 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main 37d1769] 2026-06-05 15:27 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[main ba5f3bb] 2026-06-05 16:27 대시보드 갱신
+ 1 file changed, 11 insertions(+), 11 deletions(-)

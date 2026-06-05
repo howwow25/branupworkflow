@@ -43,7 +43,7 @@ async def do_login():
     finally:
         await client.disconnect()
 
-async def send_and_wait(message: str, timeout: int = 45):
+async def send_and_wait(message: str, timeout: int = 120):
     api_id, api_hash, phone = get_auth()
     client = TelegramClient(SESSION_PATH, api_id, api_hash)
     
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--login", action="store_true")
     p.add_argument("--msg", type=str)
-    p.add_argument("--timeout", type=int, default=45)
+    p.add_argument("--timeout", type=int, default=120)
     args = p.parse_args()
     
     if args.login:

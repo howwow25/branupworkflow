@@ -1118,14 +1118,18 @@ function sendAgent(text) {{
     msgs.appendChild(typing);
     msgs.scrollTop = msgs.scrollHeight;
 
-    // API 호출
+    // API 호출 (180초 타임아웃)
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() {{ controller.abort(); }}, 180000);
     fetch(API + '/agent', {{
         method: 'POST',
         headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{ text: msg }})
+        body: JSON.stringify({{ text: msg }}),
+        signal: controller.signal
     }})
     .then(function(r) {{ return r.json(); }})
     .then(function(data) {{
+        clearTimeout(timeoutId);
         msgs.removeChild(typing);
         addAgentMsg(data.message || '처리 완료', 'bot');
 
@@ -1135,8 +1139,13 @@ function sendAgent(text) {{
         }}
     }})
     .catch(function(e) {{
+        clearTimeout(timeoutId);
         msgs.removeChild(typing);
-        addAgentMsg('❌ API 서버 연결 실패\\n(' + API + ')', 'bot');
+        if (e.name === 'AbortError') {{
+            addAgentMsg('⏰ 요청 시간 초과 (180초)\\n잠시 후 다시 시도해주세요.', 'bot');
+        }} else {{
+            addAgentMsg('❌ API 서버 연결 실패\\n(' + API + ')', 'bot');
+        }}
     }});
 }}
 
