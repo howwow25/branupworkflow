@@ -60,9 +60,9 @@ async def send_and_wait(message: str, timeout: int = 120):
     
     await client.start(phone=phone)
     
-    # 이전 메시지들 무시를 위한 기준 시간
-    sent_time = asyncio.get_event_loop().time()
-    await client.send_message(HERMES_CHAT, message)
+    # 봇 엔티티 먼저 확보
+    bot_entity = await client.get_entity(HERMES_CHAT)
+    await client.send_message(bot_entity, message)
     
     # 마지막 메시지 후 5초간 새 메시지 없으면 종료
     try:
