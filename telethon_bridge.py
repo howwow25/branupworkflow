@@ -60,8 +60,15 @@ async def send_and_wait(message: str, timeout: int = 120):
     
     await client.start(phone=phone)
     
-    # 봇 엔티티 먼저 확보
-    bot_entity = await client.get_entity(HERMES_CHAT)
+    # 봇 엔티티를 다이얼로그에서 검색
+    bot_entity = None
+    async for d in client.iter_dialogs():
+        if d.id == HERMES_CHAT:
+            bot_entity = d.entity
+            break
+    if not bot_entity:
+        print(json.dumps({"ok": False, "error": f"ID {HERMES_CHAT} 봇을 찾을 수 없습니다"}, ensure_ascii=False))
+        return
     await client.send_message(bot_entity, message)
     
     # 마지막 메시지 후 5초간 새 메시지 없으면 종료
