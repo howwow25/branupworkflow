@@ -54,6 +54,8 @@ async def send_and_wait(message: str, timeout: int = 120):
     @client.on(events.NewMessage(incoming=True))
     async def handler(event):
         nonlocal responses
+        # 디버그: 모든 수신 메시지 정보를 stderr로 출력
+        print(f"[DEBUG] sender_id={event.sender_id} chat_id={event.chat_id} is_private={event.is_private} text={event.message.text[:50] if event.message.text else 'N/A'}", file=sys.stderr)
         if event.is_private and event.sender_id == HERMES_CHAT:
             responses.append(event.message.text)
             last_msg_time[0] = asyncio.get_event_loop().time()
