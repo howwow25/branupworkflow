@@ -51,10 +51,10 @@ async def send_and_wait(message: str, timeout: int = 120):
     last_msg_time = [0]
     done = asyncio.Event()
     
-    @client.on(events.NewMessage(chats=HERMES_CHAT, incoming=True))
+    @client.on(events.NewMessage(incoming=True))
     async def handler(event):
         nonlocal responses
-        if event.is_private:
+        if event.is_private and event.sender_id == HERMES_CHAT:
             responses.append(event.message.text)
             last_msg_time[0] = asyncio.get_event_loop().time()
     
