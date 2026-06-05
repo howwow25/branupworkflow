@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Telethon 로그인 - client.start() 사용"""
-import os, sys, asyncio, base64, argparse
+import os, sys, json, asyncio, base64, argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(SCRIPT_DIR, ".telethon.env")
@@ -73,10 +73,10 @@ async def send_and_wait(message: str, timeout: int = 45):
                 break
         
         if responses:
-            # 마지막 응답 출력 (가장 중요한 응답)
-            print(responses[-1])
+            # 마지막 응답 출력
+            print(json.dumps({"ok": True, "response": responses[-1]}, ensure_ascii=False))
         else:
-            print(f"⏰ {timeout}초 내 응답 없음")
+            print(json.dumps({"ok": True, "response": None, "note": f"{timeout}초 내 응답 없음"}, ensure_ascii=False))
     except asyncio.TimeoutError:
         pass
     finally:
