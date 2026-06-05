@@ -10,7 +10,7 @@ HERMES_CHAT = 51271702
 def load_env():
     env = {}
     if os.path.exists(ENV_FILE):
-        with open(ENV_FILE) as f:
+        with open(ENV_FILE, encoding='utf-8-sig') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:

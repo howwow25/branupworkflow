@@ -326,13 +326,11 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         # ── Telethon 중계 (실제 계정으로 Hermes DM에 전달) ──
-        api_id = os.environ.get("TELEGRAM_API_ID", "")
-        api_hash = os.environ.get("TELEGRAM_API_HASH", "")
-        phone = os.environ.get("TELEGRAM_PHONE", "")
-        if api_id and api_hash and phone:
+        script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
+        env_file = os.path.join(os.path.dirname(__file__), ".telethon.env")
+        if os.path.exists(script) and os.path.exists(env_file):
             try:
                 import subprocess
-                script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
                 env = os.environ.copy()
                 proc = subprocess.run(
                     [sys.executable, script, "--msg", text, "--timeout", "45"],
