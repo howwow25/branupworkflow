@@ -78,7 +78,7 @@ def render_card(t, dd):
     prio_icon = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
     prio_html = f'<span class="prio-icon">{prio_icon}</span>' if prio_icon else ""
 
-    return f"""<div class="card" data-assignee="{assignee}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
+    return f"""<div class="card" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
     <span class="dday badge-{css}">#{num}</span>{prio_html}
     <div class="title">{title}</div>
     <div class="meta">
@@ -135,8 +135,9 @@ def render_completed_card(t, closed_date, label):
     assignee = esc(t.get("assignee") or "미정")
     closed_str = closed_date.strftime("%m/%d")
     task_id = t.get("id", "")
+    prio = t.get("priority", "") or ""
 
-    return f"""<div class="card done" data-assignee="{assignee}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
+    return f"""<div class="card done" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
     <span class="dday badge-done">{label}</span>
     <div class="title">{title}</div>
     <div class="meta">
@@ -195,7 +196,8 @@ def render():
     {cards}
 </div>"""
 
-    filter_btns = '<button class="filter-btn active" onclick="filterAssignee(\'ALL\')">ALL</button>'
+    filter_btns = '<button class="filter-btn urgent" onclick="filterAssignee(\'긴급\')">🔥 긴급</button>'
+    filter_btns += '<button class="filter-btn active" onclick="filterAssignee(\'ALL\')">ALL</button>'
     for a in sorted_assignees:
         if a == '모두':
             continue
@@ -276,6 +278,13 @@ body {{
 .filter-btn.active {{
     background: #58a6ff; color: #000;
     border-color: #58a6ff;
+}}
+.filter-btn.urgent {{
+    border-color: #da3633; color: #f85149;
+}}
+.filter-btn.urgent:hover {{ border-color: #f85149; background: rgba(248,81,73,0.1); }}
+.filter-btn.urgent.active {{
+    background: #da3633; color: #fff; border-color: #da3633;
 }}
 .stats {{
     display: flex; gap: 16px; padding: 16px 32px;
@@ -813,6 +822,13 @@ function filterAssignee(name) {{
     document.querySelectorAll('.card').forEach(function(card) {{
         if (name === 'ALL') {{
             card.classList.remove('hidden');
+        }} else if (name === '긴급') {{
+            var p = card.getAttribute('data-priority');
+            if (p === '긴급') {{
+                card.classList.remove('hidden');
+            }} else {{
+                card.classList.add('hidden');
+            }}
         }} else {{
             var a = card.getAttribute('data-assignee');
             if (a.split(/,\\s*/).includes(name) || a.split(/,\\s*/).includes('모두')) {{
