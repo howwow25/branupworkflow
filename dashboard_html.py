@@ -806,8 +806,7 @@ function filterAssignee(name) {{
     document.querySelectorAll('.filter-btn').forEach(function(btn) {{
         btn.classList.remove('active');
     }});
-    var clickedBtn = event && event.target ? event.target : document.querySelector(".filter-btn.active");
-    if (clickedBtn) clickedBtn.classList.add("active");
+    event.target.classList.add('active');
 
     document.querySelectorAll('.card').forEach(function(card) {{
         if (name === 'ALL') {{
@@ -1175,7 +1174,7 @@ function quickRegister() {{
         }});
         document.querySelectorAll('.card').forEach(function(card) {{
             var a = card.getAttribute('data-assignee') || '';
-            if (a.split(/,\\\\s*/).includes(saved) || a.split(/,\\\\s*/).includes('모두')) {{
+            if (a.split(/,\\s*/).includes(saved) || a.split(/,\\s*/).includes('모두')) {{
                 card.classList.remove('hidden');
             }} else {{
                 card.classList.add('hidden');
