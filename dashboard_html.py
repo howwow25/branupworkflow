@@ -20,7 +20,6 @@ if _os_dash.environ.get("BRANUP_API_URL"):
 else:
     from db import get_active_tasks, get_completed_tasks
 
-
 def dday(due_str):
     if not due_str: return None
     try:
@@ -30,7 +29,6 @@ def dday(due_str):
         return (due_date - datetime.now(KST).date()).days
     except Exception:
         return None
-
 
 def group_tasks(tasks):
     groups = {"delayed": [], "today": [], "d3": [], "d7": [], "upcoming": [], "no_due": []}
@@ -44,13 +42,11 @@ def group_tasks(tasks):
         else:                 groups["upcoming"].append((t, dd))
     return groups
 
-
 def dday_label(dd):
     if dd is None: return "미정"
     if dd < 0:     return f"D+{abs(dd)}"
     if dd == 0:    return "D-DAY"
     return f"D-{dd}"
-
 
 def dday_class(dd):
     if dd is None: return "nodue"
@@ -60,10 +56,8 @@ def dday_class(dd):
     if dd <= 7:    return "soon"
     return "ok"
 
-
 def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
 
 def render_card(t, dd):
     title = esc(t.get("title", ""))
@@ -88,13 +82,11 @@ def render_card(t, dd):
     </div>
 </div>"""
 
-
 def week_range(w):
     today = datetime.now().date()
     monday = today - timedelta(days=today.weekday())
     start = monday - timedelta(weeks=w - 1)
     return start, start + timedelta(days=6)
-
 
 def month_range(m):
     today = datetime.now().date()
@@ -105,7 +97,6 @@ def month_range(m):
         return first, today
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first - timedelta(days=1)
-
 
 def group_completed(tasks):
     weeks = {}
@@ -129,23 +120,23 @@ def group_completed(tasks):
                 break
     return weeks, months
 
-
 def render_completed_card(t, closed_date, label):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     closed_str = closed_date.strftime("%m/%d")
     task_id = t.get("id", "")
     prio = t.get("priority", "") or ""
+    prio_icon_done = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
+    prio_html_done = f'<span class="prio-icon">{prio_icon_done}</span>' if prio_icon_done else ""
 
     return f"""<div class="card done" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-done">{label}</span>
+    <span class="dday badge-done">{label}</span>{prio_html_done}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="assignee">👤 {assignee}</span>
         <span class="due">✅ {closed_str} 완료</span>
     </div>
 </div>"""
-
 
 def render():
     tasks = get_active_tasks()
@@ -1196,7 +1187,6 @@ function quickRegister() {{
 </body>
 </html>"""
     return html
-
 
 if __name__ == "__main__":
     html = render()
