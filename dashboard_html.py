@@ -1,3 +1,5 @@
+bash(81401) MallocStackLogging: could not tag MSL-related memory as no_footprint, so those pages will be included in process footprint - No such file or directory (2)
+bash(81402) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
 #!/usr/bin/env python3
 """
 HTML 대시보드 생성기 — 진행중 + 완료(주/월) + 담당자 필터 + 모달 편집 + 에이전트 보드
@@ -806,7 +808,8 @@ function filterAssignee(name) {{
     document.querySelectorAll('.filter-btn').forEach(function(btn) {{
         btn.classList.remove('active');
     }});
-    event.target.classList.add('active');
+    var clickedBtn = event && event.target ? event.target : document.querySelector('.filter-btn.active');
+    if (clickedBtn) clickedBtn.classList.add('active');
 
     document.querySelectorAll('.card').forEach(function(card) {{
         if (name === 'ALL') {{
@@ -1197,3 +1200,4 @@ if __name__ == "__main__":
     index_path.write_text(html, encoding="utf-8")
     print(f"✅ HTML 대시보드 생성 완료: {OUTPUT_PATH}")
     print(f"   웹 서빙: {index_path}")
+bash(81403) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
