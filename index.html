@@ -1228,7 +1228,9 @@ function filterAssignee(name) {
     document.querySelectorAll('.filter-btn').forEach(function(btn) {
         btn.classList.remove('active');
     });
-    event.target.classList.add('active');
+    // 저장된 필터 복원 시 event가 없을 수 있음 (forceRefresh 이후)
+    var clickedBtn = event && event.target ? event.target : document.querySelector('.filter-btn.active');
+    if (clickedBtn) clickedBtn.classList.add('active');
 
     document.querySelectorAll('.card').forEach(function(card) {
         if (name === 'ALL') {
