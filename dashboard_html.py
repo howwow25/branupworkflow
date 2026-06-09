@@ -378,17 +378,6 @@ body {{
     text-align: center; padding: 24px;
     color: #484f5a; font-size: 11px;
 }}
-.refresh-btn {{
-    background: none; border: 1px solid #2a2d3a;
-    border-radius: 8px; padding: 4px 10px;
-    font-size: 18px; cursor: pointer;
-    transition: all 0.2s; vertical-align: middle;
-}}
-.refresh-btn:hover {{
-    background: #2a2d3a; border-color: #58a6ff;
-    transform: rotate(90deg);
-}}
-
 /* ── 모달 ── */
 .modal-overlay {{
     display: none;
@@ -610,7 +599,7 @@ body {{
 </head>
 <body>
 <div class="header">
-    <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침 (캐시 무시)">🔄</button></h1>
+    <h1>📊 브랜업 대시보드</h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
 </div>
 <div class="filters">{filter_btns}</div>
