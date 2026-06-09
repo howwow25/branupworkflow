@@ -1173,7 +1173,7 @@ function quickRegister() {{
             }}
         }});
         document.querySelectorAll('.card').forEach(function(card) {{
-            if (saved === '긴급') {{
+            if (saved.indexOf('긴급') !== -1) {{
                 var p = card.getAttribute('data-priority');
                 if (p === '긴급') {{
                     card.classList.remove('hidden');
