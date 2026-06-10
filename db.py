@@ -86,6 +86,11 @@ def _ensure_schema(conn):
         conn.execute("ALTER TABLE tasks ADD COLUMN display_num INTEGER")
     except Exception:
         pass  # already exists
+    # ── migration: add related_tasks ──
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN related_tasks TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass  # already exists
     # assign display_num to tasks without one (ordered by created_at)
     nulls = conn.execute(
         "SELECT id FROM tasks WHERE display_num IS NULL ORDER BY created_at ASC"
@@ -156,7 +161,7 @@ def create_task(room_id: str, title: str, summary: str = "",
 
 def update_task(task_id: str, **kwargs):
     conn = get_conn()
-    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at", "feedback"}
+    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at", "feedback", "related_tasks"}
     sets, vals = ["updated_at=?"], [now_iso()]
     for k, v in kwargs.items():
         if k in allowed:
@@ -182,6 +187,13 @@ def get_active_tasks() -> List[Dict]:
 def get_task_by_id(task_id: str) -> Optional[Dict]:
     conn = get_conn()
     row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_task_by_display_num(display_num: int) -> Optional[Dict]:
+    """display_num으로 업무 조회"""
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM tasks WHERE display_num=?", (display_num,)).fetchone()
     return dict(row) if row else None
 
 

@@ -673,6 +673,14 @@ body {{
                     <option value="낮음">🟢 낮음</option>
                 </select>
             </div>
+            <div class="modal-field">
+                <label>🔗 연관업무</label>
+                <div id="relatedTasks" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center"></div>
+                <div style="display:flex;gap:6px;margin-top:8px">
+                    <input type="number" id="relatedInput" placeholder="업무번호" onkeydown="if(event.key==='Enter')addRelatedTask()" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">
+                    <button onclick="addRelatedTask()" style="padding:6px 12px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">추가</button>
+                </div>
+            </div>
             <div class="modal-actions">
                 <button class="btn-save" id="btnSave" onclick="saveTask()">💾 저장</button>
                 <button class="btn-save" id="btnCreate" onclick="createTask()" style="display:none">➕ 추가</button>
@@ -903,6 +911,8 @@ function populateModal(task) {{
     var prio = task.priority || '중간';
     document.getElementById('editPriority').value = prio;
 
+    renderRelatedButtons(task.related_tasks || '');
+
     var created = task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-';
     var updated = task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-';
     var closed = task.closed_at ? ' | <strong>완료:</strong> ' + task.closed_at.slice(0,16).replace('T',' ') : '';
@@ -976,6 +986,7 @@ function openCreateModal() {{
     document.getElementById('editSummary').value = '';
     document.getElementById('editFeedback').value = '';
     document.getElementById('editPriority').value = '중간';
+    renderRelatedButtons('');
     document.getElementById('modalMeta').style.display = 'none';
     document.getElementById('contentField').style.display = '';
     document.getElementById('feedbackField').style.display = 'none';
@@ -1108,6 +1119,97 @@ function deleteTask() {{
     .catch(function(e) {{
         showToast('⚠️ 현재 환경에서는 삭제가 불가능합니다 (API 서버 연결 필요)', true);
     }});
+}}
+
+// ── 연관업무 ──
+
+function renderRelatedButtons(relatedStr) {{
+    var container = document.getElementById('relatedTasks');
+    if (!container) return;
+    container.innerHTML = '';
+    var nums = (relatedStr || '').split(',').map(function(s) {{ return s.trim(); }}).filter(Boolean);
+    if (nums.length === 0) {{
+        container.innerHTML = '<span style="color:#484f5a;font-size:12px">연관업무 없음</span>';
+        return;
+    }}
+    for (var i = 0; i < nums.length; i++) {{
+        var btn = document.createElement('span');
+        btn.textContent = '#' + nums[i];
+        btn.style.cssText = 'display:inline-block;padding:4px 10px;background:#1f6feb;color:#fff;border-radius:14px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s';
+        btn.onmouseenter = function() {{ this.style.background = '#58a6ff'; }};
+        btn.onmouseleave = function() {{ this.style.background = '#1f6feb'; }};
+        btn.onclick = (function(num) {{ return function(e) {{ openRelatedTask(num, e); }}; }})(nums[i]);
+        btn.oncontextmenu = (function(num) {{ return function(e) {{ e.preventDefault(); removeRelatedTask(num); }}; }})(nums[i]);
+        btn.title = '클릭: 열기 | 우클릭: 연결해제';
+        container.appendChild(btn);
+    }}
+}}
+
+function addRelatedTask() {{
+    var input = document.getElementById('relatedInput');
+    var num = parseInt(input.value, 10);
+    if (!num || num < 1) {{
+        showToast('올바른 업무번호를 입력하세요', true);
+        return;
+    }}
+    if (!currentTaskId) return;
+    fetch(API + '/tasks/' + currentTaskId + '/related', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ display_num: num }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(task) {{
+        if (task.error) {{ showToast(task.error, true); return; }}
+        renderRelatedButtons(task.related_tasks || '');
+        input.value = '';
+        showToast('#' + num + ' 연결됨');
+    }})
+    .catch(function() {{ showToast('연결 실패', true); }});
+}}
+
+function removeRelatedTask(displayNum) {{
+    if (!currentTaskId) return;
+    if (!confirm('#' + displayNum + ' 연결을 해제하시겠습니까?')) return;
+    fetch(API + '/tasks/' + currentTaskId + '/related/' + displayNum, {{
+        method: 'DELETE'
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(task) {{
+        if (task.error) {{ showToast(task.error, true); return; }}
+        renderRelatedButtons(task.related_tasks || '');
+        showToast('#' + displayNum + ' 연결 해제됨');
+    }})
+    .catch(function() {{ showToast('해제 실패', true); }});
+}}
+
+function openRelatedTask(displayNum, event) {{
+    event.stopPropagation();
+    var task = null;
+    for (var tid in TASKS_DATA) {{
+        if (TASKS_DATA[tid].display_num == displayNum) {{
+            task = TASKS_DATA[tid];
+            break;
+        }}
+    }}
+    if (task) {{
+        openModal(task.id);
+        return;
+    }}
+    fetch(API + '/tasks/list')
+        .then(function(r) {{ return r.json(); }})
+        .then(function(tasks) {{
+            for (var i = 0; i < tasks.length; i++) {{
+                if (tasks[i].display_num == displayNum) {{
+                    openModal(tasks[i].id);
+                    return;
+                }}
+            }}
+            showToast('#' + displayNum + ' 업무를 찾을 수 없습니다', true);
+        }})
+        .catch(function() {{
+            showToast('#' + displayNum + ' 업무를 찾을 수 없습니다', true);
+        }});
 }}
 
 // ── 에이전트 보드 ──

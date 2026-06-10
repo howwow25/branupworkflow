@@ -24,7 +24,8 @@ DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
 sys.path.insert(0, str(Path(__file__).parent))
 from db import (get_conn, get_task_by_id, update_task, now_iso,
                 get_active_tasks, get_completed_tasks,
-                create_task, get_room_by_chat_id, upsert_room)
+                create_task, get_room_by_chat_id, upsert_room,
+                get_task_by_display_num)
 
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
@@ -206,7 +207,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         body = self._parse_body()
-        allowed = {"title", "assignee", "due_at", "summary", "priority", "feedback"}
+        allowed = {"title", "assignee", "due_at", "summary", "priority", "feedback", "related_tasks"}
         updates = {k: v for k, v in body.items() if k in allowed}
         if not updates:
             self._send_json({"error": "no valid fields"}, 400)
@@ -218,6 +219,13 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json(task)
 
     def do_DELETE(self):
+        parts = urlparse(self.path).path.strip("/").split("/")
+
+        # /api/tasks/<id>/related/<display_num> → 연관업무 삭제
+        if len(parts) == 5 and parts[0] == "api" and parts[1] == "tasks" and parts[3] == "related":
+            self._handle_remove_related(parts[2], parts[4])
+            return
+
         task_id, _ = self._extract_task_id()
         if not task_id:
             self._send_json({"error": "not found"}, 404)
@@ -250,6 +258,11 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/rooms → room 생성/조회
         if len(parts) == 2 and parts[0] == "api" and parts[1] == "rooms":
             self._handle_rooms_create()
+            return
+
+        # /api/tasks/<id>/related → 연관업무 추가
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "tasks" and parts[3] == "related":
+            self._handle_add_related(parts[2])
             return
 
         # /api/tasks/<id>/complete
@@ -303,6 +316,42 @@ class APIHandler(BaseHTTPRequestHandler):
             body.get("name", "브랜업"),
         )
         self._send_json(room)
+
+    def _handle_add_related(self, task_id):
+        """POST /api/tasks/<id>/related → 연관업무 추가"""
+        body = self._parse_body()
+        display_num = body.get("display_num")
+        if not display_num:
+            self._send_json({"error": "display_num required"}, 400)
+            return
+        task = get_task_by_id(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+        related = get_task_by_display_num(int(display_num))
+        if not related:
+            self._send_json({"error": f"#{display_num} 업무가 없습니다"}, 404)
+            return
+        current = (task.get("related_tasks") or "").strip()
+        nums = [n.strip() for n in current.split(",") if n.strip()]
+        if str(display_num) not in nums:
+            nums.append(str(display_num))
+        update_task(task_id, related_tasks=",".join(nums))
+        self._refresh_dashboard()
+        self._send_json(get_task_by_id(task_id))
+
+    def _handle_remove_related(self, task_id, display_num):
+        """DELETE /api/tasks/<id>/related/<display_num> → 연관업무 삭제"""
+        task = get_task_by_id(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+        current = (task.get("related_tasks") or "").strip()
+        nums = [n.strip() for n in current.split(",") if n.strip()]
+        nums = [n for n in nums if n != str(display_num)]
+        update_task(task_id, related_tasks=",".join(nums))
+        self._refresh_dashboard()
+        self._send_json(get_task_by_id(task_id))
 
     def _handle_agent(self):
         body = self._parse_body()
