@@ -126,11 +126,12 @@ def render_completed_card(t, closed_date, label):
     closed_str = closed_date.strftime("%m/%d")
     task_id = t.get("id", "")
     prio = t.get("priority", "") or ""
+    num = t.get("display_num", "?")
     prio_icon_done = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
     prio_html_done = f'<span class="prio-icon">{prio_icon_done}</span>' if prio_icon_done else ""
 
     return f"""<div class="card done" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-done">{label}</span>{prio_html_done}
+    <span class="dday badge-done">#{num}</span>{prio_html_done}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="assignee">👤 {assignee}</span>
