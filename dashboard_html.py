@@ -723,7 +723,7 @@ body {{
                 <label>🔗 연관업무</label>
                 <div id="relatedTasks" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center"></div>
                 <div style="display:flex;gap:6px;margin-top:8px">
-                    <input type="number" id="relatedInput" placeholder="업무번호" onkeydown="if(event.key==='Enter')addRelatedTask()" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">
+                    <input type="number" id="relatedInput" placeholder="업무번호" onkeydown="if(event.key===&quot;Enter&quot;)addRelatedTask()" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">
                     <button onclick="addRelatedTask()" style="padding:6px 12px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">추가</button>
                 </div>
             </div>
@@ -924,7 +924,7 @@ function createModalEl() {{
         '<div class="modal-field"><label>🔗 연관업무</label>' +
         '<div class="related-tasks" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center"></div>' +
         '<div style="display:flex;gap:6px;margin-top:8px">' +
-        '<input type="number" class="related-input" placeholder="업무번호" onkeydown="if(event.key===\'Enter\')addRelatedTask(this)" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">' +
+        '<input type="number" class="related-input" placeholder="업무번호" onkeydown="if(event.key===&quot;Enter&quot;)addRelatedTask(this)" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">' +
         '<button onclick="addRelatedTask(this)" style="padding:6px 12px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">추가</button>' +
         '</div></div>' +
         '<div class="modal-actions">' +
