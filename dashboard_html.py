@@ -416,6 +416,17 @@ body {{
 .modal-field input:focus, .modal-field textarea:focus, .modal-field select:focus {{
     outline: none; border-color: #58a6ff;
 }}
+.modal-field select[multiple] {{
+    min-height: 110px;
+    padding: 6px 8px;
+}}
+.modal-field select[multiple] option {{
+    padding: 5px 10px; border-radius: 4px; margin: 1px 0;
+}}
+.modal-field select[multiple] option:checked {{
+    background: linear-gradient(135deg, #1f6feb, #58a6ff);
+    color: #fff;
+}}
 .modal-field textarea {{
     resize: vertical; min-height: 80px;
 }}
@@ -636,10 +647,10 @@ body {{
             </div>
             <div class="modal-field">
                 <label>담당자</label>
-                <select id="editAssignee">
-                    <option value="">미정</option>
+                <select id="editAssignee" multiple size="5">
                     {''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}
                 </select>
+                <div style="font-size:10px;color:#8b949e;margin-top:3px">Ctrl+클릭: 다중 선택 | 선택 없으면 '미정'</div>
             </div>
             <div class="modal-field">
                 <label>마감일</label>
@@ -851,20 +862,28 @@ function populateModal(task) {{
     document.getElementById('editDue').value = task.due_at ? task.due_at.slice(0,10) : '';
 
     var sel = document.getElementById('editAssignee');
-    var found = false;
+    // 모두 선택 해제
     for (var i = 0; i < sel.options.length; i++) {{
-        if (sel.options[i].value === (task.assignee || '')) {{
-            sel.selectedIndex = i;
-            found = true;
-            break;
-        }}
+        sel.options[i].selected = false;
     }}
-    if (!found && task.assignee) {{
-        var opt = document.createElement('option');
-        opt.value = task.assignee;
-        opt.textContent = task.assignee;
-        opt.selected = true;
-        sel.appendChild(opt);
+    var names = (task.assignee || '').split(',').map(function(s) {{ return s.trim(); }});
+    for (var n = 0; n < names.length; n++) {{
+        if (!names[n]) continue;
+        var found = false;
+        for (var i = 0; i < sel.options.length; i++) {{
+            if (sel.options[i].value === names[n]) {{
+                sel.options[i].selected = true;
+                found = true;
+                break;
+            }}
+        }}
+        if (!found) {{
+            var opt = document.createElement('option');
+            opt.value = names[n];
+            opt.textContent = names[n];
+            opt.selected = true;
+            sel.appendChild(opt);
+        }}
     }}
 
     document.getElementById('editSummary').value = task.summary || task.title || '';
@@ -942,15 +961,17 @@ function openCreateModal() {{
     var filterName = activeBtn ? activeBtn.textContent.trim() : '';
     var validAssignees = ['강경철', '노수민', '이상원', '이향석', '전경표', '모두'];
     var sel = document.getElementById('editAssignee');
+    // 모두 선택 해제
+    for (var i = 0; i < sel.options.length; i++) {{
+        sel.options[i].selected = false;
+    }}
     if (validAssignees.indexOf(filterName) !== -1) {{
         for (var i = 0; i < sel.options.length; i++) {{
             if (sel.options[i].value === filterName) {{
-                sel.selectedIndex = i;
+                sel.options[i].selected = true;
                 break;
             }}
         }}
-    }} else {{
-        sel.selectedIndex = 0;
     }}
     document.getElementById('editSummary').value = '';
     document.getElementById('editFeedback').value = '';
@@ -965,6 +986,18 @@ function openCreateModal() {{
     document.getElementById('modalOverlay').classList.add('active');
 }}
 
+// ── 다중 담당자 값 가져오기 ──
+function getAssigneeValue() {{
+    var sel = document.getElementById('editAssignee');
+    var names = [];
+    for (var i = 0; i < sel.options.length; i++) {{
+        if (sel.options[i].selected && sel.options[i].value) {{
+            names.push(sel.options[i].value);
+        }}
+    }}
+    return names.join(', ');
+}}
+
 function createTask() {{
     var title = document.getElementById('editTitle').value.trim();
     if (!title) {{
@@ -973,7 +1006,7 @@ function createTask() {{
     }}
     var data = {{
         title: title,
-        assignee: document.getElementById('editAssignee').value,
+        assignee: getAssigneeValue(),
         due_at: document.getElementById('editDue').value || null,
         summary: document.getElementById('editSummary').value.trim(),
         priority: document.getElementById('editPriority').value
@@ -1003,7 +1036,7 @@ function saveTask() {{
     if (!currentTaskId) return;
     var data = {{
         title: document.getElementById('editTitle').value.trim(),
-        assignee: document.getElementById('editAssignee').value,
+        assignee: getAssigneeValue(),
         due_at: document.getElementById('editDue').value || null,
         summary: document.getElementById('editSummary').value.trim(),
         feedback: document.getElementById('editFeedback').value.trim(),
