@@ -20,6 +20,7 @@ if _os_dash.environ.get("BRANUP_API_URL"):
 else:
     from db import get_active_tasks, get_completed_tasks
 
+
 def dday(due_str):
     if not due_str: return None
     try:
@@ -29,6 +30,7 @@ def dday(due_str):
         return (due_date - datetime.now(KST).date()).days
     except Exception:
         return None
+
 
 def group_tasks(tasks):
     groups = {"delayed": [], "today": [], "d3": [], "d7": [], "upcoming": [], "no_due": []}
@@ -42,11 +44,13 @@ def group_tasks(tasks):
         else:                 groups["upcoming"].append((t, dd))
     return groups
 
+
 def dday_label(dd):
     if dd is None: return "미정"
     if dd < 0:     return f"D+{abs(dd)}"
     if dd == 0:    return "D-DAY"
     return f"D-{dd}"
+
 
 def dday_class(dd):
     if dd is None: return "nodue"
@@ -56,10 +60,12 @@ def dday_class(dd):
     if dd <= 7:    return "soon"
     return "ok"
 
+
 def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
-def render_card(t, dd):
+
+def render_card(t, dd, task_lookup=None):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     due = t.get("due_at", "")
@@ -72,8 +78,27 @@ def render_card(t, dd):
     prio_icon = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
     prio_html = f'<span class="prio-icon">{prio_icon}</span>' if prio_icon else ""
 
+    # ── 연관업무 칩 ──
+    related_html = ""
+    related = t.get("related_tasks", "").strip()
+    if related and task_lookup:
+        chips = []
+        for rn in related.split(","):
+            rn = rn.strip()
+            if not rn: continue
+            rtask = task_lookup.get(int(rn)) if rn.isdigit() else None
+            if rtask:
+                rcss = dday_class(dday(rtask.get("due_at")))
+                if rtask.get("status") == "완료":
+                    rcss = "done"
+                chips.append(f'<span class="rel-chip badge-{rcss}" onclick="openRelatedTask({rn},event)" title="#{rn} {esc(rtask.get("title",""))[:20]}">#{rn}</span>')
+            else:
+                chips.append(f'<span class="rel-chip badge-nodue" onclick="openRelatedTask({rn},event)">#{rn}</span>')
+        if chips:
+            related_html = '<div class="rel-chips">' + "".join(chips) + '</div>'
+
     return f"""<div class="card" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-{css}">#{num}</span>{prio_html}
+    <span class="dday badge-{css}">#{num}</span>{prio_html}{related_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="dday badge-{css}">{label}</span>
@@ -82,11 +107,13 @@ def render_card(t, dd):
     </div>
 </div>"""
 
+
 def week_range(w):
     today = datetime.now().date()
     monday = today - timedelta(days=today.weekday())
     start = monday - timedelta(weeks=w - 1)
     return start, start + timedelta(days=6)
+
 
 def month_range(m):
     today = datetime.now().date()
@@ -97,6 +124,7 @@ def month_range(m):
         return first, today
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first - timedelta(days=1)
+
 
 def group_completed(tasks):
     weeks = {}
@@ -120,6 +148,7 @@ def group_completed(tasks):
                 break
     return weeks, months
 
+
 def render_completed_card(t, closed_date, label):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
@@ -127,17 +156,16 @@ def render_completed_card(t, closed_date, label):
     task_id = t.get("id", "")
     prio = t.get("priority", "") or ""
     num = t.get("display_num", "?")
-    prio_icon_done = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
-    prio_html_done = f'<span class="prio-icon">{prio_icon_done}</span>' if prio_icon_done else ""
 
     return f"""<div class="card done" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-done">#{num}</span>{prio_html_done}
+    <span class="dday badge-done">#{num}</span>
     <div class="title">{title}</div>
     <div class="meta">
         <span class="assignee">👤 {assignee}</span>
         <span class="due">✅ {closed_str} 완료</span>
     </div>
 </div>"""
+
 
 def render():
     tasks = get_active_tasks()
@@ -163,8 +191,15 @@ def render():
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
-    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num"]} for t in tasks + completed}
+    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks"]} for t in tasks + completed}
     tasks_json = json.dumps(all_tasks, ensure_ascii=False)
+
+    # ── display_num → task lookup (연관업무 색상 표시용) ──
+    task_lookup = {}
+    for t in tasks + completed:
+        dn = t.get("display_num")
+        if dn:
+            task_lookup[dn] = t
 
     columns = [
         ("🔥 지연", "delayed", groups["delayed"]),
@@ -179,7 +214,7 @@ def render():
     for title, key, items in columns:
         cards_parts = []
         for t, dd in sorted(items, key=lambda x: x[1] or 999):
-            cards_parts.append(render_card(t, dd))
+            cards_parts.append(render_card(t, dd, task_lookup))
         cards = "".join(cards_parts)
         if not cards:
             cards = '<div class="empty">없음</div>'
@@ -330,6 +365,16 @@ body {{
 .card .title {{
     font-size: 13px; line-height: 1.5; margin: 8px 0; color: #e1e4e8;
 }}
+.rel-chips {{
+    display: inline-flex; gap: 3px; margin-left: auto; float: right;
+    flex-wrap: wrap; max-width: 50%;
+}}
+.rel-chip {{
+    display: inline-block; padding: 1px 6px; border-radius: 8px;
+    font-size: 10px; font-weight: 700; cursor: pointer;
+    opacity: 0.85; transition: opacity 0.15s;
+}}
+.rel-chip:hover {{ opacity: 1; }}
 .card .meta {{
     display: flex; justify-content: space-between;
     font-size: 11px; color: #8b949e;
@@ -851,281 +896,276 @@ function showToast(msg, isError) {{
 }}
 
 // ── 모달 ──
-function populateModal(task) {{
-    // edit 모드로 복원
-    modalMode = 'edit';
-    document.getElementById('btnSave').style.display = '';
-    document.getElementById('btnComplete').style.display = '';
-    document.getElementById('btnDelete').style.display = '';
-    document.getElementById('btnCreate').style.display = 'none';
-    document.getElementById('modalMeta').style.display = '';
-    document.getElementById('contentField').style.display = '';
-    document.getElementById('feedbackField').style.display = '';
-    // 정적 호스트 비활성화 재적용
-    if (isStaticHost) {{
-        document.querySelectorAll('.btn-save, .btn-complete, .btn-delete').forEach(function(btn) {{ btn.classList.add('disabled'); }});
-    }}
+var modalStack = [];
+var MODAL_Z_BASE = 1000;
 
-    document.getElementById('modalTitle').textContent = '#' + task.display_num + ' 업무 상세';
-    document.getElementById('editTitle').value = task.title || '';
-    document.getElementById('editDue').value = task.due_at ? task.due_at.slice(0,10) : '';
+function createModalEl() {{
+    var div = document.createElement('div');
+    div.className = 'modal';
+    div.style.zIndex = MODAL_Z_BASE + modalStack.length * 10;
+    div.onclick = function(e) {{ e.stopPropagation(); }};
+    div.innerHTML =
+        '<div class="modal-header">' +
+        '<h2 class="modal-title"></h2>' +
+        '<button class="modal-close" onclick="closeModal(this.parentElement.parentElement)">&times;</button>' +
+        '</div>' +
+        '<div class="modal-body">' +
+        '<div class="modal-status modal-meta"></div>' +
+        '<div class="modal-field"><label>제목</label><input type="text" class="edit-title" placeholder="업무 제목"></div>' +
+        '<div class="modal-field"><label>담당자</label><select class="edit-assignee" multiple size="5">' +
+        '{''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}' +
+        '</select><div style="font-size:10px;color:#8b949e;margin-top:3px">Ctrl+클릭: 다중 선택 | 선택 없으면 미정</div></div>' +
+        '<div class="modal-field"><label>마감일</label><input type="date" class="edit-due"></div>' +
+        '<div class="modal-field content-field"><label>📝 내용</label><textarea class="edit-summary" placeholder="업무 내용..." rows="4"></textarea></div>' +
+        '<div class="modal-field feedback-field" style="display:none"><label>💬 피드백</label><textarea class="edit-feedback" placeholder="완료 후기, 결과, 특이사항 등..."></textarea></div>' +
+        '<div class="modal-field"><label>우선순위</label><select class="edit-priority">' +
+        '<option value="긴급">🔴 긴급</option><option value="높음">🟠 높음</option><option value="중간" selected>🟡 중간</option><option value="낮음">🟢 낮음</option>' +
+        '</select></div>' +
+        '<div class="modal-field"><label>🔗 연관업무</label>' +
+        '<div class="related-tasks" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center"></div>' +
+        '<div style="display:flex;gap:6px;margin-top:8px">' +
+        '<input type="number" class="related-input" placeholder="업무번호" onkeydown="if(event.key===\'Enter\')addRelatedTask(this)" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">' +
+        '<button onclick="addRelatedTask(this)" style="padding:6px 12px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">추가</button>' +
+        '</div></div>' +
+        '<div class="modal-actions">' +
+        '<button class="btn-save modal-btn-save" onclick="saveTask(this)">💾 저장</button>' +
+        '<button class="btn-save modal-btn-create" onclick="createTask()" style="display:none">➕ 추가</button>' +
+        '<button class="btn-complete modal-btn-complete" onclick="completeTask(this)">✅ 완료 처리</button>' +
+        '<button class="btn-delete modal-btn-delete" onclick="deleteTask(this)">🗑 삭제</button>' +
+        '<button class="btn-cancel" onclick="closeModal(this.parentElement.parentElement.parentElement)">취소</button>' +
+        '</div></div>';
+    return div;
+}}
 
-    var sel = document.getElementById('editAssignee');
-    // 모두 선택 해제
-    for (var i = 0; i < sel.options.length; i++) {{
-        sel.options[i].selected = false;
-    }}
+function getModal() {{
+    if (modalStack.length === 0) return null;
+    return modalStack[modalStack.length - 1];
+}}
+
+function populateModal(modalEl, task) {{
+    modalEl.querySelector('.modal-title').textContent = '#' + task.display_num + ' 업무 상세';
+    modalEl.querySelector('.edit-title').value = task.title || '';
+    modalEl.querySelector('.edit-due').value = task.due_at ? task.due_at.slice(0,10) : '';
+    modalEl.querySelector('.edit-summary').value = task.summary || task.title || '';
+    modalEl.querySelector('.edit-feedback').value = task.feedback || '';
+    modalEl.querySelector('.edit-priority').value = task.priority || '중간';
+    modalEl.querySelector('.modal-meta').innerHTML =
+        '<strong>상태:</strong> ' + (task.status || '진행중') +
+        ' &nbsp;|&nbsp; <strong>생성:</strong> ' + (task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-') +
+        ' &nbsp;|&nbsp; <strong>수정:</strong> ' + (task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-') +
+        (task.closed_at ? ' | <strong>완료:</strong> ' + task.closed_at.slice(0,16).replace('T',' ') : '');
+
+    var sel = modalEl.querySelector('.edit-assignee');
+    for (var i = 0; i < sel.options.length; i++) {{ sel.options[i].selected = false; }}
     var names = (task.assignee || '').split(',').map(function(s) {{ return s.trim(); }});
     for (var n = 0; n < names.length; n++) {{
         if (!names[n]) continue;
         var found = false;
         for (var i = 0; i < sel.options.length; i++) {{
-            if (sel.options[i].value === names[n]) {{
-                sel.options[i].selected = true;
-                found = true;
-                break;
-            }}
+            if (sel.options[i].value === names[n]) {{ sel.options[i].selected = true; found = true; break; }}
         }}
-        if (!found) {{
-            var opt = document.createElement('option');
-            opt.value = names[n];
-            opt.textContent = names[n];
-            opt.selected = true;
-            sel.appendChild(opt);
-        }}
+        if (!found) {{ var opt = document.createElement('option'); opt.value = names[n]; opt.textContent = names[n]; opt.selected = true; sel.appendChild(opt); }}
     }}
 
-    document.getElementById('editSummary').value = task.summary || task.title || '';
+    var feedbackField = modalEl.querySelector('.feedback-field');
+    feedbackField.style.display = (task.status === '완료') ? '' : 'none';
+    var btnComplete = modalEl.querySelector('.modal-btn-complete');
+    btnComplete.style.display = (task.status === '완료') ? 'none' : '';
 
-    // 내용 필드 항상 표시
-    var contentField = document.getElementById('contentField');
-    contentField.style.display = '';
+    // 연관업무 렌더링
+    renderRelatedButtonsInModal(modalEl, task.related_tasks || '');
 
-    document.getElementById('editFeedback').value = task.feedback || '';
-    var feedbackField = document.getElementById('feedbackField');
-    if (task.status === '완료') {{
-        feedbackField.style.display = '';
-    }} else {{
-        feedbackField.style.display = 'none';
+    if (isStaticHost) {{
+        modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete').forEach(function(btn) {{ btn.classList.add('disabled'); }});
     }}
-
-    var prio = task.priority || '중간';
-    document.getElementById('editPriority').value = prio;
-
-    renderRelatedButtons(task.related_tasks || '');
-
-    var created = task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-';
-    var updated = task.updated_at ? task.updated_at.slice(0,16).replace('T',' ') : '-';
-    var closed = task.closed_at ? ' | <strong>완료:</strong> ' + task.closed_at.slice(0,16).replace('T',' ') : '';
-    document.getElementById('modalMeta').innerHTML =
-        '<strong>상태:</strong> ' + (task.status || '진행중') +
-        ' &nbsp;|&nbsp; <strong>생성:</strong> ' + created +
-        ' &nbsp;|&nbsp; <strong>수정:</strong> ' + updated + closed;
-
-    var btnComplete = document.getElementById('btnComplete');
-    if (task.status === '완료') {{
-        btnComplete.style.display = 'none';
-    }} else {{
-        btnComplete.style.display = '';
-    }}
-
-    document.getElementById('modalOverlay').classList.add('active');
 }}
 
 function openModal(taskId) {{
-    currentTaskId = taskId;
-
-    // 1) 내장 데이터 우선 조회 (API 없이 즉시 열림)
-    var local = TASKS_DATA[taskId];
-    if (local) {{
-        populateModal(local);
+    // 이미 열려있으면 포커스만
+    for (var i = 0; i < modalStack.length; i++) {{
+        if (modalStack[i].taskId === taskId) {{
+            var existing = modalStack[i].el;
+            existing.style.zIndex = MODAL_Z_BASE + modalStack.length * 10;
+            return;
+        }}
     }}
 
-    // 2) 백그라운드로 API 조회 → 최신 데이터로 갱신 시도
+    var local = TASKS_DATA[taskId];
+    var modalEl = createModalEl();
+    document.getElementById('modalOverlay').appendChild(modalEl);
+    document.getElementById('modalOverlay').classList.add('active');
+    modalStack.push({{ taskId: taskId, el: modalEl }});
+
+    if (local) populateModal(modalEl, local);
+
     fetch(API + '/tasks/' + taskId)
         .then(function(r) {{ return r.json(); }})
         .then(function(task) {{
-            if (task.error) return;
-            populateModal(task);
-        }})
-        .catch(function(e) {{
-            // API 없으면 내장 데이터만으로 충분 (조용히 무시)
-        }});
+            if (!task.error && modalEl.parentNode) populateModal(modalEl, task);
+        }}).catch(function() {{}});
 }}
 
-function closeModal(e) {{
-    if (e && e.target !== document.getElementById('modalOverlay')) return;
-    document.getElementById('modalOverlay').classList.remove('active');
-    currentTaskId = null;
-    modalMode = 'edit';
+function closeModal(el) {{
+    if (el === undefined) {{
+        // closeModal() 호출 시 최상단 모달 닫기
+        if (modalStack.length === 0) return;
+        el = modalStack[modalStack.length - 1].el;
+    }}
+    if (typeof el === 'object' && el.classList && el.classList.contains('modal')) {{
+        // el이 모달 div인 경우
+    }} else if (el && el.target === document.getElementById('modalOverlay')) {{
+        // overlay 클릭 → 최상단 모달 닫기
+        if (modalStack.length === 0) return;
+        el = modalStack[modalStack.length - 1].el;
+    }} else {{
+        return;
+    }}
+
+    el.remove();
+    modalStack = modalStack.filter(function(m) {{ return m.el !== el; }});
+    if (modalStack.length === 0) {{
+        document.getElementById('modalOverlay').classList.remove('active');
+        currentTaskId = null;
+    }} else {{
+        currentTaskId = modalStack[modalStack.length - 1].taskId;
+    }}
 }}
 
 // ── 새 업무 생성 ──
 function openCreateModal() {{
-    modalMode = 'create';
-    document.getElementById('modalTitle').textContent = '✨ 새 업무';
-    document.getElementById('editTitle').value = '';
-    // 마감일 기본값: 오늘
-    document.getElementById('editDue').value = new Date().toISOString().slice(0,10);
-    // 담당자 기본값: 현재 선택된 필터
+    var modalEl = createModalEl();
+    document.getElementById('modalOverlay').appendChild(modalEl);
+    document.getElementById('modalOverlay').classList.add('active');
+    modalStack.push({{ taskId: null, el: modalEl }});
+
+    modalEl.querySelector('.modal-title').textContent = '✨ 새 업무';
+    modalEl.querySelector('.edit-title').value = '';
+    modalEl.querySelector('.edit-due').value = new Date().toISOString().slice(0,10);
+    modalEl.querySelector('.edit-summary').value = '';
+    modalEl.querySelector('.edit-feedback').value = '';
+    modalEl.querySelector('.edit-priority').value = '중간';
+    modalEl.querySelector('.modal-meta').style.display = 'none';
+    modalEl.querySelector('.content-field').style.display = '';
+    modalEl.querySelector('.feedback-field').style.display = 'none';
+    modalEl.querySelector('.modal-btn-save').style.display = 'none';
+    modalEl.querySelector('.modal-btn-complete').style.display = 'none';
+    modalEl.querySelector('.modal-btn-delete').style.display = 'none';
+    modalEl.querySelector('.modal-btn-create').style.display = '';
+
+    var sel = modalEl.querySelector('.edit-assignee');
+    for (var i = 0; i < sel.options.length; i++) {{ sel.options[i].selected = false; }}
     var activeBtn = document.querySelector('.filter-btn.active');
     var filterName = activeBtn ? activeBtn.textContent.trim() : '';
     var validAssignees = ['강경철', '노수민', '이상원', '이향석', '전경표', '모두'];
-    var sel = document.getElementById('editAssignee');
-    // 모두 선택 해제
-    for (var i = 0; i < sel.options.length; i++) {{
-        sel.options[i].selected = false;
-    }}
     if (validAssignees.indexOf(filterName) !== -1) {{
         for (var i = 0; i < sel.options.length; i++) {{
-            if (sel.options[i].value === filterName) {{
-                sel.options[i].selected = true;
-                break;
-            }}
+            if (sel.options[i].value === filterName) {{ sel.options[i].selected = true; break; }}
         }}
     }}
-    document.getElementById('editSummary').value = '';
-    document.getElementById('editFeedback').value = '';
-    document.getElementById('editPriority').value = '중간';
-    renderRelatedButtons('');
-    document.getElementById('modalMeta').style.display = 'none';
-    document.getElementById('contentField').style.display = '';
-    document.getElementById('feedbackField').style.display = 'none';
-    document.getElementById('btnSave').style.display = 'none';
-    document.getElementById('btnComplete').style.display = 'none';
-    document.getElementById('btnDelete').style.display = 'none';
-    document.getElementById('btnCreate').style.display = '';
-    document.getElementById('modalOverlay').classList.add('active');
+    renderRelatedButtonsInModal(modalEl, '');
 }}
 
 // ── 다중 담당자 값 가져오기 ──
-function getAssigneeValue() {{
-    var sel = document.getElementById('editAssignee');
+function getAssigneeValue(modalEl) {{
+    var sel = modalEl ? modalEl.querySelector('.edit-assignee') : document.getElementById('editAssignee');
     var names = [];
     for (var i = 0; i < sel.options.length; i++) {{
-        if (sel.options[i].selected && sel.options[i].value) {{
-            names.push(sel.options[i].value);
-        }}
+        if (sel.options[i].selected && sel.options[i].value) names.push(sel.options[i].value);
     }}
     return names.join(', ');
 }}
 
 function createTask() {{
-    var title = document.getElementById('editTitle').value.trim();
-    if (!title) {{
-        showToast('제목은 필수입니다', true);
-        return;
-    }}
+    var m = getModal();
+    if (!m) return;
+    var modalEl = m.el;
+    var title = modalEl.querySelector('.edit-title').value.trim();
+    if (!title) {{ showToast('제목은 필수입니다', true); return; }}
     var data = {{
         title: title,
-        assignee: getAssigneeValue(),
-        due_at: document.getElementById('editDue').value || null,
-        summary: document.getElementById('editSummary').value.trim(),
-        priority: document.getElementById('editPriority').value
+        assignee: getAssigneeValue(modalEl),
+        due_at: modalEl.querySelector('.edit-due').value || null,
+        summary: modalEl.querySelector('.edit-summary').value.trim(),
+        priority: modalEl.querySelector('.edit-priority').value
     }};
-
     fetch(API + '/tasks', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(data)
     }})
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
-        if (task.error) {{
-            showToast('등록 실패: ' + task.error, true);
-            return;
-        }}
+        if (task.error) {{ showToast('등록 실패: ' + task.error, true); return; }}
         showToast('✨ #' + task.display_num + ' 등록 완료!');
-        closeModal();
+        closeModal(modalEl);
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
-    .catch(function(e) {{
-        showToast('⚠️ API 서버 연결 실패', true);
-    }});
+    .catch(function() {{ showToast('⚠️ API 서버 연결 실패', true); }});
 }}
 
-function saveTask() {{
-    if (!currentTaskId) return;
+function saveTask(btnEl) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
     var data = {{
-        title: document.getElementById('editTitle').value.trim(),
-        assignee: getAssigneeValue(),
-        due_at: document.getElementById('editDue').value || null,
-        summary: document.getElementById('editSummary').value.trim(),
-        feedback: document.getElementById('editFeedback').value.trim(),
-        priority: document.getElementById('editPriority').value
+        title: modalEl.querySelector('.edit-title').value.trim(),
+        assignee: getAssigneeValue(modalEl),
+        due_at: modalEl.querySelector('.edit-due').value || null,
+        summary: modalEl.querySelector('.edit-summary').value.trim(),
+        feedback: modalEl.querySelector('.edit-feedback').value.trim(),
+        priority: modalEl.querySelector('.edit-priority').value
     }};
-    if (!data.title) {{
-        showToast('제목은 필수입니다', true);
-        return;
-    }}
-
-    fetch(API + '/tasks/' + currentTaskId, {{
-        method: 'PATCH',
-        headers: {{ 'Content-Type': 'application/json' }},
+    if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
+    fetch(API + '/tasks/' + m.taskId, {{
+        method: 'PATCH', headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(data)
     }})
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
-        if (task.error) {{
-            showToast('저장 실패: ' + task.error, true);
-            return;
-        }}
+        if (task.error) {{ showToast('저장 실패: ' + task.error, true); return; }}
         showToast('저장 완료!');
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
-    .catch(function(e) {{
-        showToast('⚠️ 현재 환경에서는 편집이 불가능합니다 (API 서버 연결 필요)', true);
-    }});
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
 }}
 
-function completeTask() {{
-    if (!currentTaskId) return;
+function completeTask(btnEl) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
     if (!confirm('정말 완료 처리하시겠습니까?')) return;
-
-    fetch(API + '/tasks/' + currentTaskId + '/complete', {{
-        method: 'POST'
-    }})
+    fetch(API + '/tasks/' + m.taskId + '/complete', {{ method: 'POST' }})
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
-        if (task.error) {{
-            showToast('완료 처리 실패', true);
-            return;
-        }}
+        if (task.error) {{ showToast('완료 처리 실패', true); return; }}
         showToast('완료 처리되었습니다!');
         setTimeout(function() {{ forceRefresh(); }}, 500);
-    }})
-    .catch(function(e) {{
-        showToast('⚠️ 현재 환경에서는 완료 처리가 불가능합니다 (API 서버 연결 필요)', true);
-    }});
+    }}).catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
 }}
 
-function deleteTask() {{
-    if (!currentTaskId) return;
-    if (!confirm('정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
-
-    fetch(API + '/tasks/' + currentTaskId, {{
-        method: 'DELETE'
-    }})
+function deleteTask(btnEl) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+    fetch(API + '/tasks/' + m.taskId, {{ method: 'DELETE' }})
     .then(function(r) {{ return r.json(); }})
     .then(function(data) {{
-        if (data.error) {{
-            showToast('삭제 실패', true);
-            return;
-        }}
+        if (data.error) {{ showToast('삭제 실패', true); return; }}
         showToast('삭제 완료!');
-        document.getElementById('modalOverlay').classList.remove('active');
-        currentTaskId = null;
+        closeModal(modalEl);
         setTimeout(function() {{ forceRefresh(); }}, 500);
-    }})
-    .catch(function(e) {{
-        showToast('⚠️ 현재 환경에서는 삭제가 불가능합니다 (API 서버 연결 필요)', true);
-    }});
+    }}).catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
 }}
 
 // ── 연관업무 ──
 
 function renderRelatedButtons(relatedStr) {{
-    var container = document.getElementById('relatedTasks');
+    // 하위 호환: 기존 static modal
+    renderRelatedButtonsInModal(null, relatedStr);
+}}
+
+function renderRelatedButtonsInModal(modalEl, relatedStr) {{
+    var container = modalEl ? modalEl.querySelector('.related-tasks') : document.getElementById('relatedTasks');
     if (!container) return;
     container.innerHTML = '';
     var nums = (relatedStr || '').split(',').map(function(s) {{ return s.trim(); }}).filter(Boolean);
@@ -1140,52 +1180,51 @@ function renderRelatedButtons(relatedStr) {{
         btn.onmouseenter = function() {{ this.style.background = '#58a6ff'; }};
         btn.onmouseleave = function() {{ this.style.background = '#1f6feb'; }};
         btn.onclick = (function(num) {{ return function(e) {{ openRelatedTask(num, e); }}; }})(nums[i]);
-        btn.oncontextmenu = (function(num) {{ return function(e) {{ e.preventDefault(); removeRelatedTask(num); }}; }})(nums[i]);
+        btn.oncontextmenu = (function(num) {{ return function(e) {{ e.preventDefault(); removeRelatedTask(num, modalEl); }}; }})(nums[i]);
         btn.title = '클릭: 열기 | 우클릭: 연결해제';
         container.appendChild(btn);
     }}
 }}
 
-function addRelatedTask() {{
-    var input = document.getElementById('relatedInput');
+function addRelatedTask(btnEl) {{
+    var modalEl = btnEl ? btnEl.closest('.modal') : null;
+    var input = modalEl ? modalEl.querySelector('.related-input') : document.getElementById('relatedInput');
     var num = parseInt(input.value, 10);
-    if (!num || num < 1) {{
-        showToast('올바른 업무번호를 입력하세요', true);
-        return;
-    }}
-    if (!currentTaskId) return;
-    fetch(API + '/tasks/' + currentTaskId + '/related', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
+    if (!num || num < 1) {{ showToast('올바른 업무번호를 입력하세요', true); return; }}
+    var m = modalEl ? modalStack.find(function(x) {{ return x.el === modalEl; }}) : null;
+    var taskId = m ? m.taskId : currentTaskId;
+    if (!taskId) return;
+    fetch(API + '/tasks/' + taskId + '/related', {{
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify({{ display_num: num }})
     }})
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
         if (task.error) {{ showToast(task.error, true); return; }}
-        renderRelatedButtons(task.related_tasks || '');
+        renderRelatedButtonsInModal(modalEl, task.related_tasks || '');
         input.value = '';
         showToast('#' + num + ' 연결됨');
-    }})
-    .catch(function() {{ showToast('연결 실패', true); }});
+    }}).catch(function() {{ showToast('연결 실패', true); }});
 }}
 
-function removeRelatedTask(displayNum) {{
-    if (!currentTaskId) return;
+function removeRelatedTask(displayNum, modalEl) {{
+    if (!modalEl) modalEl = null;
+    var m = modalEl ? modalStack.find(function(x) {{ return x.el === modalEl; }}) : null;
+    var taskId = m ? m.taskId : currentTaskId;
+    if (!taskId) return;
     if (!confirm('#' + displayNum + ' 연결을 해제하시겠습니까?')) return;
-    fetch(API + '/tasks/' + currentTaskId + '/related/' + displayNum, {{
-        method: 'DELETE'
-    }})
+    fetch(API + '/tasks/' + taskId + '/related/' + displayNum, {{ method: 'DELETE' }})
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
         if (task.error) {{ showToast(task.error, true); return; }}
-        renderRelatedButtons(task.related_tasks || '');
+        renderRelatedButtonsInModal(modalEl, task.related_tasks || '');
         showToast('#' + displayNum + ' 연결 해제됨');
-    }})
-    .catch(function() {{ showToast('해제 실패', true); }});
+    }}).catch(function() {{ showToast('해제 실패', true); }});
 }}
 
 function openRelatedTask(displayNum, event) {{
     event.stopPropagation();
+    // TASKS_DATA에서 display_num으로 찾기
     var task = null;
     for (var tid in TASKS_DATA) {{
         if (TASKS_DATA[tid].display_num == displayNum) {{
@@ -1197,6 +1236,7 @@ function openRelatedTask(displayNum, event) {{
         openModal(task.id);
         return;
     }}
+    // 없으면 API로 다시 시도 (완료된 업무 등)
     fetch(API + '/tasks/list')
         .then(function(r) {{ return r.json(); }})
         .then(function(tasks) {{
@@ -1315,20 +1355,11 @@ function quickRegister() {{
             }}
         }});
         document.querySelectorAll('.card').forEach(function(card) {{
-            if (saved.indexOf('긴급') !== -1) {{
-                var p = card.getAttribute('data-priority');
-                if (p === '긴급') {{
-                    card.classList.remove('hidden');
-                }} else {{
-                    card.classList.add('hidden');
-                }}
+            var a = card.getAttribute('data-assignee') || '';
+            if (a.split(/,\\\\s*/).includes(saved) || a.split(/,\\\\s*/).includes('모두')) {{
+                card.classList.remove('hidden');
             }} else {{
-                var a = card.getAttribute('data-assignee') || '';
-                if (a.split(/,\\s*/).includes(saved) || a.split(/,\\s*/).includes('모두')) {{
-                    card.classList.remove('hidden');
-                }} else {{
-                    card.classList.add('hidden');
-                }}
+                card.classList.add('hidden');
             }}
         }});
         updateCounts();
@@ -1338,6 +1369,7 @@ function quickRegister() {{
 </body>
 </html>"""
     return html
+
 
 if __name__ == "__main__":
     html = render()
