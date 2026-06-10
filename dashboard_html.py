@@ -935,8 +935,23 @@ function openCreateModal() {{
     modalMode = 'create';
     document.getElementById('modalTitle').textContent = '✨ 새 업무';
     document.getElementById('editTitle').value = '';
-    document.getElementById('editDue').value = '';
-    document.getElementById('editAssignee').selectedIndex = 0;
+    // 마감일 기본값: 오늘
+    document.getElementById('editDue').value = new Date().toISOString().slice(0,10);
+    // 담당자 기본값: 현재 선택된 필터
+    var activeBtn = document.querySelector('.filter-btn.active');
+    var filterName = activeBtn ? activeBtn.textContent.trim() : '';
+    var validAssignees = ['강경철', '노수민', '이상원', '이향석', '전경표', '모두'];
+    var sel = document.getElementById('editAssignee');
+    if (validAssignees.indexOf(filterName) !== -1) {{
+        for (var i = 0; i < sel.options.length; i++) {{
+            if (sel.options[i].value === filterName) {{
+                sel.selectedIndex = i;
+                break;
+            }}
+        }}
+    }} else {{
+        sel.selectedIndex = 0;
+    }}
     document.getElementById('editSummary').value = '';
     document.getElementById('editFeedback').value = '';
     document.getElementById('editPriority').value = '중간';
