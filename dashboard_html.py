@@ -679,64 +679,7 @@ body {{
 {completed_html}
 
 <!-- ── 모달 ── -->
-<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
-    <div class="modal" onclick="event.stopPropagation()">
-        <div class="modal-header">
-            <h2 id="modalTitle">업무 상세</h2>
-            <button class="modal-close" onclick="closeModal()">&times;</button>
-        </div>
-        <div class="modal-body">
-            <div class="modal-status" id="modalMeta"></div>
-            <div class="modal-field">
-                <label>제목</label>
-                <input type="text" id="editTitle" placeholder="업무 제목">
-            </div>
-            <div class="modal-field">
-                <label>담당자</label>
-                <select id="editAssignee" multiple size="5">
-                    {''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}
-                </select>
-                <div style="font-size:10px;color:#8b949e;margin-top:3px">Ctrl+클릭: 다중 선택 | 선택 없으면 '미정'</div>
-            </div>
-            <div class="modal-field">
-                <label>마감일</label>
-                <input type="date" id="editDue">
-            </div>
-            <div class="modal-field" id="contentField">
-                <label>📝 내용</label>
-                <textarea id="editSummary" placeholder="업무 내용..." rows="4"></textarea>
-            </div>
-            <div class="modal-field" id="feedbackField" style="display:none">
-                <label>💬 피드백</label>
-                <textarea id="editFeedback" placeholder="완료 후기, 결과, 특이사항 등..."></textarea>
-            </div>
-            <div class="modal-field">
-                <label>우선순위</label>
-                <select id="editPriority">
-                    <option value="긴급">🔴 긴급</option>
-                    <option value="높음">🟠 높음</option>
-                    <option value="중간" selected>🟡 중간</option>
-                    <option value="낮음">🟢 낮음</option>
-                </select>
-            </div>
-            <div class="modal-field">
-                <label>🔗 연관업무</label>
-                <div id="relatedTasks" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center"></div>
-                <div style="display:flex;gap:6px;margin-top:8px">
-                    <input type="number" id="relatedInput" placeholder="업무번호" onkeydown="if(event.key===&quot;Enter&quot;)addRelatedTask()" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">
-                    <button onclick="addRelatedTask()" style="padding:6px 12px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">추가</button>
-                </div>
-            </div>
-            <div class="modal-actions">
-                <button class="btn-save" id="btnSave" onclick="saveTask()">💾 저장</button>
-                <button class="btn-save" id="btnCreate" onclick="createTask()" style="display:none">➕ 추가</button>
-                <button class="btn-complete" id="btnComplete" onclick="completeTask()">✅ 완료 처리</button>
-                <button class="btn-delete" id="btnDelete" onclick="deleteTask()">🗑 삭제</button>
-                <button class="btn-cancel" onclick="closeModal()">취소</button>
-            </div>
-        </div>
-    </div>
-</div>
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)"></div>
 <div class="toast" id="toast"></div>
 
 <!-- ── 에이전트 보드 ── -->
