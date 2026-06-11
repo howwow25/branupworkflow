@@ -802,6 +802,7 @@ function updateCounts() {{
 }}
 
 function filterAssignee(name) {{
+    sessionStorage.setItem('branup_filter', name);
     document.querySelectorAll('.filter-btn').forEach(function(btn) {{
         btn.classList.remove('active');
     }});
