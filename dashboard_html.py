@@ -1298,11 +1298,20 @@ function quickRegister() {{
             }}
         }});
         document.querySelectorAll('.card').forEach(function(card) {{
-            var a = card.getAttribute('data-assignee') || '';
-            if (a.split(/,\\\\s*/).includes(saved) || a.split(/,\\\\s*/).includes('모두')) {{
-                card.classList.remove('hidden');
+            if (saved === '긴급') {{
+                var p = card.getAttribute('data-priority');
+                if (p === '긴급') {{
+                    card.classList.remove('hidden');
+                }} else {{
+                    card.classList.add('hidden');
+                }}
             }} else {{
-                card.classList.add('hidden');
+                var a = card.getAttribute('data-assignee') || '';
+                if (a.split(/,\\s*/).includes(saved) || a.split(/,\\s*/).includes('모두')) {{
+                    card.classList.remove('hidden');
+                }} else {{
+                    card.classList.add('hidden');
+                }}
             }}
         }});
         updateCounts();
