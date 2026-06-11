@@ -268,6 +268,10 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/tasks/<id>/complete
         task_id, action = self._extract_task_id()
         if not task_id or action != "complete":
+            # /api/tasks/<id>/uncomplete 시도
+            if task_id and action == "uncomplete":
+                self._handle_uncomplete(task_id)
+                return
             self._send_json({"error": "not found"}, 404)
             return
 
@@ -283,6 +287,22 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json(task)
 
     # ── 에이전트 명령어 처리 ──────────────────────────
+
+    def _handle_uncomplete(self, task_id):
+        """POST /api/tasks/<id>/uncomplete → 완료 취소, 진행중으로 복원"""
+        task = get_task_by_id(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+
+        if task.get("status") != "완료":
+            self._send_json({"error": "완료된 업무만 취소할 수 있습니다"}, 400)
+            return
+
+        update_task(task_id, status="진행중", closed_at=None)
+        task = get_task_by_id(task_id)
+        self._refresh_dashboard()
+        self._send_json(task)
 
     def _handle_create(self):
         """POST /api/tasks → 새 업무 생성"""

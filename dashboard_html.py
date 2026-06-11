@@ -519,11 +519,15 @@ body {{
     background: #3a1a1a; color: #f85149; border-color: #f85149;
 }}
 .btn-delete:hover {{ background: #4a1f1f; }}
+.btn-uncomplete {{
+    background: #1a2a3a; color: #58a6ff; border-color: #58a6ff;
+}}
+.btn-uncomplete:hover {{ background: #1f344a; }}
 .btn-cancel {{
     background: #1c1f2a; color: #8b949e;
 }}
 .btn-cancel:hover {{ color: #e1e4e8; }}
-.btn-save.disabled, .btn-complete.disabled, .btn-delete.disabled {{
+.btn-save.disabled, .btn-complete.disabled, .btn-delete.disabled, .btn-uncomplete.disabled {{
     filter: grayscale(1);
     opacity: 0.35;
     cursor: not-allowed;
@@ -760,7 +764,7 @@ var modalMode = 'edit';  // 'edit' or 'create'
                 }}
                 // 모두 안 되면 비활성화
                 isStaticHost = true;
-                document.querySelectorAll('.btn-save, .btn-complete, .btn-delete').forEach(function(btn) {{
+                document.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete').forEach(function(btn) {{
                     btn.classList.add('disabled');
                 }});
             }});
@@ -897,6 +901,7 @@ function createModalEl() {{
         '<button class="btn-save modal-btn-create" onclick="createTask()" style="display:none">➕ 추가</button>' +
         '<button class="btn-complete modal-btn-complete" onclick="completeTask(this)">✅ 완료 처리</button>' +
         '<button class="btn-delete modal-btn-delete" onclick="deleteTask(this)">🗑 삭제</button>' +
+        '<button class="btn-uncomplete modal-btn-uncomplete" onclick="uncompleteTask(this)" style="display:none">↩ 완료취소</button>' +
         '<button class="btn-cancel" onclick="closeModal(this.parentElement.parentElement.parentElement)">취소</button>' +
         '</div></div>';
     return div;
@@ -936,12 +941,14 @@ function populateModal(modalEl, task) {{
     feedbackField.style.display = (task.status === '완료') ? '' : 'none';
     var btnComplete = modalEl.querySelector('.modal-btn-complete');
     btnComplete.style.display = (task.status === '완료') ? 'none' : '';
+    var btnUncomplete = modalEl.querySelector('.modal-btn-uncomplete');
+    btnUncomplete.style.display = (task.status === '완료') ? '' : 'none';
 
     // 연관업무 렌더링
     renderRelatedButtonsInModal(modalEl, task.related_tasks || '');
 
     if (isStaticHost) {{
-        modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete').forEach(function(btn) {{ btn.classList.add('disabled'); }});
+        modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete').forEach(function(btn) {{ btn.classList.add('disabled'); }});
     }}
 }}
 
@@ -1098,11 +1105,44 @@ function completeTask(btnEl) {{
     var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
     if (!m || !m.taskId) return;
     if (!confirm('정말 완료 처리하시겠습니까?')) return;
-    fetch(API + '/tasks/' + m.taskId + '/complete', {{ method: 'POST' }})
+
+    // 먼저 변경 내용 저장
+    var data = {{
+        title: modalEl.querySelector('.edit-title').value.trim(),
+        assignee: getAssigneeValue(modalEl),
+        due_at: modalEl.querySelector('.edit-due').value || null,
+        summary: modalEl.querySelector('.edit-summary').value.trim(),
+        feedback: modalEl.querySelector('.edit-feedback').value.trim(),
+        priority: modalEl.querySelector('.edit-priority').value
+    }};
+    if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
+
+    fetch(API + '/tasks/' + m.taskId, {{
+        method: 'PATCH', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(data)
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function() {{
+        return fetch(API + '/tasks/' + m.taskId + '/complete', {{ method: 'POST' }});
+    }})
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
         if (task.error) {{ showToast('완료 처리 실패', true); return; }}
         showToast('완료 처리되었습니다!');
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }}).catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function uncompleteTask(btnEl) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    if (!confirm('완료를 취소하고 진행중으로 되돌리시겠습니까?')) return;
+    fetch(API + '/tasks/' + m.taskId + '/uncomplete', {{ method: 'POST' }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(task) {{
+        if (task.error) {{ showToast('완료취소 실패', true); return; }}
+        showToast('완료가 취소되었습니다!');
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }}).catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
 }}
