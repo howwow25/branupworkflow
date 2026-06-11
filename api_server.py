@@ -337,6 +337,15 @@ class APIHandler(BaseHTTPRequestHandler):
         if str(display_num) not in nums:
             nums.append(str(display_num))
         update_task(task_id, related_tasks=",".join(nums))
+
+        # ── 상호참조: 연결된 업무에도 현재 업무 추가 ──
+        my_num = str(task.get("display_num", ""))
+        their_current = (related.get("related_tasks") or "").strip()
+        their_nums = [n.strip() for n in their_current.split(",") if n.strip()]
+        if my_num and my_num not in their_nums:
+            their_nums.append(my_num)
+            update_task(related["id"], related_tasks=",".join(their_nums))
+
         self._refresh_dashboard()
         self._send_json(get_task_by_id(task_id))
 
@@ -350,6 +359,16 @@ class APIHandler(BaseHTTPRequestHandler):
         nums = [n.strip() for n in current.split(",") if n.strip()]
         nums = [n for n in nums if n != str(display_num)]
         update_task(task_id, related_tasks=",".join(nums))
+
+        # ── 상호참조: 연결된 업무에서도 현재 업무 삭제 ──
+        my_num = str(task.get("display_num", ""))
+        other = get_task_by_display_num(int(display_num))
+        if other and my_num:
+            their_current = (other.get("related_tasks") or "").strip()
+            their_nums = [n.strip() for n in their_current.split(",") if n.strip()]
+            their_nums = [n for n in their_nums if n != my_num]
+            update_task(other["id"], related_tasks=",".join(their_nums))
+
         self._refresh_dashboard()
         self._send_json(get_task_by_id(task_id))
 
@@ -375,11 +394,13 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         # ── Telethon 중계 (실제 계정으로 Hermes DM에 전달) ──
-        script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
-        env_file = os.path.join(os.path.dirname(__file__), ".telethon.env")
-        if os.path.exists(script) and os.path.exists(env_file):
+        api_id = os.environ.get("TELEGRAM_API_ID", "")
+        api_hash = os.environ.get("TELEGRAM_API_HASH", "")
+        phone = os.environ.get("TELEGRAM_PHONE", "")
+        if api_id and api_hash and phone:
             try:
                 import subprocess
+                script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
                 env = os.environ.copy()
                 proc = subprocess.run(
                     [sys.executable, script, "--msg", text, "--timeout", "120"],
