@@ -16,7 +16,8 @@ DB_PATH = Path(DATA_DIR) / "db" / "branup.db"
 
 
 def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+    KST = timezone(timedelta(hours=9))
+    return datetime.now(KST).isoformat()
 
 
 def get_conn():
@@ -105,6 +106,50 @@ def _ensure_schema(conn):
                 (cur_max + i + 1, row["id"])
             )
     conn.commit()
+
+    # ── migration: UTC → KST timestamp 변환 ──
+    try:
+        sample = conn.execute(
+            "SELECT created_at FROM tasks WHERE created_at LIKE '%+00:00' LIMIT 1"
+        ).fetchone()
+        if sample:
+            from datetime import timezone, timedelta
+            KST = timezone(timedelta(hours=9))
+            tables_cols = {
+                'tasks': ['created_at', 'updated_at', 'closed_at'],
+                'rooms': ['registered_at'],
+                'inbox_messages': ['received_at'],
+                'task_events': ['created_at'],
+            }
+            count = 0
+            for table, cols in tables_cols.items():
+                try:
+                    rows = conn.execute(f'SELECT * FROM {table}').fetchall()
+                except Exception:
+                    continue
+                for row in rows:
+                    updates = {}
+                    for col in cols:
+                        val = row[col]
+                        if not val or '+00:00' not in val:
+                            continue
+                        try:
+                            dt = datetime.fromisoformat(val)
+                            kst_dt = dt.astimezone(KST)
+                            updates[col] = kst_dt.isoformat()
+                        except Exception:
+                            pass
+                    if updates:
+                        sets = ', '.join(f'{k}=?' for k in updates)
+                        vals = list(updates.values()) + [row['id']]
+                        conn.execute(f'UPDATE {table} SET {sets} WHERE id=?', vals)
+                        count += 1
+            conn.commit()
+            if count:
+                import sys
+                print(f'[db] UTC→KST migrated {count} rows', file=sys.stderr)
+    except Exception:
+        pass
 
 
 # ── rooms ──────────────────────────────────────────────
