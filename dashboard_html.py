@@ -220,28 +220,41 @@ def render_gantt(projects, tasks):
     if total_days < 1:
         total_days = 1
 
-    # ── 날짜 눈금 및 배경 그리드 (주 단위 + 월 경계 강조) ──
-    week_start = min_date - timedelta(days=min_date.weekday())
+    # ── 주별 얼룩말 배경 + 일 단위 세로선 + 월 레이블 ──
+    week_cursor = min_date - timedelta(days=min_date.weekday())
     grid_html = ""
+    wi = 0
+    while week_cursor <= max_date:
+        ws = week_cursor
+        we = min(week_cursor + timedelta(days=6), max_date)
+        lp = max(0, (ws - min_date).days / total_days * 100)
+        wp = max(0.3, (we - ws).days / total_days * 100)
+        bg = "#1c1f2a" if wi % 2 == 0 else "#16181d"
+        grid_html += f'<div class="gantt-grid-week" style="left:{lp:.1f}%;width:{wp:.1f}%;background:{bg}"></div>'
+        week_cursor += timedelta(days=7)
+        wi += 1
+
     ticks_html = ""
     last_month = None
-    cursor = week_start
+    cursor = min_date
     while cursor <= max_date:
-        left_pct = max(0, (cursor - min_date).days / total_days * 100)
+        lp = max(0, (cursor - min_date).days / total_days * 100)
         cur_month = cursor.month
-        is_month = (cur_month != last_month)
+        is_mon = (cur_month != last_month)
+        is_mon_start = is_mon
+        is_monday = (cursor.weekday() == 0)
 
-        line_cls = "gantt-grid-line month" if is_month else "gantt-grid-line"
-        grid_html += f'<div class="{line_cls}" style="left:{left_pct:.1f}%"></div>'
+        # 일 단위 세로선
+        line_style = "gantt-tick-day month" if is_mon_start else "gantt-tick-day"
+        ticks_html += f'<div class="{line_style}" style="left:{lp:.1f}%"></div>'
 
-        tick_cls = "gantt-tick month" if is_month else "gantt-tick"
-        if is_month:
-            ticks_html += f'<div class="{tick_cls}" style="left:{left_pct:.1f}%"><span class="gantt-tick-month">{cursor.strftime("%m월")}</span><span class="gantt-tick-date">{cursor.strftime("%m/%d")}</span></div>'
-        else:
-            ticks_html += f'<div class="{tick_cls}" style="left:{left_pct:.1f}%"><span class="gantt-tick-date">{cursor.strftime("%m/%d")}</span></div>'
+        if is_mon_start:
+            ticks_html += f'<div class="gantt-tick-month-label" style="left:{lp:.1f}%"><span>{cursor.strftime("%m월")}</span></div>'
+        if is_monday or is_mon_start:
+            ticks_html += f'<div class="gantt-tick-date-label" style="left:{lp:.1f}%"><span>{cursor.strftime("%m/%d")}</span></div>'
 
         last_month = cur_month
-        cursor += timedelta(days=7)
+        cursor += timedelta(days=1)
 
     status_color = {"계획": "#8b949e", "진행": "#58a6ff", "완료": "#3fb950", "지연": "#f85149", "보류": "#484f5a"}
 
@@ -849,18 +862,17 @@ body {{
     min-height: 40px;
 }}
 .gantt-grid {{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 0; }}
-.gantt-grid-line {{ position: absolute; top: 0; bottom: 0; width: 1px; background: #21262d; }}
-.gantt-grid-line.month {{ background: #30363d; }}
+.gantt-grid-week {{ position: absolute; top: 0; bottom: 0; }}
 .gantt-today-line {{
     position: absolute; top: 0; bottom: 0;
     width: 2px; background: #f85149;
     opacity: 0.8; z-index: 2;
 }}
-.gantt-ticks {{ position: relative; height: 36px; z-index: 1; margin-bottom: 4px; }}
-.gantt-tick {{ position: absolute; top: 0; transform: translateX(-50%); text-align: center; }}
-.gantt-tick-date {{ display: block; font-size: 10px; color: #8b949e; }}
-.gantt-tick.month {{ top: 0; }}
-.gantt-tick-month {{ display: block; font-size: 11px; color: #c9d1d9; font-weight: 600; margin-bottom: 1px; }}
+.gantt-ticks {{ position: relative; height: 40px; z-index: 1; margin-bottom: 4px; }}
+.gantt-tick-day {{ position: absolute; top: 0; height: 100%; width: 1px; background: #21262d; z-index: 0; }}
+.gantt-tick-day.month {{ background: #30363d; }}
+.gantt-tick-month-label {{ position: absolute; top: 0; transform: translateX(-8px); z-index: 2; font-size: 11px; color: #58a6ff; font-weight: 700; }}
+.gantt-tick-date-label {{ position: absolute; top: 18px; transform: translateX(-50%); z-index: 2; font-size: 9px; color: #8b949e; white-space: nowrap; }}
 .gantt-row {{
     display: flex; align-items: center; gap: 8px;
     padding: 4px 0; cursor: pointer;
