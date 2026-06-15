@@ -220,6 +220,21 @@ def render_gantt(projects, tasks):
     if total_days < 1:
         total_days = 1
 
+    # ── 날짜 눈금 (기간에 따라 주/2주/월 단위) ──
+    if total_days <= 30:
+        tick_interval = 7
+    elif total_days <= 90:
+        tick_interval = 14
+    else:
+        tick_interval = 30
+
+    ticks_html = ""
+    cursor = min_date
+    while cursor <= max_date:
+        left_pct = (cursor - min_date).days / total_days * 100
+        ticks_html += f'<div class="gantt-tick" style="left:{left_pct:.1f}%"><span class="gantt-tick-label">{cursor.strftime("%m/%d")}</span></div>'
+        cursor += timedelta(days=tick_interval)
+
     status_color = {"계획": "#8b949e", "진행": "#58a6ff", "완료": "#3fb950", "지연": "#f85149", "보류": "#484f5a"}
 
     rows = ""
@@ -269,6 +284,7 @@ def render_gantt(projects, tasks):
         <button class="gantt-refresh" onclick="toggleCreateMenu()" title="새로 만들기">＋</button>
     </div>
     <div class="gantt-chart">
+        <div class="gantt-ticks">{ticks_html}</div>
         <div class="gantt-today-line" style="left:{today_pct:.1f}%"></div>
         {rows}
     </div>
@@ -828,6 +844,10 @@ body {{
     width: 2px; background: #f85149;
     opacity: 0.6; z-index: 1;
 }}
+.gantt-ticks {{ position: relative; height: 22px; }}
+.gantt-tick {{ position: absolute; top: 0; transform: translateX(-50%); text-align: center; }}
+.gantt-tick::before {{ content: ''; display: block; width: 1px; height: 8px; background: #484f5a; margin: 0 auto 2px; }}
+.gantt-tick-label {{ font-size: 10px; color: #8b949e; white-space: nowrap; }}
 .gantt-row {{
     display: flex; align-items: center; gap: 8px;
     padding: 4px 0; cursor: pointer;
