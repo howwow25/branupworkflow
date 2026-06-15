@@ -251,7 +251,7 @@ def render_gantt(projects, tasks):
         # 프로젝트별 업무 수
         task_count = sum(1 for t in tasks if t.get("project_id") == pid)
 
-        rows += f"""<div class="gantt-row" onclick="filterByProject('{pid}')" title="{title} · {pstatus} · 업무 {task_count}건">
+        rows += f"""<div class="gantt-row" onclick="filterByProject('{pid}')" ondblclick="openProjectModal('{pid}')" title="{title} · {pstatus} · 업무 {task_count}건 (더블클릭: 상세보기)">
     <span class="gantt-label">{title[:16]}{'…' if len(title)>16 else ''}</span>
     <span class="gantt-count">{task_count}</span>
     <div class="gantt-bar-wrap">
@@ -265,7 +265,7 @@ def render_gantt(projects, tasks):
     return f"""<div class="gantt-section" id="ganttSection">
     <div class="gantt-header">
         <span class="gantt-title">📊 프로젝트</span>
-        <button class="gantt-refresh" onclick="openProjectModal()" title="새 프로젝트">＋</button>
+        <button class="gantt-refresh" onclick="toggleCreateMenu()" title="새로 만들기">＋</button>
     </div>
     <div class="gantt-chart">
         <div class="gantt-today-line" style="left:{today_pct:.1f}%"></div>
@@ -671,6 +671,29 @@ body {{
     transform: scale(1.08);
     box-shadow: 0 6px 28px rgba(63,185,80,0.5);
 }}
+.create-fab.active {{
+    background: #f85149; transform: rotate(45deg);
+}}
+.create-menu {{
+    position: fixed; bottom: 160px; right: 24px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 499; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+}}
+.create-menu.open {{
+    opacity: 1; pointer-events: auto;
+}}
+.create-menu button {{
+    padding: 10px 20px; border-radius: 8px;
+    border: 1px solid #2a2d3a;
+    background: #1c1f2a; color: #e1e4e8;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; text-align: left;
+    white-space: nowrap; transition: all 0.15s;
+}}
+.create-menu button:hover {{
+    border-color: #58a6ff; background: #1f2937;
+}}
 
 /* ── 에이전트 보드 ── */
 .agent-fab {{
@@ -904,7 +927,11 @@ body {{
 <div class="toast" id="toast"></div>
 
 <!-- ── 에이전트 보드 ── -->
-<button class="create-fab" onclick="openCreateModal()" title="새 업무">＋</button>
+<button class="create-fab" id="createFab" onclick="toggleCreateMenu()" title="새로 만들기">＋</button>
+<div class="create-menu" id="createMenu">
+    <button onclick="openCreateModal();toggleCreateMenu()">📋 새 업무</button>
+    <button onclick="openProjectModal();toggleCreateMenu()">📊 새 프로젝트</button>
+</div>
 <button class="agent-fab" id="agentFab" onclick="toggleAgent()" title="에이전트 보드">🤖</button>
 <div class="agent-panel" id="agentPanel">
     <div class="agent-messages" id="agentMessages">
@@ -1516,6 +1543,13 @@ function toggleAgent() {{
     }}
 }}
 
+function toggleCreateMenu() {{
+    var menu = document.getElementById('createMenu');
+    var fab = document.getElementById('createFab');
+    menu.classList.toggle('open');
+    fab.classList.toggle('active');
+}}
+
 function addAgentMsg(text, type) {{
     var msgs = document.getElementById('agentMessages');
     var div = document.createElement('div');
@@ -1651,12 +1685,14 @@ function openProjectModal(projectId) {{
         '<label>시작일</label><input type="date" class="proj-start" value="' + sd + '">' +
         '<label>예상 종료일</label><input type="date" class="proj-end" value="' + ed + '">' +
         '<label>담당자</label><input type="text" class="proj-assignees" value="' + assignees + '" placeholder="쉼표로 구분">' +
-        (isEdit ? '<div style="margin-top:12px"><button class="btn-row" onclick="addProjectTask(\'' + projectId + '\', this.closest(\'.modal\'))" style="padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%">➕ 하위 업무 추가</button></div>' : '') +
+        (isEdit ? '<div style="margin-top:12px"><button onclick="addProjectTaskFromModal(this)" style="padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%">➕ 하위 업무 추가</button></div>' : '') +
         '<div class="btn-row">' +
-        '<button class="btn-primary" onclick="saveProject(\'' + (projectId || '') + '\', this.closest(\'.modal\'))">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
-        (isEdit ? '<button class="btn-danger" onclick="deleteProject(\'' + projectId + '\', this.closest(\'.modal\'))">🗑 삭제</button>' : '') +
+        '<button class="btn-primary" onclick="saveProjectFromModal(this)">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
+        (isEdit ? '<button class="btn-danger" onclick="deleteProjectFromModal(this)">🗑 삭제</button>' : '') +
         '<button class="btn-cancel" style="background:#1c1f2a;color:#8b949e" onclick="closeModal(this.closest(\'.modal\'))">취소</button>' +
         '</div></div>';
+
+    modalEl.setAttribute('data-project-id', projectId || '');
 
     document.getElementById('modalOverlay').appendChild(modalEl);
     document.getElementById('modalOverlay').classList.add('active');
@@ -1691,6 +1727,12 @@ function saveProject(projectId, modalEl) {{
     .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
 }}
 
+function saveProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var projectId = modalEl.getAttribute('data-project-id') || '';
+    saveProject(projectId, modalEl);
+}}
+
 function deleteProject(projectId, modalEl) {{
     if (!confirm('프로젝트를 삭제하시겠습니까?\\n하위 업무는 프로젝트에서 해제됩니다.')) return;
     fetch(API + '/projects/' + projectId, {{ method: 'DELETE' }})
@@ -1702,6 +1744,13 @@ function deleteProject(projectId, modalEl) {{
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
     .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function deleteProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var projectId = modalEl.getAttribute('data-project-id');
+    if (!projectId) {{ showToast('프로젝트 ID 없음', true); return; }}
+    deleteProject(projectId, modalEl);
 }}
 
 function addProjectTask(projectId, modalEl) {{
@@ -1719,6 +1768,13 @@ function addProjectTask(projectId, modalEl) {{
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
     .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function addProjectTaskFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var projectId = modalEl.getAttribute('data-project-id');
+    if (!projectId) {{ showToast('프로젝트 ID 없음', true); return; }}
+    addProjectTask(projectId, modalEl);
 }}
 </script>
 </body>
