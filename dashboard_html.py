@@ -418,6 +418,8 @@ body {{
 }}
 .header h1 {{ font-size: 24px; font-weight: 700; }}
 .header .sub {{ color: #8b949e; font-size: 13px; margin-top: 4px; }}
+.header .refresh-btn {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 18px; padding: 2px 8px; border-radius: 6px; margin-left: 10px; vertical-align: middle; }}
+.header .refresh-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
 .filters {{
     display: flex; gap: 8px; padding: 12px 32px;
     background: #16181d; border-bottom: 1px solid #2a2d3a;
@@ -890,7 +892,7 @@ body {{
 </head>
 <body>
 <div class="header">
-    <h1>📊 브랜업 대시보드</h1>
+    <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
 </div>
 <div class="filters">{filter_btns}</div>
