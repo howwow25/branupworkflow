@@ -55,6 +55,8 @@ Write-Host "  대시보드: toffer.co.kr/branup/test/index.html"
 Write-Host "  API:      toffer.co.kr/branup/test/api (→ localhost:8801)"
 Write-Host "  프로덕션: toffer.co.kr/branup/branup-watcher (port 8800) - 영향 없음"
 Write-Host ''
-Write-Host '⚠️ Apache 설정 필요:' -ForegroundColor Yellow
-Write-Host '  ProxyPass /branup/test/api http://localhost:8801/api'
-Write-Host '  ProxyPassReverse /branup/test/api http://localhost:8801/api'
+Write-Host '⚠️ Apache 설정 필요 (httpd.conf):' -ForegroundColor Yellow
+Write-Host '  ProxyPass /branup/test http://localhost:8801/'
+Write-Host '  ProxyPassReverse /branup/test http://localhost:8801/'
+Write-Host ''
+Write-Host '  접속: http://toffer.co.kr/branup/test/'
