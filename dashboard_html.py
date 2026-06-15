@@ -1693,7 +1693,7 @@ function openProjectModal(projectId) {{
         '<div class="btn-row">' +
         '<button class="btn-primary" onclick="saveProjectFromModal(this)">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
         (isEdit ? '<button class="btn-danger" onclick="deleteProjectFromModal(this)">🗑 삭제</button>' : '') +
-        '<button class="btn-cancel" style="background:#1c1f2a;color:#8b949e" onclick="closeModal(this.closest(\'.modal\'))">취소</button>' +
+        '<button class="btn-cancel" style="background:#1c1f2a;color:#8b949e" onclick="closeModal(this.closest(&apos;.modal&apos;))">취소</button>' +
         '</div></div>';
 
     modalEl.setAttribute('data-project-id', projectId || '');
