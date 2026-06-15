@@ -12,6 +12,7 @@ DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
     str(Path(__file__).parent.parent / "data"))
 OUTPUT_PATH = Path(DATA_DIR) / "dashboard.html"
 API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
+API_BASE = os.environ.get("BRANUP_API_BASE", "")
 
 sys.path.insert(0, str(Path(__file__).parent))
 import os as _os_dash
@@ -955,7 +956,8 @@ body {{
 <script>
 var TASKS_DATA = {tasks_json};
 var PROJECTS_DATA = {projects_json};
-var API = (window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api');
+var API_BASE = '{API_BASE}';
+var API = API_BASE || ((window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api'));
 var currentTaskId = null;
 var isStaticHost = false;
 var modalMode = 'edit';  // 'edit' or 'create'
