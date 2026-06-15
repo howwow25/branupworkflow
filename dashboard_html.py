@@ -16,9 +16,9 @@ API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
 sys.path.insert(0, str(Path(__file__).parent))
 import os as _os_dash
 if _os_dash.environ.get("BRANUP_API_URL"):
-    from branup_api import get_active_tasks, get_completed_tasks
+    from branup_api import get_active_tasks, get_completed_tasks, get_projects
 else:
-    from db import get_active_tasks, get_completed_tasks
+    from db import get_active_tasks, get_completed_tasks, get_projects
 
 
 def dday(due_str):
@@ -188,11 +188,102 @@ def render_completed_card(t, closed_date, label, task_lookup=None):
 </div>"""
 
 
+def render_gantt(projects, tasks):
+    """프로젝트 간트차트 HTML. 날짜 범위는 전체 프로젝트+업무 기준."""
+    if not projects:
+        return ""
+
+    today = datetime.now().date()
+
+    # 날짜 범위 계산
+    all_dates = [today]
+    for p in projects:
+        for f in ("start_date", "expected_end_date"):
+            v = p.get(f)
+            if v:
+                try:
+                    all_dates.append(datetime.strptime(v[:10], "%Y-%m-%d").date())
+                except Exception:
+                    pass
+    for t in tasks:
+        d = t.get("due_at")
+        if d:
+            try:
+                all_dates.append(datetime.strptime(d[:10], "%Y-%m-%d").date())
+            except Exception:
+                pass
+
+    min_date = min(all_dates) - timedelta(days=3)
+    max_date = max(all_dates) + timedelta(days=3)
+    total_days = (max_date - min_date).days
+    if total_days < 1:
+        total_days = 1
+
+    status_color = {"계획": "#8b949e", "진행": "#58a6ff", "완료": "#3fb950", "지연": "#f85149", "보류": "#484f5a"}
+
+    rows = ""
+    for p in projects:
+        sd_str = p.get("start_date", "")
+        ed_str = p.get("expected_end_date", "")
+        sd = None
+        ed = None
+        try:
+            if sd_str: sd = datetime.strptime(sd_str[:10], "%Y-%m-%d").date()
+            if ed_str: ed = datetime.strptime(ed_str[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+        if not sd:
+            continue
+
+        left_pct = max(0, (sd - min_date).days / total_days * 100)
+        if ed:
+            width_pct = max(1, (ed - sd).days / total_days * 100)
+        else:
+            width_pct = max(1, (today - sd).days / total_days * 100)
+            if width_pct < 1: width_pct = 1
+
+        color = status_color.get(p.get("status", "계획"), "#8b949e")
+        title = esc(p.get("title", ""))
+        pstatus = p.get("status", "계획")
+        pid = p.get("id", "")
+
+        # 프로젝트별 업무 수
+        task_count = sum(1 for t in tasks if t.get("project_id") == pid)
+
+        rows += f"""<div class="gantt-row" onclick="filterByProject('{pid}')" title="{title} · {pstatus} · 업무 {task_count}건">
+    <span class="gantt-label">{title[:16]}{'…' if len(title)>16 else ''}</span>
+    <span class="gantt-count">{task_count}</span>
+    <div class="gantt-bar-wrap">
+        <div class="gantt-bar" style="left:{left_pct:.1f}%;width:{width_pct:.1f}%;background:{color}" data-status="{pstatus}"></div>
+    </div>
+</div>"""
+
+    # 오늘 마커 위치
+    today_pct = (today - min_date).days / total_days * 100
+
+    return f"""<div class="gantt-section" id="ganttSection">
+    <div class="gantt-header">
+        <span class="gantt-title">📊 프로젝트</span>
+        <button class="gantt-refresh" onclick="openProjectModal()" title="새 프로젝트">＋</button>
+    </div>
+    <div class="gantt-chart">
+        <div class="gantt-today-line" style="left:{today_pct:.1f}%"></div>
+        {rows}
+    </div>
+    <div class="gantt-range">
+        <span>{min_date.strftime('%m/%d')}</span>
+        <span>{max_date.strftime('%m/%d')}</span>
+    </div>
+</div>"""
+
+
 def render():
     tasks = get_active_tasks()
     groups = group_tasks(tasks)
     completed = get_completed_tasks()
     c_weeks, c_months = group_completed(completed)
+    projects = get_projects()
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
@@ -212,8 +303,11 @@ def render():
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
-    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks"]} for t in tasks + completed}
+    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks","project_id"]} for t in tasks + completed}
     tasks_json = json.dumps(all_tasks, ensure_ascii=False)
+
+    # ── 프로젝트 데이터 JSON ──
+    projects_json = json.dumps({p["id"]: p for p in projects}, ensure_ascii=False)
 
     # ── display_num → task lookup (연관업무 색상 표시용) ──
     task_lookup = {}
@@ -230,6 +324,19 @@ def render():
         ("📋 D-7", "d7", groups["d7"]),
         ("🟢 여유", "upcoming", groups["upcoming"]),
     ]
+
+    # ── 간트차트 ──
+    gantt_html = render_gantt(projects, tasks)
+
+    # ── 프로젝트 필터 칩 ──
+    proj_filter_html = '<button class="filter-btn proj active" onclick="filterByProject(null)">📊 전체</button>'
+    proj_options = ''
+    for p in projects:
+        title = esc(p.get("title", ""))
+        pid = p.get("id", "")
+        task_count = sum(1 for t in tasks if t.get("project_id") == pid)
+        proj_filter_html += f'<button class="filter-btn proj" onclick="filterByProject(\'{pid}\')" title="{title} · 업무 {task_count}건">{title[:10]}{"…" if len(title)>10 else ""} <span class="proj-cnt">{task_count}</span></button>'
+        proj_options += f'<option value="{pid}">{esc(title)} ({task_count}건)</option>'
 
     col_html = ""
     for title, key, items in columns:
@@ -668,6 +775,93 @@ body {{
     color: #484f5a; font-size: 12px;
     padding: 8px 14px;
 }}
+/* ── 간트차트 ── */
+.gantt-section {{
+    margin: 16px 32px 0; background: #16181d;
+    border-radius: 12px; border: 1px solid #2a2d3a;
+    overflow: hidden;
+}}
+.gantt-header {{
+    padding: 12px 16px; display: flex;
+    justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #2a2d3a;
+}}
+.gantt-title {{ font-weight: 700; font-size: 14px; color: #e1e4e8; }}
+.gantt-refresh {{
+    background: #1f6feb; color: #fff; border: none;
+    border-radius: 6px; padding: 4px 12px;
+    cursor: pointer; font-size: 14px; font-weight: 700;
+}}
+.gantt-refresh:hover {{ background: #388bfd; }}
+.gantt-chart {{
+    padding: 8px 16px; position: relative;
+    min-height: 40px;
+}}
+.gantt-today-line {{
+    position: absolute; top: 0; bottom: 0;
+    width: 2px; background: #f85149;
+    opacity: 0.6; z-index: 1;
+}}
+.gantt-row {{
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0; cursor: pointer;
+    transition: opacity 0.15s;
+}}
+.gantt-row:hover {{ opacity: 0.8; }}
+.gantt-label {{
+    width: 120px; font-size: 12px; color: #8b949e;
+    text-align: right; flex-shrink: 0;
+}}
+.gantt-count {{
+    font-size: 10px; color: #484f5a;
+    background: #1c1f2a; border-radius: 4px;
+    padding: 0 4px; min-width: 18px; text-align: center;
+}}
+.gantt-bar-wrap {{
+    flex: 1; height: 18px; position: relative;
+    background: #0f1117; border-radius: 4px;
+}}
+.gantt-bar {{
+    position: absolute; top: 2px; height: 14px;
+    border-radius: 3px; min-width: 6px;
+    transition: opacity 0.15s;
+}}
+.gantt-range {{
+    display: flex; justify-content: space-between;
+    padding: 4px 16px 8px; font-size: 10px; color: #484f5a;
+    border-top: 1px solid #2a2d3a;
+}}
+/* ── 프로젝트 필터 ── */
+.filter-btn.proj {{ border-color: #3fb950; color: #3fb950; }}
+.filter-btn.proj:hover {{ border-color: #3fb950; background: rgba(63,185,80,0.1); }}
+.filter-btn.proj.active {{ background: #3fb950; color: #000; border-color: #3fb950; }}
+.proj-cnt {{ font-size: 9px; opacity: 0.7; }}
+/* ── 프로젝트 모달 ── */
+.project-modal .modal-body label {{ font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px; }}
+.project-modal input, .project-modal textarea, .project-modal select {{
+    width: 100%; padding: 8px 12px; margin-bottom: 12px;
+    background: #0f1117; border: 1px solid #2a2d3a;
+    border-radius: 6px; color: #e1e4e8; font-size: 13px;
+}}
+.project-modal input:focus, .project-modal textarea:focus, .project-modal select:focus {{
+    outline: none; border-color: #58a6ff;
+}}
+.project-modal .btn-row {{
+    display: flex; gap: 8px; margin-top: 12px;
+}}
+.project-modal .btn-row button {{
+    padding: 8px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    border: 1px solid #2a2d3a;
+}}
+.project-modal .btn-primary {{
+    background: #238636; color: #fff; border-color: #238636;
+}}
+.project-modal .btn-primary:hover {{ background: #2ea043; }}
+.project-modal .btn-danger {{
+    background: #3a1a1a; color: #f85149; border-color: #f85149;
+}}
+.project-modal .btn-danger:hover {{ background: #4a1f1f; }}
 </style>
 </head>
 <body>
@@ -698,6 +892,8 @@ body {{
         <div class="label">완료</div>
     </div>
 </div>
+{gantt_html}
+<div class="filters" id="projFilters">{proj_filter_html}</div>
 <div class="board">
 {col_html}
 </div>
@@ -731,6 +927,7 @@ body {{
 <div class="footer">브랜업 대시보드 · {now_str} · 10분 자동갱신</div>
 <script>
 var TASKS_DATA = {tasks_json};
+var PROJECTS_DATA = {projects_json};
 var API = (window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api');
 var currentTaskId = null;
 var isStaticHost = false;
@@ -856,6 +1053,43 @@ function filterAssignee(name) {{
     updateCounts();
 }}
 
+function filterByProject(projectId) {{
+    // 프로젝트 필터 버튼 active 토글
+    document.querySelectorAll('.filter-btn.proj').forEach(function(btn) {{
+        btn.classList.remove('active');
+    }});
+    if (projectId) {{
+        var btns = document.querySelectorAll('.filter-btn.proj');
+        for (var i = 0; i < btns.length; i++) {{
+            if (btns[i].getAttribute('onclick').indexOf("'" + projectId + "'") !== -1) {{
+                btns[i].classList.add('active');
+                break;
+            }}
+        }}
+    }} else {{
+        // '전체' 버튼 active
+        var first = document.querySelector('.filter-btn.proj');
+        if (first) first.classList.add('active');
+    }}
+
+    // 카드 필터링
+    document.querySelectorAll('.card').forEach(function(card) {{
+        if (!projectId) {{
+            card.classList.remove('hidden');
+        }} else {{
+            var tid = card.getAttribute('data-task-id');
+            var task = TASKS_DATA[tid];
+            if (task && task.project_id === projectId) {{
+                card.classList.remove('hidden');
+            }} else {{
+                card.classList.add('hidden');
+            }}
+        }}
+    }});
+
+    updateCounts();
+}}
+
 function showToast(msg, isError) {{
     var t = document.getElementById('toast');
     t.textContent = msg;
@@ -890,6 +1124,7 @@ function createModalEl() {{
         '<div class="modal-field"><label>우선순위</label><select class="edit-priority">' +
         '<option value="긴급">🔴 긴급</option><option value="높음">🟠 높음</option><option value="중간" selected>🟡 중간</option><option value="낮음">🟢 낮음</option>' +
         '</select></div>' +
+        '<div class="modal-field"><label>📁 프로젝트</label><select class="edit-project"><option value="">없음</option>{proj_options}</select></div>' +
         '<div class="modal-field"><label>🔗 연관업무</label>' +
         '<div class="related-tasks" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center"></div>' +
         '<div style="display:flex;gap:6px;margin-top:8px">' +
@@ -919,6 +1154,7 @@ function populateModal(modalEl, task) {{
     modalEl.querySelector('.edit-summary').value = task.summary || task.title || '';
     modalEl.querySelector('.edit-feedback').value = task.feedback || '';
     modalEl.querySelector('.edit-priority').value = task.priority || '중간';
+    modalEl.querySelector('.edit-project').value = task.project_id || '';
     modalEl.querySelector('.modal-meta').innerHTML =
         '<strong>상태:</strong> ' + (task.status || '진행중') +
         ' &nbsp;|&nbsp; <strong>생성:</strong> ' + (task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-') +
@@ -1058,7 +1294,8 @@ function createTask() {{
         assignee: getAssigneeValue(modalEl),
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
-        priority: modalEl.querySelector('.edit-priority').value
+        priority: modalEl.querySelector('.edit-priority').value,
+        project_id: modalEl.querySelector('.edit-project').value || null
     }};
     fetch(API + '/tasks', {{
         method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
@@ -1084,7 +1321,8 @@ function saveTask(btnEl) {{
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
         feedback: modalEl.querySelector('.edit-feedback').value.trim(),
-        priority: modalEl.querySelector('.edit-priority').value
+        priority: modalEl.querySelector('.edit-priority').value,
+        project_id: modalEl.querySelector('.edit-project').value || null
     }};
     if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
     fetch(API + '/tasks/' + m.taskId, {{
@@ -1113,7 +1351,8 @@ function completeTask(btnEl) {{
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
         feedback: modalEl.querySelector('.edit-feedback').value.trim(),
-        priority: modalEl.querySelector('.edit-priority').value
+        priority: modalEl.querySelector('.edit-priority').value,
+        project_id: modalEl.querySelector('.edit-project').value || null
     }};
     if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
 
@@ -1379,6 +1618,108 @@ function quickRegister() {{
         updateCounts();
     }}
 }})();
+
+// ── 프로젝트 모달 ──
+function openProjectModal(projectId) {{
+    var modalEl = document.createElement('div');
+    modalEl.className = 'modal project-modal';
+    modalEl.style.zIndex = MODAL_Z_BASE + modalStack.length * 10 + 100;
+    modalEl.onclick = function(e) {{ e.stopPropagation(); }};
+
+    var proj = projectId ? (PROJECTS_DATA[projectId] || {{}}) : {{}};
+    var isEdit = !!projectId;
+    var title = proj.title || '';
+    var desc = proj.description || '';
+    var status = proj.status || '계획';
+    var sd = proj.start_date ? proj.start_date.slice(0,10) : '';
+    var ed = proj.expected_end_date ? proj.expected_end_date.slice(0,10) : '';
+    var assignees = proj.assignees || '';
+
+    var statusOpts = ['계획','진행','완료','지연','보류'].map(function(s) {{
+        return '<option value="' + s + '"' + (status === s ? ' selected' : '') + '>' + s + '</option>';
+    }}).join('');
+
+    modalEl.innerHTML =
+        '<div class="modal-header">' +
+        '<h2 class="modal-title">' + (isEdit ? '프로젝트 상세' : '새 프로젝트') + '</h2>' +
+        '<button class="modal-close" onclick="closeModal(this.parentElement.parentElement)">&times;</button>' +
+        '</div>' +
+        '<div class="modal-body">' +
+        '<label>제목</label><input type="text" class="proj-title" value="' + title + '" placeholder="프로젝트명">' +
+        '<label>설명</label><textarea class="proj-desc" rows="3" placeholder="프로젝트 설명...">' + desc + '</textarea>' +
+        '<label>상태</label><select class="proj-status">' + statusOpts + '</select>' +
+        '<label>시작일</label><input type="date" class="proj-start" value="' + sd + '">' +
+        '<label>예상 종료일</label><input type="date" class="proj-end" value="' + ed + '">' +
+        '<label>담당자</label><input type="text" class="proj-assignees" value="' + assignees + '" placeholder="쉼표로 구분">' +
+        (isEdit ? '<div style="margin-top:12px"><button class="btn-row" onclick="addProjectTask(\'' + projectId + '\', this.closest(\'.modal\'))" style="padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%">➕ 하위 업무 추가</button></div>' : '') +
+        '<div class="btn-row">' +
+        '<button class="btn-primary" onclick="saveProject(\'' + (projectId || '') + '\', this.closest(\'.modal\'))">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
+        (isEdit ? '<button class="btn-danger" onclick="deleteProject(\'' + projectId + '\', this.closest(\'.modal\'))">🗑 삭제</button>' : '') +
+        '<button class="btn-cancel" style="background:#1c1f2a;color:#8b949e" onclick="closeModal(this.closest(\'.modal\'))">취소</button>' +
+        '</div></div>';
+
+    document.getElementById('modalOverlay').appendChild(modalEl);
+    document.getElementById('modalOverlay').classList.add('active');
+    modalStack.push({{ taskId: null, el: modalEl }});
+}}
+
+function saveProject(projectId, modalEl) {{
+    var data = {{
+        title: modalEl.querySelector('.proj-title').value.trim(),
+        description: modalEl.querySelector('.proj-desc').value.trim(),
+        status: modalEl.querySelector('.proj-status').value,
+        start_date: modalEl.querySelector('.proj-start').value || null,
+        expected_end_date: modalEl.querySelector('.proj-end').value || null,
+        assignees: modalEl.querySelector('.proj-assignees').value.trim()
+    }};
+    if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
+
+    var method = projectId ? 'PATCH' : 'POST';
+    var url = projectId ? (API + '/projects/' + projectId) : (API + '/projects');
+
+    fetch(url, {{
+        method: method, headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(data)
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        if (result.error) {{ showToast('오류: ' + result.error, true); return; }}
+        showToast(projectId ? '프로젝트 저장 완료!' : '프로젝트 생성 완료!');
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function deleteProject(projectId, modalEl) {{
+    if (!confirm('프로젝트를 삭제하시겠습니까?\\n하위 업무는 프로젝트에서 해제됩니다.')) return;
+    fetch(API + '/projects/' + projectId, {{ method: 'DELETE' }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        if (result.error) {{ showToast('삭제 실패: ' + result.error, true); return; }}
+        showToast('프로젝트 삭제 완료!');
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function addProjectTask(projectId, modalEl) {{
+    var title = prompt('업무 제목을 입력하세요:');
+    if (!title || !title.trim()) return;
+    fetch(API + '/projects/' + projectId + '/tasks', {{
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ title: title.trim() }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        if (result.error) {{ showToast('추가 실패: ' + result.error, true); return; }}
+        showToast('업무 추가 완료! #' + result.display_num);
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
 </script>
 </body>
 </html>"""
