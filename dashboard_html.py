@@ -188,6 +188,176 @@ def render_completed_card(t, closed_date, label, task_lookup=None):
 </div>"""
 
 
+def generate_gantt(tasks, completed):
+    """엑셀 스타일 간트차트 HTML 생성 — 월 병합 헤더 + 일별 칸 + 빨간 오늘선"""
+    all_ts = tasks + completed
+    if not all_ts:
+        return '<div class="gantt-empty">날짜 정보가 있는 업무가 없습니다</div>'
+
+    today = datetime.now().date()
+    DAY_W = 32  # 하루 칸 너비 (px)
+    LABEL_W = 160  # 좌측 업무명 너비 (px)
+
+    # ── 프로젝트 날짜 범위 ──
+    dates_set = set()
+    for t in all_ts:
+        for k in ("created_at", "due_at", "closed_at"):
+            v = t.get(k, "")
+            if v:
+                try:
+                    dates_set.add(datetime.strptime(v[:10], "%Y-%m-%d").date())
+                except Exception:
+                    pass
+
+    if not dates_set:
+        start_date = today - timedelta(days=10)
+        end_date = today + timedelta(days=20)
+    else:
+        start_date = min(dates_set) - timedelta(days=3)
+        end_date = max(dates_set) + timedelta(days=7)
+        if today < start_date:
+            start_date = today - timedelta(days=3)
+        if today > end_date:
+            end_date = today + timedelta(days=7)
+
+    date_list = []
+    d = start_date
+    while d <= end_date:
+        date_list.append(d)
+        d += timedelta(days=1)
+
+    total_days = len(date_list)
+    total_width = total_days * DAY_W
+
+    # ── 월 헤더 (병합 셀) ──
+    month_cells = []
+    i = 0
+    while i < total_days:
+        m_key = date_list[i].strftime("%Y-%m")
+        j = i
+        while j < total_days and date_list[j].strftime("%Y-%m") == m_key:
+            j += 1
+        span = j - i
+        label = f"{date_list[i].year}년 {date_list[i].month}월"
+        month_cells.append(f'<div class="gantt-month-cell" style="flex:0 0 {span * DAY_W}px">{label}</div>')
+        i = j
+
+    month_row = "".join(month_cells)
+
+    # ── 일 헤더 ──
+    day_cells = []
+    for d_idx, d in enumerate(date_list):
+        cls = "gantt-day-cell"
+        if d == today:
+            cls += " gantt-today-col"
+        elif d.weekday() == 6:
+            cls += " gantt-sunday"
+        elif d.weekday() == 5:
+            cls += " gantt-saturday"
+        day_cells.append(f'<div class="{cls}">{d.day}</div>')
+    day_row = "".join(day_cells)
+
+    # ── 업무 행 ──
+    task_rows = []
+    for t in all_ts:
+        created_str = t.get("created_at", "")
+        due_str = t.get("due_at", "")
+        closed_str = t.get("closed_at", "")
+        status = t.get("status", "진행중")
+
+        s_date = None
+        e_date = None
+
+        if created_str:
+            try:
+                s_date = datetime.strptime(created_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+        if status == "완료" and closed_str:
+            try:
+                e_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+        elif due_str:
+            try:
+                e_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+
+        if not s_date and not e_date:
+            continue
+        if not s_date:
+            s_date = e_date
+        if not e_date:
+            e_date = s_date
+
+        # 날짜 범위 밖이면 조정
+        if s_date > end_date or e_date < start_date:
+            continue
+
+        left_offset = max(0, (s_date - start_date).days) * DAY_W
+        bar_width = max(DAY_W, ((min(e_date, end_date) - max(s_date, start_date)).days + 1) * DAY_W)
+
+        dd = (e_date - today).days
+        if status == "완료":
+            bar_cls = "gantt-bar-done"
+        elif dd is not None and dd < 0:
+            bar_cls = "gantt-bar-delayed"
+        elif dd is not None and dd == 0:
+            bar_cls = "gantt-bar-today-due"
+        elif dd is not None and dd <= 3:
+            bar_cls = "gantt-bar-urgent"
+        else:
+            bar_cls = "gantt-bar-normal"
+
+        title = t.get("title", "")[:20]
+        num = t.get("display_num", "?")
+        assignee = (t.get("assignee") or "미정").split(",")[0].strip()
+        task_id = t.get("id", "")
+
+        task_rows.append(f'''<div class="gantt-task-row" onclick="openModal('{task_id}')">
+    <div class="gantt-label-cell" title="#{num} {t.get('title','')}">#{num} {title}</div>
+    <div class="gantt-bar-area" style="width:{total_width}px">
+        <div class="gantt-bar {bar_cls}" style="left:{left_offset}px;width:{bar_width}px"
+             title="#{num} | {assignee} | {s_date} → {e_date}">
+            {title}
+        </div>
+    </div>
+</div>''')
+
+    if not task_rows:
+        return '<div class="gantt-empty">날짜 정보가 있는 업무가 없습니다</div>'
+
+    # ── 오늘 빨간선 (일 칸 중앙) ──
+    today_line_html = ""
+    if start_date <= today <= end_date:
+        today_offset = LABEL_W + ((today - start_date).days * DAY_W) + (DAY_W // 2)
+        today_line_html = f'<div class="gantt-today-line" style="left:{today_offset}px"></div>'
+
+    gantt_html = f'''<div class="gantt-section" id="ganttView" style="display:none">
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📊 간트차트 <span style="font-weight:400;font-size:12px;color:#8b949e">{start_date} ~ {end_date}</span></span>
+        <button class="filter-btn" onclick="switchView('kanban')" style="font-size:11px">📋 칸반 보기</button>
+    </div>
+    <div class="gantt-container">
+        <div class="gantt-scroll-area">
+            {today_line_html}
+            <div class="gantt-header-row gantt-month-row">
+                <div class="gantt-label-cell gantt-label-header"></div>
+                {month_row}
+            </div>
+            <div class="gantt-header-row gantt-day-row">
+                <div class="gantt-label-cell gantt-label-header">📋 업무</div>
+                {day_row}
+            </div>
+            {"".join(task_rows)}
+        </div>
+    </div>
+</div>'''
+
+    return gantt_html
+
+
 def render():
     tasks = get_active_tasks()
     groups = group_tasks(tasks)
@@ -210,6 +380,9 @@ def render():
     sorted_assignees = sorted(all_assignees, key=lambda x: (x == "미정", x == "모두", x))
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # ── 간트차트 생성 ──
+    gantt_html = generate_gantt(tasks, completed)
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
     all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks"]} for t in tasks + completed}
@@ -668,6 +841,203 @@ body {{
     color: #484f5a; font-size: 12px;
     padding: 8px 14px;
 }}
+
+/* ── 간트차트 ── */
+.gantt-section {{
+    padding: 0 0 24px 0;
+}}
+.gantt-container {{
+    overflow-x: auto;
+    margin: 12px 32px 0;
+    border: 1px solid #2a2d3a;
+    border-radius: 12px;
+    background: #0f1117;
+    max-height: 70vh;
+}}
+.gantt-scroll-area {{
+    position: relative;
+    display: inline-block;
+    min-width: 100%;
+}}
+.gantt-header-row {{
+    display: flex;
+    flex-wrap: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #16181d;
+}}
+.gantt-month-row {{
+    top: 0;
+    z-index: 11;
+    border-bottom: 1px solid #2a2d3a;
+}}
+.gantt-day-row {{
+    top: 28px;
+    z-index: 10;
+    border-bottom: 1px solid #2a2d3a;
+}}
+.gantt-label-cell {{
+    flex: 0 0 160px;
+    position: sticky;
+    left: 0;
+    background: #1c1f2a;
+    z-index: 12;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #e1e4e8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-right: 1px solid #2a2d3a;
+    display: flex;
+    align-items: center;
+}}
+.gantt-label-header {{
+    background: #16181d;
+    z-index: 13;
+    font-size: 12px;
+    color: #8b949e;
+    justify-content: center;
+}}
+.gantt-month-cell {{
+    flex: 0 0 auto;
+    padding: 4px 0;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #8b949e;
+    background: #1c1f2a;
+    border-right: 1px solid #2a2d3a;
+    white-space: nowrap;
+}}
+.gantt-day-cell {{
+    flex: 0 0 32px;
+    padding: 2px 0;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 500;
+    color: #8b949e;
+    border-right: 1px solid #202433;
+    background: #16181d;
+    line-height: 20px;
+}}
+.gantt-day-cell.gantt-today-col {{
+    background: rgba(248,81,73,0.15);
+    color: #f85149;
+    font-weight: 800;
+    border-right-color: rgba(248,81,73,0.25);
+}}
+.gantt-day-cell.gantt-sunday {{
+    color: #484f5a;
+}}
+.gantt-day-cell.gantt-saturday {{
+    color: #3a4a6a;
+}}
+.gantt-today-line {{
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #f85149;
+    z-index: 20;
+    pointer-events: none;
+}}
+.gantt-today-line::before {{
+    content: '●';
+    position: absolute;
+    top: -2px;
+    left: -5px;
+    font-size: 12px;
+    color: #f85149;
+    line-height: 1;
+}}
+.gantt-task-row {{
+    display: flex;
+    flex-wrap: nowrap;
+    border-bottom: 1px solid #202433;
+    cursor: pointer;
+    transition: background 0.15s;
+}}
+.gantt-task-row:hover {{
+    background: rgba(88,166,255,0.06);
+}}
+.gantt-task-row .gantt-label-cell {{
+    background: #0f1117;
+    font-size: 12px;
+    font-weight: 400;
+    color: #c9d1d9;
+}}
+.gantt-bar-area {{
+    position: relative;
+    min-height: 32px;
+}}
+.gantt-bar {{
+    position: absolute;
+    top: 4px;
+    height: 24px;
+    border-radius: 4px;
+    padding: 0 8px;
+    font-size: 10px;
+    line-height: 24px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s, transform 0.1s;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}}
+.gantt-bar:hover {{
+    filter: brightness(1.2);
+    transform: scaleY(1.15);
+    z-index: 5;
+}}
+.gantt-bar-normal {{ background: #1f6feb; }}
+.gantt-bar-done {{ background: #238636; opacity: 0.7; }}
+.gantt-bar-delayed {{ background: #da3633; }}
+.gantt-bar-today-due {{ background: #d2991d; }}
+.gantt-bar-urgent {{ background: #f0883e; }}
+.gantt-empty {{
+    padding: 40px;
+    text-align: center;
+    color: #484f5a;
+    font-size: 14px;
+}}
+#kanbanView, #completedView {{
+    /* 칸반 보기 기본 표시 */
+}}
+
+/* ── 뷰 토글 버튼 ── */
+.view-toggle {{
+    display: flex;
+    gap: 4px;
+    padding: 0 32px;
+    margin-top: 12px;
+}}
+.view-toggle-btn {{
+    padding: 6px 16px;
+    border-radius: 8px 8px 0 0;
+    border: 1px solid #2a2d3a;
+    border-bottom: none;
+    background: #1c1f2a;
+    color: #8b949e;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}}
+.view-toggle-btn:hover {{
+    color: #e1e4e8;
+    background: #1f2937;
+}}
+.view-toggle-btn.active {{
+    background: #16181d;
+    color: #58a6ff;
+    border-color: #2a2d3a;
+}}
 </style>
 </head>
 <body>
@@ -698,10 +1068,17 @@ body {{
         <div class="label">완료</div>
     </div>
 </div>
+<div class="view-toggle">
+    <button class="view-toggle-btn active" id="btnKanban" onclick="switchView('kanban')">📋 칸반</button>
+    <button class="view-toggle-btn" id="btnGantt" onclick="switchView('gantt')">📊 간트</button>
+</div>
+<div id="kanbanView">
 <div class="board">
 {col_html}
 </div>
 {completed_html}
+</div><!-- #kanbanView -->
+{gantt_html}
 
 <!-- ── 모달 ── -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)"></div>
@@ -1256,6 +1633,29 @@ function openRelatedTask(displayNum, event) {{
         .catch(function() {{
             showToast('#' + displayNum + ' 업무를 찾을 수 없습니다', true);
         }});
+}}
+
+// ── 뷰 토글 (칸반 ↔ 간트) ──
+function switchView(view) {{
+    var kanban = document.getElementById('kanbanView');
+    var gantt = document.getElementById('ganttView');
+    var btnKanban = document.getElementById('btnKanban');
+    var btnGantt = document.getElementById('btnGantt');
+    var viewToggle = document.querySelector('.view-toggle');
+
+    if (view === 'kanban') {{
+        if (kanban) kanban.style.display = '';
+        if (gantt) gantt.style.display = 'none';
+        if (btnKanban) btnKanban.classList.add('active');
+        if (btnGantt) btnGantt.classList.remove('active');
+        if (viewToggle) viewToggle.style.display = '';
+    }} else {{
+        if (kanban) kanban.style.display = 'none';
+        if (gantt) gantt.style.display = '';
+        if (btnKanban) btnKanban.classList.remove('active');
+        if (btnGantt) btnGantt.classList.add('active');
+        if (viewToggle) viewToggle.style.display = '';
+    }}
 }}
 
 // ── 에이전트 보드 ──
