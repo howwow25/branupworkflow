@@ -1005,7 +1005,7 @@ function forceRefresh() {{
         sessionStorage.setItem('branup_filter', activeBtn.textContent.trim());
     }}
     // API 서버가 같은 호스트의 다른 포트거나 로컬이면 API 서버의 대시보드로 리디렉션
-    if (API.indexOf(':8800') !== -1) {{
+    if (API.indexOf(':{API_PORT}') !== -1) {{
         window.location.href = API.replace('/api', '/index.html');
         return;
     }}
