@@ -330,7 +330,7 @@ def render_gantt(projects, tasks):
     return f'''<div class="tg-section" id="ganttSection">
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
         <span>📊 프로젝트 <span style="font-weight:400;font-size:12px;color:#8b949e">{start_date} ~ {end_date}</span></span>
-        <button class="filter-btn" onclick="toggleCreateMenu()" style="font-size:11px">＋</button>
+        <button class="filter-btn" onclick="openProjectModal()" style="font-size:11px">＋</button>
     </div>
     <div class="tg-container">
         <div class="tg-scroll-area">
