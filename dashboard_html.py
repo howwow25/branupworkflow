@@ -317,6 +317,172 @@ def render_gantt(projects, tasks):
 </div>"""
 
 
+def generate_task_gantt(tasks, completed):
+    """엑셀 스타일 업무 간트차트 - 월 병합 헤더 + 일별 칸 + 빨간 오늘선"""
+    all_ts = tasks + completed
+    if not all_ts:
+        return '<div class="tg-empty">날짜 정보가 있는 업무가 없습니다</div>'
+
+    today = datetime.now().date()
+    DAY_W = 32  # 하루 칸 너비 (px)
+    LABEL_W = 160  # 좌측 업무명 너비 (px)
+
+    dates_set = set()
+    for t in all_ts:
+        for k in ("created_at", "due_at", "closed_at"):
+            v = t.get(k, "")
+            if v:
+                try:
+                    dates_set.add(datetime.strptime(v[:10], "%Y-%m-%d").date())
+                except Exception:
+                    pass
+
+    if not dates_set:
+        start_date = today - timedelta(days=10)
+        end_date = today + timedelta(days=20)
+    else:
+        start_date = min(dates_set) - timedelta(days=3)
+        end_date = max(dates_set) + timedelta(days=7)
+        if today < start_date:
+            start_date = today - timedelta(days=3)
+        if today > end_date:
+            end_date = today + timedelta(days=7)
+
+    date_list = []
+    d = start_date
+    while d <= end_date:
+        date_list.append(d)
+        d += timedelta(days=1)
+
+    total_days = len(date_list)
+    total_width = total_days * DAY_W
+
+    # ── 월 헤더 (병합) ──
+    month_cells = []
+    i = 0
+    while i < total_days:
+        m_key = date_list[i].strftime("%Y-%m")
+        j = i
+        while j < total_days and date_list[j].strftime("%Y-%m") == m_key:
+            j += 1
+        span = j - i
+        label = f"{date_list[i].year}년 {date_list[i].month}월"
+        month_cells.append(f'<div class="tg-month-cell" style="flex:0 0 {span * DAY_W}px">{label}</div>')
+        i = j
+
+    month_row = "".join(month_cells)
+
+    # ── 일 헤더 ──
+    day_cells = []
+    for d in date_list:
+        cls = "tg-day-cell"
+        if d == today:
+            cls += " tg-today-col"
+        elif d.weekday() == 6:
+            cls += " tg-sunday"
+        elif d.weekday() == 5:
+            cls += " tg-saturday"
+        day_cells.append(f'<div class="{cls}">{d.day}</div>')
+    day_row = "".join(day_cells)
+
+    # ── 업무 행 ──
+    task_rows = []
+    for t in all_ts:
+        created_str = t.get("created_at", "")
+        due_str = t.get("due_at", "")
+        closed_str = t.get("closed_at", "")
+        status = t.get("status", "진행중")
+
+        s_date = None
+        e_date = None
+
+        if created_str:
+            try:
+                s_date = datetime.strptime(created_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+        if status == "완료" and closed_str:
+            try:
+                e_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+        elif due_str:
+            try:
+                e_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+
+        if not s_date and not e_date:
+            continue
+        if not s_date:
+            s_date = e_date
+        if not e_date:
+            e_date = s_date
+
+        if s_date > end_date or e_date < start_date:
+            continue
+
+        left_offset = max(0, (s_date - start_date).days) * DAY_W
+        bar_width = max(DAY_W, ((min(e_date, end_date) - max(s_date, start_date)).days + 1) * DAY_W)
+
+        dd = (e_date - today).days
+        if status == "완료":
+            bar_cls = "tg-bar-done"
+        elif dd is not None and dd < 0:
+            bar_cls = "tg-bar-delayed"
+        elif dd is not None and dd == 0:
+            bar_cls = "tg-bar-today-due"
+        elif dd is not None and dd <= 3:
+            bar_cls = "tg-bar-urgent"
+        else:
+            bar_cls = "tg-bar-normal"
+
+        title = t.get("title", "")[:20]
+        num = t.get("display_num", "?")
+        assignee = (t.get("assignee") or "미정").split(",")[0].strip()
+        task_id = t.get("id", "")
+
+        task_rows.append(f'''<div class="tg-task-row" onclick="openModal('{task_id}')">
+    <div class="tg-label-cell" title="#{num} {t.get('title','')}">#{num} {title}</div>
+    <div class="tg-bar-area" style="width:{total_width}px">
+        <div class="tg-bar {bar_cls}" style="left:{left_offset}px;width:{bar_width}px"
+             title="#{num} | {assignee} | {s_date} → {e_date}">
+            {title}
+        </div>
+    </div>
+</div>''')
+
+    if not task_rows:
+        return '<div class="tg-empty">날짜 정보가 있는 업무가 없습니다</div>'
+
+    # ── 오늘 빨간선 (일 칸 중앙) ──
+    today_line_html = ""
+    if start_date <= today <= end_date:
+        today_offset = LABEL_W + ((today - start_date).days * DAY_W) + (DAY_W // 2)
+        today_line_html = f'<div class="tg-today-line" style="left:{today_offset}px"></div>'
+
+    return f'''<div class="tg-section" id="taskGanttView" style="display:none">
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📊 업무 간트 <span style="font-weight:400;font-size:12px;color:#8b949e">{start_date} ~ {end_date}</span></span>
+        <button class="filter-btn" onclick="switchToView('kanban')" style="font-size:11px">📋 칸반 보기</button>
+    </div>
+    <div class="tg-container">
+        <div class="tg-scroll-area">
+            {today_line_html}
+            <div class="tg-header-row tg-month-row">
+                <div class="tg-label-cell tg-label-header"></div>
+                {month_row}
+            </div>
+            <div class="tg-header-row tg-day-row">
+                <div class="tg-label-cell tg-label-header">📋 업무</div>
+                {day_row}
+            </div>
+            {"".join(task_rows)}
+        </div>
+    </div>
+</div>'''
+
+
 def render():
     tasks = get_active_tasks()
     groups = group_tasks(tasks)
@@ -366,6 +532,7 @@ def render():
 
     # ── 간트차트 ──
     gantt_html = render_gantt(projects, tasks)
+    task_gantt_html = generate_task_gantt(tasks, completed)
 
     # ── 프로젝트 필터 칩 ──
     proj_filter_html = '<button class="filter-btn proj active" onclick="filterByProject(null)">📊 전체</button>'
@@ -902,6 +1069,137 @@ body {{
     padding: 4px 16px 8px; font-size: 10px; color: #484f5a;
     border-top: 1px solid #2a2d3a;
 }}
+/* ── 업무 간트차트 (tg-*) ── */
+.tg-section {{
+    padding: 0 0 24px 0;
+}}
+.tg-container {{
+    overflow-x: auto;
+    margin: 12px 32px 0;
+    border: 1px solid #2a2d3a;
+    border-radius: 12px;
+    background: #0f1117;
+    max-height: 70vh;
+}}
+.tg-scroll-area {{
+    position: relative;
+    display: inline-block;
+    min-width: 100%;
+}}
+.tg-header-row {{
+    display: flex; flex-wrap: nowrap;
+    position: sticky; top: 0; z-index: 10;
+    background: #16181d;
+}}
+.tg-month-row {{
+    top: 0; z-index: 11;
+    border-bottom: 1px solid #2a2d3a;
+}}
+.tg-day-row {{
+    top: 28px; z-index: 10;
+    border-bottom: 1px solid #2a2d3a;
+}}
+.tg-label-cell {{
+    flex: 0 0 160px;
+    position: sticky; left: 0;
+    background: #1c1f2a; z-index: 12;
+    padding: 6px 12px;
+    font-size: 13px; font-weight: 600; color: #e1e4e8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-right: 1px solid #2a2d3a;
+    display: flex; align-items: center;
+}}
+.tg-label-header {{
+    background: #16181d; z-index: 13;
+    font-size: 12px; color: #8b949e;
+    justify-content: center;
+}}
+.tg-month-cell {{
+    flex: 0 0 auto;
+    padding: 4px 0; text-align: center;
+    font-size: 12px; font-weight: 700; color: #8b949e;
+    background: #1c1f2a;
+    border-right: 1px solid #2a2d3a;
+    white-space: nowrap;
+}}
+.tg-day-cell {{
+    flex: 0 0 32px;
+    padding: 2px 0; text-align: center;
+    font-size: 10px; font-weight: 500; color: #8b949e;
+    border-right: 1px solid #202433;
+    background: #16181d; line-height: 20px;
+}}
+.tg-day-cell.tg-today-col {{
+    background: rgba(248,81,73,0.15);
+    color: #f85149; font-weight: 800;
+    border-right-color: rgba(248,81,73,0.25);
+}}
+.tg-day-cell.tg-sunday {{ color: #484f5a; }}
+.tg-day-cell.tg-saturday {{ color: #3a4a6a; }}
+.tg-today-line {{
+    position: absolute; top: 0; bottom: 0;
+    width: 2px; background: #f85149;
+    z-index: 20; pointer-events: none;
+}}
+.tg-today-line::before {{
+    content: '●';
+    position: absolute; top: -2px; left: -5px;
+    font-size: 12px; color: #f85149; line-height: 1;
+}}
+.tg-task-row {{
+    display: flex; flex-wrap: nowrap;
+    border-bottom: 1px solid #202433;
+    cursor: pointer;
+    transition: background 0.15s;
+}}
+.tg-task-row:hover {{ background: rgba(88,166,255,0.06); }}
+.tg-task-row .tg-label-cell {{
+    background: #0f1117;
+    font-size: 12px; font-weight: 400; color: #c9d1d9;
+}}
+.tg-bar-area {{
+    position: relative;
+    min-height: 32px;
+}}
+.tg-bar {{
+    position: absolute; top: 4px; height: 24px;
+    border-radius: 4px; padding: 0 8px;
+    font-size: 10px; line-height: 24px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-weight: 600; cursor: pointer;
+    transition: filter 0.15s, transform 0.1s;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}}
+.tg-bar:hover {{
+    filter: brightness(1.2); transform: scaleY(1.15); z-index: 5;
+}}
+.tg-bar-normal {{ background: #1f6feb; }}
+.tg-bar-done {{ background: #238636; opacity: 0.7; }}
+.tg-bar-delayed {{ background: #da3633; }}
+.tg-bar-today-due {{ background: #d2991d; }}
+.tg-bar-urgent {{ background: #f0883e; }}
+.tg-empty {{
+    padding: 40px; text-align: center;
+    color: #484f5a; font-size: 14px;
+}}
+/* ── 뷰 토글 ── */
+.view-toggle {{
+    display: flex; gap: 4px;
+    padding: 0 32px; margin-top: 12px;
+}}
+.view-toggle-btn {{
+    padding: 6px 16px;
+    border-radius: 8px 8px 0 0;
+    border: 1px solid #2a2d3a; border-bottom: none;
+    background: #1c1f2a; color: #8b949e;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+}}
+.view-toggle-btn:hover {{ color: #e1e4e8; background: #1f2937; }}
+.view-toggle-btn.active {{
+    background: #16181d; color: #58a6ff;
+    border-color: #2a2d3a;
+}}
 /* ── 프로젝트 필터 ── */
 .filter-btn.proj {{ border-color: #3fb950; color: #3fb950; }}
 .filter-btn.proj:hover {{ border-color: #3fb950; background: rgba(63,185,80,0.1); }}
@@ -963,12 +1261,19 @@ body {{
         <div class="label">완료</div>
     </div>
 </div>
+<div class="view-toggle">
+    <button class="view-toggle-btn active" id="btnKanban" onclick="switchToView('kanban')">📋 칸반</button>
+    <button class="view-toggle-btn" id="btnGantt" onclick="switchToView('gantt')">📊 업무 간트</button>
+</div>
+<div id="kanbanView">
 {gantt_html}
 <div class="filters" id="projFilters">{proj_filter_html}</div>
 <div class="board">
 {col_html}
 </div>
 {completed_html}
+</div><!-- #kanbanView -->
+{task_gantt_html}
 
 <!-- ── 모달 ── -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)"></div>
@@ -1571,6 +1876,26 @@ function openRelatedTask(displayNum, event) {{
         .catch(function() {{
             showToast('#' + displayNum + ' 업무를 찾을 수 없습니다', true);
         }});
+}}
+
+// ── 뷰 토글 (칸반 ↔ 업무간트) ──
+function switchToView(view) {{
+    var kanban = document.getElementById('kanbanView');
+    var taskGantt = document.getElementById('taskGanttView');
+    var btnKanban = document.getElementById('btnKanban');
+    var btnGantt = document.getElementById('btnGantt');
+
+    if (view === 'kanban') {{
+        if (kanban) kanban.style.display = '';
+        if (taskGantt) taskGantt.style.display = 'none';
+        if (btnKanban) btnKanban.classList.add('active');
+        if (btnGantt) btnGantt.classList.remove('active');
+    }} else {{
+        if (kanban) kanban.style.display = 'none';
+        if (taskGantt) taskGantt.style.display = '';
+        if (btnKanban) btnKanban.classList.remove('active');
+        if (btnGantt) btnGantt.classList.add('active');
+    }}
 }}
 
 // ── 에이전트 보드 ──
