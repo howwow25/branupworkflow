@@ -1097,7 +1097,7 @@ body {{
 }}
 .gantt-label {{
     width: auto; min-width: 120px; max-width: 200px;
-    font-size: 12px; color: #e1e4e8;
+    font-size: 12px; color: #ffffff;
     text-align: right; flex-shrink: 0;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }}
