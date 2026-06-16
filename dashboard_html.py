@@ -1725,13 +1725,19 @@ function openCreateModal() {{
 
     var sel = modalEl.querySelector('.edit-assignee');
     for (var i = 0; i < sel.options.length; i++) {{ sel.options[i].selected = false; }}
-    var activeBtn = document.querySelector('.filter-btn.active');
+    var activeBtn = document.querySelector('.filter-btn:not(.proj).active');
     var filterName = activeBtn ? activeBtn.textContent.trim() : '';
     var validAssignees = ['강경철', '노수민', '이상원', '이향석', '전경표', '모두'];
     if (validAssignees.indexOf(filterName) !== -1) {{
         for (var i = 0; i < sel.options.length; i++) {{
             if (sel.options[i].value === filterName) {{ sel.options[i].selected = true; break; }}
         }}
+    }}
+
+    // 현재 선택된 프로젝트를 기본값으로 설정
+    if (currentProjectId) {{
+        var projSel = modalEl.querySelector('.edit-project');
+        if (projSel) {{ projSel.value = currentProjectId; }}
     }}
     renderRelatedButtonsInModal(modalEl, '');
 }}
