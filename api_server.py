@@ -25,7 +25,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from db import (get_conn, get_task_by_id, update_task, now_iso,
                 get_active_tasks, get_completed_tasks,
                 create_task, get_room_by_chat_id, upsert_room,
-                get_task_by_display_num)
+                get_task_by_display_num,
+                get_projects, get_project_by_id, create_project,
+                update_project, delete_project, get_tasks_by_project)
 
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
@@ -154,6 +156,19 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "dashboard not found"}, 404)
             return
 
+        # /api/projects → 프로젝트 목록
+        if path == "/api/projects":
+            projects = get_projects()
+            self._send_json(projects)
+            return
+
+        # /api/projects/<id>/tasks → 프로젝트별 업무
+        m = re.match(r'^/api/projects/([^/]+)/tasks$', path)
+        if m:
+            tasks = get_tasks_by_project(unquote(m.group(1)))
+            self._send_json(tasks)
+            return
+
         # /api/tasks/list → 전체 활성 업무
         if path == "/api/tasks/list":
             tasks = get_active_tasks()
@@ -183,6 +198,16 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json(tasks)
             return
 
+        # /api/projects/<id> → 프로젝트 상세
+        m = re.match(r'^/api/projects/([^/]+)$', path)
+        if m:
+            proj = get_project_by_id(unquote(m.group(1)))
+            if proj:
+                self._send_json(proj)
+            else:
+                self._send_json({"error": "project not found"}, 404)
+            return
+
         task_id, _ = self._extract_task_id()
         if not task_id:
             self._send_json({"error": "not found"}, 404)
@@ -196,6 +221,14 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json(task)
 
     def do_PATCH(self):
+        path = urlparse(self.path).path
+
+        # /api/projects/<id> → 프로젝트 수정 (권한 체크 포함)
+        m = re.match(r'^/api/projects/([^/]+)$', path)
+        if m:
+            self._handle_project_patch(unquote(m.group(1)))
+            return
+
         task_id, _ = self._extract_task_id()
         if not task_id:
             self._send_json({"error": "not found"}, 404)
@@ -207,7 +240,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         body = self._parse_body()
-        allowed = {"title", "assignee", "due_at", "summary", "priority", "feedback", "related_tasks"}
+        allowed = {"title", "assignee", "due_at", "summary", "priority", "feedback", "related_tasks", "project_id"}
         updates = {k: v for k, v in body.items() if k in allowed}
         if not updates:
             self._send_json({"error": "no valid fields"}, 400)
@@ -220,6 +253,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         parts = urlparse(self.path).path.strip("/").split("/")
+
+        # /api/projects/<id> → 프로젝트 삭제
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "projects":
+            self._handle_project_delete(parts[2])
+            return
 
         # /api/tasks/<id>/related/<display_num> → 연관업무 삭제
         if len(parts) == 5 and parts[0] == "api" and parts[1] == "tasks" and parts[3] == "related":
@@ -248,6 +286,16 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/agent → 에이전트 명령어
         if len(parts) >= 2 and parts[0] == "api" and parts[1] == "agent":
             self._handle_agent()
+            return
+
+        # /api/projects → 프로젝트 생성
+        if len(parts) == 2 and parts[0] == "api" and parts[1] == "projects":
+            self._handle_project_create()
+            return
+
+        # /api/projects/<id>/tasks → 프로젝트에 업무 추가
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "projects" and parts[3] == "tasks":
+            self._handle_project_task_create(parts[2])
             return
 
         # /api/tasks → 새 업무 생성
@@ -323,6 +371,97 @@ class APIHandler(BaseHTTPRequestHandler):
             due_at=body.get("due_at"),
             assignee=body.get("assignee"),
             priority=body.get("priority", "중간"),
+            project_id=body.get("project_id"),
+        )
+        self._refresh_dashboard()
+        self._send_json(task)
+
+    # ── 프로젝트 핸들러 ────────────────────────────────
+
+    def _handle_project_create(self):
+        """POST /api/projects → 프로젝트 생성"""
+        body = self._parse_body()
+        title = body.get("title", "").strip()
+        if not title:
+            self._send_json({"error": "제목은 필수입니다"}, 400)
+            return
+
+        room = get_room_by_chat_id("dashboard")
+        if not room:
+            room = upsert_room("dashboard", "web", "대시보드")
+
+        proj = create_project(
+            room["id"],
+            title=title,
+            description=body.get("description", ""),
+            status=body.get("status", "계획"),
+            start_date=body.get("start_date"),
+            expected_end_date=body.get("expected_end_date"),
+            assignees=body.get("assignees", ""),
+        )
+        self._refresh_dashboard()
+        self._send_json(proj)
+
+    def _handle_project_patch(self, project_id):
+        """PATCH /api/projects/<id> → 프로젝트 수정 (권한 체크)"""
+        proj = get_project_by_id(project_id)
+        if not proj:
+            self._send_json({"error": "project not found"}, 404)
+            return
+
+        body = self._parse_body()
+        # 권한 체크: 상태/일정 필드는 이상원, 이향석만 수정 가능
+        restricted = {"status", "start_date", "expected_end_date"}
+        editor = body.get("_editor", "")
+        if any(k in restricted for k in body):
+            if editor not in ("이상원", "이향석"):
+                self._send_json({
+                    "error": "상태와 일정은 이상원 또는 이향석만 수정할 수 있습니다",
+                    "restricted_fields": list(restricted)
+                }, 403)
+                return
+
+        update_project(project_id, **{k: v for k, v in body.items()
+                       if k in {"title", "description", "status", "start_date", "expected_end_date", "assignees"}})
+        proj = get_project_by_id(project_id)
+        self._refresh_dashboard()
+        self._send_json(proj)
+
+    def _handle_project_delete(self, project_id):
+        """DELETE /api/projects/<id> → 프로젝트 삭제"""
+        proj = get_project_by_id(project_id)
+        if not proj:
+            self._send_json({"error": "project not found"}, 404)
+            return
+        delete_project(project_id)
+        self._refresh_dashboard()
+        self._send_json({"deleted": True, "id": project_id})
+
+    def _handle_project_task_create(self, project_id):
+        """POST /api/projects/<id>/tasks → 프로젝트에 업무 추가"""
+        proj = get_project_by_id(project_id)
+        if not proj:
+            self._send_json({"error": "project not found"}, 404)
+            return
+
+        body = self._parse_body()
+        title = body.get("title", "").strip()
+        if not title:
+            self._send_json({"error": "제목은 필수입니다"}, 400)
+            return
+
+        room = get_room_by_chat_id("dashboard")
+        if not room:
+            room = upsert_room("dashboard", "web", "대시보드")
+
+        task = create_task(
+            room["id"],
+            title=title,
+            summary=body.get("summary") or title,
+            due_at=body.get("due_at"),
+            assignee=body.get("assignee"),
+            priority=body.get("priority", "중간"),
+            project_id=project_id,
         )
         self._refresh_dashboard()
         self._send_json(task)

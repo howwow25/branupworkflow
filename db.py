@@ -39,6 +39,18 @@ def _ensure_schema(conn):
         name TEXT NOT NULL,
         registered_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL REFERENCES rooms(id),
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT '계획',
+        start_date TEXT,
+        expected_end_date TEXT,
+        assignees TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         room_id TEXT NOT NULL REFERENCES rooms(id),
@@ -47,10 +59,12 @@ def _ensure_schema(conn):
         summary TEXT NOT NULL DEFAULT '',
         due_at TEXT,
         assignee TEXT,
+        priority TEXT NOT NULL DEFAULT '중간',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         closed_at TEXT,
-        display_num INTEGER
+        display_num INTEGER,
+        project_id TEXT REFERENCES projects(id)
     );
     CREATE TABLE IF NOT EXISTS inbox_messages (
         id TEXT PRIMARY KEY,
@@ -82,6 +96,11 @@ def _ensure_schema(conn):
         conn.execute("ALTER TABLE tasks ADD COLUMN feedback TEXT NOT NULL DEFAULT ''")
     except Exception:
         pass  # already exists
+    # ── migration: add priority column ──
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT '중간'")
+    except Exception:
+        pass  # already exists
     # ── migration: add display_num to existing DB ──
     try:
         conn.execute("ALTER TABLE tasks ADD COLUMN display_num INTEGER")
@@ -90,6 +109,11 @@ def _ensure_schema(conn):
     # ── migration: add related_tasks ──
     try:
         conn.execute("ALTER TABLE tasks ADD COLUMN related_tasks TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass  # already exists
+    # ── migration: add project_id ──
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT REFERENCES projects(id)")
     except Exception:
         pass  # already exists
     # assign display_num to tasks without one (ordered by created_at)
@@ -186,7 +210,7 @@ def get_all_rooms() -> List[Dict]:
 
 def create_task(room_id: str, title: str, summary: str = "",
                 due_at: Optional[str] = None, assignee: Optional[str] = None,
-                priority: str = "중간") -> Dict:
+                priority: str = "중간", project_id: Optional[str] = None) -> Dict:
     conn = get_conn()
     tid = str(uuid4())
     ts = now_iso()
@@ -194,19 +218,19 @@ def create_task(room_id: str, title: str, summary: str = "",
         "SELECT COALESCE(MAX(display_num), 0) + 1 FROM tasks"
     ).fetchone()[0]
     conn.execute(
-        "INSERT INTO tasks (id,room_id,title,status,summary,due_at,assignee,priority,created_at,updated_at,display_num) "
-        "VALUES (?,?,?,'진행중',?,?,?,?,?,?,?)",
-        (tid, room_id, title, summary, due_at, assignee, priority, ts, ts, next_num))
+        "INSERT INTO tasks (id,room_id,title,status,summary,due_at,assignee,priority,created_at,updated_at,display_num,project_id) "
+        "VALUES (?,?,?,'진행중',?,?,?,?,?,?,?,?)",
+        (tid, room_id, title, summary, due_at, assignee, priority, ts, ts, next_num, project_id))
     conn.commit()
     return {"id": tid, "room_id": room_id, "title": title, "status": "진행중",
             "summary": summary, "due_at": due_at, "assignee": assignee,
             "priority": priority, "created_at": ts, "updated_at": ts, "closed_at": None,
-            "display_num": next_num}
+            "display_num": next_num, "project_id": project_id}
 
 
 def update_task(task_id: str, **kwargs):
     conn = get_conn()
-    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at", "feedback", "related_tasks"}
+    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at", "feedback", "related_tasks", "project_id"}
     sets, vals = ["updated_at=?"], [now_iso()]
     for k, v in kwargs.items():
         if k in allowed:
@@ -247,6 +271,65 @@ def get_completed_tasks() -> List[Dict]:
     conn = get_conn()
     return [dict(r) for r in conn.execute(
         "SELECT * FROM tasks WHERE status='완료' ORDER BY closed_at DESC")]
+
+
+# ── projects ────────────────────────────────────────────
+
+def create_project(room_id: str, title: str, description: str = "",
+                   status: str = "계획", start_date: Optional[str] = None,
+                   expected_end_date: Optional[str] = None,
+                   assignees: str = "") -> Dict:
+    conn = get_conn()
+    pid = str(uuid4())
+    ts = now_iso()
+    conn.execute(
+        "INSERT INTO projects (id,room_id,title,description,status,start_date,expected_end_date,assignees,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (pid, room_id, title, description, status, start_date, expected_end_date, assignees, ts, ts))
+    conn.commit()
+    return {"id": pid, "room_id": room_id, "title": title,
+            "description": description, "status": status,
+            "start_date": start_date, "expected_end_date": expected_end_date,
+            "assignees": assignees, "created_at": ts, "updated_at": ts}
+
+
+def update_project(project_id: str, **kwargs):
+    conn = get_conn()
+    allowed = {"title", "description", "status", "start_date", "expected_end_date", "assignees"}
+    sets, vals = ["updated_at=?"], [now_iso()]
+    for k, v in kwargs.items():
+        if k in allowed:
+            sets.append(f"{k}=?")
+            vals.append(v)
+    vals.append(project_id)
+    conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE id=?", vals)
+    conn.commit()
+
+
+def get_projects() -> List[Dict]:
+    conn = get_conn()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM projects ORDER BY start_date ASC")]
+
+
+def get_project_by_id(project_id: str) -> Optional[Dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_tasks_by_project(project_id: str) -> List[Dict]:
+    conn = get_conn()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM tasks WHERE project_id=? AND status NOT IN ('완료','보류') ORDER BY due_at ASC",
+        (project_id,))]
+
+
+def delete_project(project_id: str):
+    conn = get_conn()
+    conn.execute("UPDATE tasks SET project_id=NULL WHERE project_id=?", (project_id,))
+    conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+    conn.commit()
 
 
 # ── inbox ──────────────────────────────────────────────

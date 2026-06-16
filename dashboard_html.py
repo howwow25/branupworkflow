@@ -12,13 +12,14 @@ DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
     str(Path(__file__).parent.parent / "data"))
 OUTPUT_PATH = Path(DATA_DIR) / "dashboard.html"
 API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
+API_BASE = os.environ.get("BRANUP_API_BASE", "")
 
 sys.path.insert(0, str(Path(__file__).parent))
 import os as _os_dash
 if _os_dash.environ.get("BRANUP_API_URL"):
-    from branup_api import get_active_tasks, get_completed_tasks
+    from branup_api import get_active_tasks, get_completed_tasks, get_projects
 else:
-    from db import get_active_tasks, get_completed_tasks
+    from db import get_active_tasks, get_completed_tasks, get_projects
 
 
 def dday(due_str):
@@ -188,37 +189,54 @@ def render_completed_card(t, closed_date, label, task_lookup=None):
 </div>"""
 
 
-def generate_gantt(tasks, completed):
-    """엑셀 스타일 간트차트 HTML 생성 — 월 병합 헤더 + 일별 칸 + 빨간 오늘선"""
-    all_ts = tasks + completed
-    if not all_ts:
-        return '<div class="gantt-empty">날짜 정보가 있는 업무가 없습니다</div>'
+def render_gantt(projects, tasks):
+    """엑셀 스타일 프로젝트 간트차트 - 2단 헤더(월 병합+일 개별) + 빨간 오늘선"""
+    if not projects:
+        return ""
 
     today = datetime.now().date()
-    DAY_W = 32  # 하루 칸 너비 (px)
-    LABEL_W = 160  # 좌측 업무명 너비 (px)
+    DAY_W = 32
+    LABEL_W = 180
 
-    # ── 프로젝트 날짜 범위 ──
+    # ── 날짜 범위 (프로젝트 start_date / expected_end_date) ──
     dates_set = set()
-    for t in all_ts:
-        for k in ("created_at", "due_at", "closed_at"):
-            v = t.get(k, "")
+    proj_start = None
+    proj_end = None
+    for p in projects:
+        for k in ("start_date", "expected_end_date"):
+            v = p.get(k, "")
             if v:
                 try:
-                    dates_set.add(datetime.strptime(v[:10], "%Y-%m-%d").date())
+                    d = datetime.strptime(v[:10], "%Y-%m-%d").date()
+                    dates_set.add(d)
+                    if k == "start_date" and (proj_start is None or d < proj_start):
+                        proj_start = d
+                    if k == "expected_end_date" and (proj_end is None or d > proj_end):
+                        proj_end = d
                 except Exception:
                     pass
 
     if not dates_set:
-        start_date = today - timedelta(days=10)
-        end_date = today + timedelta(days=20)
+        start_date = today - timedelta(days=45)
+        end_date = today + timedelta(days=45)
     else:
-        start_date = min(dates_set) - timedelta(days=3)
-        end_date = max(dates_set) + timedelta(days=7)
+        if proj_start:
+            start_date = proj_start - timedelta(days=2)
+        else:
+            start_date = min(dates_set) - timedelta(days=3)
+        if proj_end:
+            end_date = proj_end + timedelta(days=5)
+        else:
+            end_date = max(dates_set) + timedelta(days=7)
         if today < start_date:
-            start_date = today - timedelta(days=3)
+            start_date = today - timedelta(days=5)
         if today > end_date:
-            end_date = today + timedelta(days=7)
+            end_date = today + timedelta(days=5)
+        span = (end_date - start_date).days
+        if span < 90:
+            mid = start_date + (end_date - start_date) // 2
+            start_date = mid - timedelta(days=45)
+            end_date = mid + timedelta(days=45)
 
     date_list = []
     d = start_date
@@ -229,8 +247,10 @@ def generate_gantt(tasks, completed):
     total_days = len(date_list)
     total_width = total_days * DAY_W
 
-    # ── 월 헤더 (병합 셀) ──
+    # ── 월 헤더 ──
     month_cells = []
+    month_colors = ["#1c2533", "#1e2840"]
+    mi = 0
     i = 0
     while i < total_days:
         m_key = date_list[i].strftime("%Y-%m")
@@ -239,21 +259,202 @@ def generate_gantt(tasks, completed):
             j += 1
         span = j - i
         label = f"{date_list[i].year}년 {date_list[i].month}월"
-        month_cells.append(f'<div class="gantt-month-cell" style="flex:0 0 {span * DAY_W}px">{label}</div>')
+        bg = month_colors[mi % 2]
+        month_cells.append(
+            f'<div class="tg-month-cell" style="flex:0 0 {span * DAY_W}px;background:{bg}">'
+            f'{label}</div>')
         i = j
-
+        mi += 1
     month_row = "".join(month_cells)
 
     # ── 일 헤더 ──
     day_cells = []
-    for d_idx, d in enumerate(date_list):
-        cls = "gantt-day-cell"
+    for dt in date_list:
+        cls = "tg-day-cell"
+        if dt == today:
+            cls += " tg-today-col"
+        elif dt.weekday() == 6:
+            cls += " tg-sunday"
+        elif dt.weekday() == 5:
+            cls += " tg-saturday"
+        day_cells.append(f'<div class="{cls}">{dt.day}</div>')
+    day_row = "".join(day_cells)
+
+    # ── 프로젝트 행 ──
+    status_color = {"계획": "#8b949e", "진행": "#58a6ff", "완료": "#3fb950", "지연": "#f85149", "보류": "#484f5a"}
+    proj_rows = []
+    for p in projects:
+        sd_str = p.get("start_date", "")
+        ed_str = p.get("expected_end_date", "")
+        sd = None
+        ed = None
+        try:
+            if sd_str: sd = datetime.strptime(sd_str[:10], "%Y-%m-%d").date()
+            if ed_str: ed = datetime.strptime(ed_str[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+        if not sd:
+            continue
+
+        left_offset = max(0, (sd - start_date).days) * DAY_W
+        if ed:
+            bar_width = max(DAY_W * 2, (ed - sd).days * DAY_W + DAY_W)
+        else:
+            bar_width = max(DAY_W * 2, (today - sd).days * DAY_W + DAY_W)
+
+        color = status_color.get(p.get("status", "계획"), "#8b949e")
+        title = p.get("title", "")
+        pstatus = p.get("status", "계획")
+        pid = p.get("id", "")
+        task_count = sum(1 for t in tasks if t.get("project_id") == pid)
+
+        proj_rows.append(f'''<div class="tg-task-row" onclick="filterByProject('{pid}')" ondblclick="openProjectModal('{pid}')" title="{title} · {pstatus} · 업무 {task_count}건">
+    <div class="tg-label-cell" title="{title}">📁 {title}</div>
+    <div class="tg-bar-area" style="width:{total_width}px">
+        <div class="tg-bar" style="left:{left_offset}px;width:{bar_width}px;background:{color};border-radius:6px;opacity:0.85">
+            {task_count}건
+        </div>
+    </div>
+</div>''')
+
+    if not proj_rows:
+        return ""
+
+    # ── 오늘 라인 ──
+    today_line_html = ""
+    if start_date <= today <= end_date:
+        today_offset = LABEL_W + ((today - start_date).days * DAY_W) + (DAY_W // 2)
+        today_str = today.strftime("%m/%d")
+        today_line_html = f'<div class="tg-today-line" style="left:{today_offset}px"><span class="tg-today-label">{today_str}</span></div>'
+
+    return f'''<div class="tg-section" id="ganttSection">
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📊 프로젝트 <span style="font-weight:400;font-size:12px;color:#8b949e">{start_date} ~ {end_date}</span></span>
+        <button class="filter-btn" onclick="openProjectModal()" style="font-size:11px">＋</button>
+    </div>
+    <div class="tg-container">
+        <div class="tg-scroll-area">
+            {today_line_html}
+            <div class="tg-header-row tg-month-row">
+                <div class="tg-label-cell tg-label-header">📁 프로젝트</div>
+                {month_row}
+            </div>
+            <div class="tg-header-row tg-day-row">
+                <div class="tg-label-cell tg-label-header"></div>
+                {day_row}
+            </div>
+            {"".join(proj_rows)}
+        </div>
+    </div>
+</div>'''
+
+
+def generate_task_gantt(tasks, completed, projects=None):
+    """엑셀 스타일 업무 간트차트 - 월 병합 헤더 + 일별 칸 + 빨간 오늘선 (일 칸 중앙)"""
+    all_ts = tasks + completed
+    if not all_ts:
+        return '<div class="tg-empty">날짜 정보가 있는 업무가 없습니다</div>'
+
+    today = datetime.now().date()
+    DAY_W = 32  # 하루 칸 너비 (px)
+    LABEL_W = 180  # 좌측 업무명 너비 (px)
+
+    # ── 프로젝트 시작일·종료예정일도 날짜 범위에 포함 ──
+    dates_set = set()
+    for t in all_ts:
+        for k in ("created_at", "due_at", "closed_at"):
+            v = t.get(k, "")
+            if v:
+                try:
+                    dates_set.add(datetime.strptime(v[:10], "%Y-%m-%d").date())
+                except Exception:
+                    pass
+
+    # 프로젝트 일정 추가
+    proj_start = None
+    proj_end = None
+    if projects:
+        for p in projects:
+            for k in ("start_date", "expected_end_date"):
+                v = p.get(k, "")
+                if v:
+                    try:
+                        d = datetime.strptime(v[:10], "%Y-%m-%d").date()
+                        dates_set.add(d)
+                        if k == "start_date" and (proj_start is None or d < proj_start):
+                            proj_start = d
+                        if k == "expected_end_date" and (proj_end is None or d > proj_end):
+                            proj_end = d
+                    except Exception:
+                        pass
+
+    if not dates_set:
+        start_date = today - timedelta(days=45)
+        end_date = today + timedelta(days=45)
+    else:
+        # 프로젝트 시작일이 있으면 그걸 기준으로 타임라인 시작
+        if proj_start and proj_start < min(dates_set):
+            start_date = proj_start - timedelta(days=2)
+        else:
+            start_date = min(dates_set) - timedelta(days=3)
+        # 프로젝트 종료예정일이 있으면 그걸 기준으로 타임라인 종료
+        if proj_end and proj_end > max(dates_set):
+            end_date = proj_end + timedelta(days=5)
+        else:
+            end_date = max(dates_set) + timedelta(days=7)
+        # 오늘이 범위 밖이면 보정
+        if today < start_date:
+            start_date = today - timedelta(days=5)
+        if today > end_date:
+            end_date = today + timedelta(days=5)
+        # ── 최소 3달(90일) 범위 보장 ──
+        span = (end_date - start_date).days
+        if span < 90:
+            mid = start_date + (end_date - start_date) // 2
+            start_date = mid - timedelta(days=45)
+            end_date = mid + timedelta(days=45)
+
+    date_list = []
+    d = start_date
+    while d <= end_date:
+        date_list.append(d)
+        d += timedelta(days=1)
+
+    total_days = len(date_list)
+    total_width = total_days * DAY_W
+
+    # ── 월 헤더 (병합 - 엑셀 스타일) ──
+    month_cells = []
+    month_colors = ["#1c2533", "#1e2840"]  # 월별 교차 배경
+    mi = 0
+    i = 0
+    while i < total_days:
+        m_key = date_list[i].strftime("%Y-%m")
+        j = i
+        while j < total_days and date_list[j].strftime("%Y-%m") == m_key:
+            j += 1
+        span = j - i
+        label = f"{date_list[i].year}년 {date_list[i].month}월"
+        bg = month_colors[mi % 2]
+        month_cells.append(
+            f'<div class="tg-month-cell" style="flex:0 0 {span * DAY_W}px;background:{bg}">'
+            f'{label}</div>')
+        i = j
+        mi += 1
+
+    month_row = "".join(month_cells)
+
+    # ── 일 헤더 (엑셀 셀 그리드) ──
+    day_cells = []
+    for d in date_list:
+        cls = "tg-day-cell"
         if d == today:
-            cls += " gantt-today-col"
+            cls += " tg-today-col"
         elif d.weekday() == 6:
-            cls += " gantt-sunday"
+            cls += " tg-sunday"
         elif d.weekday() == 5:
-            cls += " gantt-saturday"
+            cls += " tg-saturday"
+        # 오늘은 하이라이트 + 빨간 좌우 보더
         day_cells.append(f'<div class="{cls}">{d.day}</div>')
     day_row = "".join(day_cells)
 
@@ -291,7 +492,6 @@ def generate_gantt(tasks, completed):
         if not e_date:
             e_date = s_date
 
-        # 날짜 범위 밖이면 조정
         if s_date > end_date or e_date < start_date:
             continue
 
@@ -300,25 +500,25 @@ def generate_gantt(tasks, completed):
 
         dd = (e_date - today).days
         if status == "완료":
-            bar_cls = "gantt-bar-done"
+            bar_cls = "tg-bar-done"
         elif dd is not None and dd < 0:
-            bar_cls = "gantt-bar-delayed"
+            bar_cls = "tg-bar-delayed"
         elif dd is not None and dd == 0:
-            bar_cls = "gantt-bar-today-due"
+            bar_cls = "tg-bar-today-due"
         elif dd is not None and dd <= 3:
-            bar_cls = "gantt-bar-urgent"
+            bar_cls = "tg-bar-urgent"
         else:
-            bar_cls = "gantt-bar-normal"
+            bar_cls = "tg-bar-normal"
 
-        title = t.get("title", "")[:20]
+        title = t.get("title", "")
         num = t.get("display_num", "?")
         assignee = (t.get("assignee") or "미정").split(",")[0].strip()
         task_id = t.get("id", "")
 
-        task_rows.append(f'''<div class="gantt-task-row" onclick="openModal('{task_id}')">
-    <div class="gantt-label-cell" title="#{num} {t.get('title','')}">#{num} {title}</div>
-    <div class="gantt-bar-area" style="width:{total_width}px">
-        <div class="gantt-bar {bar_cls}" style="left:{left_offset}px;width:{bar_width}px"
+        task_rows.append(f'''<div class="tg-task-row" onclick="openModal('{task_id}')">
+    <div class="tg-label-cell" title="#{num} {t.get('title','')}">#{num} {title}</div>
+    <div class="tg-bar-area" style="width:{total_width}px">
+        <div class="tg-bar {bar_cls}" style="left:{left_offset}px;width:{bar_width}px"
              title="#{num} | {assignee} | {s_date} → {e_date}">
             {title}
         </div>
@@ -326,28 +526,29 @@ def generate_gantt(tasks, completed):
 </div>''')
 
     if not task_rows:
-        return '<div class="gantt-empty">날짜 정보가 있는 업무가 없습니다</div>'
+        return '<div class="tg-empty">날짜 정보가 있는 업무가 없습니다</div>'
 
-    # ── 오늘 빨간선 (일 칸 중앙) ──
+    # ── 오늘 빨간선 (일 칸 중앙) + 날짜 라벨 ──
     today_line_html = ""
     if start_date <= today <= end_date:
         today_offset = LABEL_W + ((today - start_date).days * DAY_W) + (DAY_W // 2)
-        today_line_html = f'<div class="gantt-today-line" style="left:{today_offset}px"></div>'
+        today_str = today.strftime("%m/%d")
+        today_line_html = f'<div class="tg-today-line" style="left:{today_offset}px"><span class="tg-today-label">{today_str}</span></div>'
 
-    gantt_html = f'''<div class="gantt-section" id="ganttView" style="display:none">
+    return f'''<div class="tg-section" id="taskGanttView" style="display:none">
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>📊 간트차트 <span style="font-weight:400;font-size:12px;color:#8b949e">{start_date} ~ {end_date}</span></span>
-        <button class="filter-btn" onclick="switchView('kanban')" style="font-size:11px">📋 칸반 보기</button>
+        <span>📊 업무 간트 <span style="font-weight:400;font-size:12px;color:#8b949e">{start_date} ~ {end_date}</span></span>
+        <button class="filter-btn" onclick="switchToView('kanban')" style="font-size:11px">📋 칸반 보기</button>
     </div>
-    <div class="gantt-container">
-        <div class="gantt-scroll-area">
+    <div class="tg-container">
+        <div class="tg-scroll-area">
             {today_line_html}
-            <div class="gantt-header-row gantt-month-row">
-                <div class="gantt-label-cell gantt-label-header"></div>
+            <div class="tg-header-row tg-month-row">
+                <div class="tg-label-cell tg-label-header"></div>
                 {month_row}
             </div>
-            <div class="gantt-header-row gantt-day-row">
-                <div class="gantt-label-cell gantt-label-header">📋 업무</div>
+            <div class="tg-header-row tg-day-row">
+                <div class="tg-label-cell tg-label-header">📋 업무</div>
                 {day_row}
             </div>
             {"".join(task_rows)}
@@ -355,14 +556,13 @@ def generate_gantt(tasks, completed):
     </div>
 </div>'''
 
-    return gantt_html
-
 
 def render():
     tasks = get_active_tasks()
     groups = group_tasks(tasks)
     completed = get_completed_tasks()
     c_weeks, c_months = group_completed(completed)
+    projects = get_projects()
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
@@ -381,12 +581,12 @@ def render():
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # ── 간트차트 생성 ──
-    gantt_html = generate_gantt(tasks, completed)
-
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
-    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks"]} for t in tasks + completed}
+    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks","project_id"]} for t in tasks + completed}
     tasks_json = json.dumps(all_tasks, ensure_ascii=False)
+
+    # ── 프로젝트 데이터 JSON ──
+    projects_json = json.dumps({p["id"]: p for p in projects}, ensure_ascii=False)
 
     # ── display_num → task lookup (연관업무 색상 표시용) ──
     task_lookup = {}
@@ -403,6 +603,20 @@ def render():
         ("📋 D-7", "d7", groups["d7"]),
         ("🟢 여유", "upcoming", groups["upcoming"]),
     ]
+
+    # ── 간트차트 ──
+    gantt_html = render_gantt(projects, tasks)
+    task_gantt_html = generate_task_gantt(tasks, completed, projects)
+
+    # ── 프로젝트 필터 칩 ──
+    proj_filter_html = '<button class="filter-btn proj active" onclick="filterByProject(null)">📊 전체</button>'
+    proj_options = ''
+    for p in projects:
+        title = esc(p.get("title", ""))
+        pid = p.get("id", "")
+        task_count = sum(1 for t in tasks if t.get("project_id") == pid)
+        proj_filter_html += f'<button class="filter-btn proj" onclick="filterByProject(\'{pid}\')" title="{title} · 업무 {task_count}건">{title[:10]}{"…" if len(title)>10 else ""} <span class="proj-cnt">{task_count}</span></button>'
+        proj_options += f'<option value="{pid}">{esc(title)} ({task_count}건)</option>'
 
     col_html = ""
     for title, key, items in columns:
@@ -483,6 +697,8 @@ body {{
 }}
 .header h1 {{ font-size: 24px; font-weight: 700; }}
 .header .sub {{ color: #8b949e; font-size: 13px; margin-top: 4px; }}
+.header .refresh-btn {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 18px; padding: 2px 8px; border-radius: 6px; margin-left: 10px; vertical-align: middle; }}
+.header .refresh-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
 .filters {{
     display: flex; gap: 8px; padding: 12px 32px;
     background: #16181d; border-bottom: 1px solid #2a2d3a;
@@ -737,6 +953,29 @@ body {{
     transform: scale(1.08);
     box-shadow: 0 6px 28px rgba(63,185,80,0.5);
 }}
+.create-fab.active {{
+    background: #f85149; transform: rotate(45deg);
+}}
+.create-menu {{
+    position: fixed; bottom: 160px; right: 24px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 499; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+}}
+.create-menu.open {{
+    opacity: 1; pointer-events: auto;
+}}
+.create-menu button {{
+    padding: 10px 20px; border-radius: 8px;
+    border: 1px solid #2a2d3a;
+    background: #1c1f2a; color: #e1e4e8;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; text-align: left;
+    white-space: nowrap; transition: all 0.15s;
+}}
+.create-menu button:hover {{
+    border-color: #58a6ff; background: #1f2937;
+}}
 
 /* ── 에이전트 보드 ── */
 .agent-fab {{
@@ -841,208 +1080,253 @@ body {{
     color: #484f5a; font-size: 12px;
     padding: 8px 14px;
 }}
-
 /* ── 간트차트 ── */
 .gantt-section {{
+    margin: 16px 32px 0; background: #16181d;
+    border-radius: 12px; border: 1px solid #2a2d3a;
+    overflow: hidden;
+}}
+.gantt-header {{
+    padding: 12px 16px; display: flex;
+    justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #2a2d3a;
+}}
+.gantt-title {{ font-weight: 700; font-size: 14px; color: #e1e4e8; }}
+.gantt-refresh {{
+    background: #1f6feb; color: #fff; border: none;
+    border-radius: 6px; padding: 4px 12px;
+    cursor: pointer; font-size: 14px; font-weight: 700;
+}}
+.gantt-refresh:hover {{ background: #388bfd; }}
+.gantt-chart {{
+    padding: 8px 16px; position: relative;
+    min-height: 40px;
+}}
+.gantt-grid {{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 0; }}
+.gantt-grid-week {{ position: absolute; top: 0; bottom: 0; }}
+.gantt-today-line {{
+    position: absolute; top: 0; bottom: 0;
+    width: 3px; background: #f85149;
+    opacity: 0.9; z-index: 15; pointer-events: none;
+    box-shadow: 0 0 8px rgba(248,81,73,0.5);
+}}
+.gantt-today-label {{
+    position: absolute; top: -16px; left: -14px;
+    font-size: 10px; color: #f85149; font-weight: 800;
+    white-space: nowrap;
+    background: #0d1117; padding: 1px 4px; border-radius: 3px;
+    border: 1px solid rgba(248,81,73,0.3);
+}}
+.gantt-ticks {{ position: relative; height: 40px; z-index: 1; margin-bottom: 4px; }}
+.gantt-tick-day {{ position: absolute; top: 0; height: 100%; width: 1px; background: #21262d; z-index: 0; }}
+.gantt-tick-day.month {{ background: #30363d; }}
+.gantt-tick-month-label {{ position: absolute; top: 0; transform: translateX(-8px); z-index: 2; font-size: 11px; color: #58a6ff; font-weight: 700; }}
+.gantt-tick-date-label {{ position: absolute; top: 18px; transform: translateX(-50%); z-index: 2; font-size: 9px; color: #8b949e; white-space: nowrap; }}
+.gantt-row {{
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 0; cursor: pointer;
+}}
+.gantt-label {{
+    width: auto; min-width: 120px; max-width: 200px;
+    font-size: 12px; color: #ffffff;
+    text-align: right; flex-shrink: 0;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}}
+.gantt-count {{
+    font-size: 10px; color: #484f5a;
+    background: #1c1f2a; border-radius: 4px;
+    padding: 0 4px; min-width: 18px; text-align: center;
+}}
+.gantt-bar-wrap {{
+    flex: 1; height: 18px; position: relative;
+    background: #0f1117; border-radius: 4px;
+}}
+.gantt-bar {{
+    position: absolute; top: 2px; height: 14px;
+    border-radius: 3px; min-width: 6px;
+    transition: opacity 0.15s;
+}}
+.gantt-range {{
+    display: flex; justify-content: space-between;
+    padding: 4px 16px 8px; font-size: 10px; color: #484f5a;
+    border-top: 1px solid #2a2d3a;
+}}
+/* ── 업무 간트차트 (tg-*) ── */
+.tg-section {{
     padding: 0 0 24px 0;
 }}
-.gantt-container {{
+.tg-container {{
     overflow-x: auto;
     margin: 12px 32px 0;
-    border: 1px solid #2a2d3a;
+    border: 1px solid #30363d;
     border-radius: 12px;
     background: #0f1117;
     max-height: 70vh;
 }}
-.gantt-scroll-area {{
+.tg-scroll-area {{
     position: relative;
     display: inline-block;
     min-width: 100%;
 }}
-.gantt-header-row {{
-    display: flex;
-    flex-wrap: nowrap;
-    position: sticky;
-    top: 0;
-    z-index: 10;
+.tg-header-row {{
+    display: flex; flex-wrap: nowrap;
+    position: sticky; z-index: 10;
     background: #16181d;
 }}
-.gantt-month-row {{
-    top: 0;
-    z-index: 11;
-    border-bottom: 1px solid #2a2d3a;
+.tg-month-row {{
+    top: 0; z-index: 11;
+    border-bottom: 2px solid #30363d;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }}
-.gantt-day-row {{
-    top: 28px;
-    z-index: 10;
-    border-bottom: 1px solid #2a2d3a;
+.tg-day-row {{
+    top: 28px; z-index: 10;
+    border-bottom: 2px solid #30363d;
 }}
-.gantt-label-cell {{
-    flex: 0 0 160px;
-    position: sticky;
-    left: 0;
-    background: #1c1f2a;
-    z-index: 12;
+.tg-label-cell {{
+    flex: 0 0 180px;
+    position: sticky; left: 0;
+    background: #1c1f2a; z-index: 12;
     padding: 6px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #e1e4e8;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    border-right: 1px solid #2a2d3a;
-    display: flex;
-    align-items: center;
+    font-size: 13px; font-weight: 600; color: #e1e4e8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-right: 2px solid #30363d;
+    display: flex; align-items: center;
 }}
-.gantt-label-header {{
-    background: #16181d;
-    z-index: 13;
-    font-size: 12px;
-    color: #8b949e;
+.tg-label-header {{
+    background: #16181d; z-index: 13;
+    font-size: 12px; color: #8b949e;
     justify-content: center;
+    border-bottom: 2px solid #30363d;
 }}
-.gantt-month-cell {{
+.tg-month-cell {{
     flex: 0 0 auto;
-    padding: 4px 0;
-    text-align: center;
-    font-size: 12px;
-    font-weight: 700;
-    color: #8b949e;
-    background: #1c1f2a;
-    border-right: 1px solid #2a2d3a;
+    padding: 5px 0; text-align: center;
+    font-size: 12px; font-weight: 700; color: #c9d1d9;
+    border-right: 1px solid #21262d;
     white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }}
-.gantt-day-cell {{
+.tg-day-cell {{
     flex: 0 0 32px;
-    padding: 2px 0;
-    text-align: center;
-    font-size: 10px;
-    font-weight: 500;
-    color: #8b949e;
-    border-right: 1px solid #202433;
-    background: #16181d;
-    line-height: 20px;
-}}
-.gantt-day-cell.gantt-today-col {{
-    background: rgba(248,81,73,0.15);
-    color: #f85149;
-    font-weight: 800;
-    border-right-color: rgba(248,81,73,0.25);
-}}
-.gantt-day-cell.gantt-sunday {{
-    color: #484f5a;
-}}
-.gantt-day-cell.gantt-saturday {{
-    color: #3a4a6a;
-}}
-.gantt-today-line {{
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: #f85149;
-    z-index: 20;
-    pointer-events: none;
-}}
-.gantt-today-line::before {{
-    content: '●';
-    position: absolute;
-    top: -2px;
-    left: -5px;
-    font-size: 12px;
-    color: #f85149;
-    line-height: 1;
-}}
-.gantt-task-row {{
-    display: flex;
-    flex-wrap: nowrap;
-    border-bottom: 1px solid #202433;
-    cursor: pointer;
+    padding: 2px 0; text-align: center;
+    font-size: 10px; font-weight: 500; color: #8b949e;
+    border-right: 1px solid #21262d;
+    background: #16181d; line-height: 20px;
     transition: background 0.15s;
 }}
-.gantt-task-row:hover {{
-    background: rgba(88,166,255,0.06);
+.tg-day-cell.tg-today-col {{
+    background: rgba(248,81,73,0.12);
+    color: #f85149; font-weight: 800;
+    border-left: 1px solid rgba(248,81,73,0.3);
+    border-right: 1px solid rgba(248,81,73,0.3);
+    box-shadow: inset 0 0 8px rgba(248,81,73,0.08);
 }}
-.gantt-task-row .gantt-label-cell {{
+.tg-day-cell.tg-sunday {{ color: #484f5a; border-right-color: #1c2128; }}
+.tg-day-cell.tg-saturday {{ color: #3a4a6a; }}
+.tg-today-line {{
+    position: absolute; top: 0; bottom: 0;
+    width: 3px; background: #f85149;
+    z-index: 20; pointer-events: none;
+    box-shadow: 0 0 10px rgba(248,81,73,0.5);
+}}
+.tg-today-line::before {{
+    content: '▼';
+    position: absolute; top: -2px; left: -5px;
+    font-size: 10px; color: #f85149; line-height: 1;
+}}
+.tg-today-label {{
+    position: absolute; top: -16px; left: -14px;
+    font-size: 10px; color: #f85149; font-weight: 800;
+    white-space: nowrap;
+    background: #0f1117; padding: 1px 4px; border-radius: 3px;
+    border: 1px solid rgba(248,81,73,0.3);
+}}
+.tg-task-row {{
+    display: flex; flex-wrap: nowrap;
+    border-bottom: 1px solid #202433;
+    cursor: pointer;
+}}
+.tg-task-row .tg-label-cell {{
     background: #0f1117;
-    font-size: 12px;
-    font-weight: 400;
-    color: #c9d1d9;
+    font-size: 12px; font-weight: 400; color: #c9d1d9;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }}
-.gantt-bar-area {{
+.tg-bar-area {{
     position: relative;
     min-height: 32px;
 }}
-.gantt-bar {{
-    position: absolute;
-    top: 4px;
-    height: 24px;
-    border-radius: 4px;
-    padding: 0 8px;
-    font-size: 10px;
-    line-height: 24px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-weight: 600;
-    cursor: pointer;
+.tg-bar {{
+    position: absolute; top: 4px; height: 24px;
+    border-radius: 4px; padding: 0 8px;
+    font-size: 10px; line-height: 24px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-weight: 600; cursor: pointer;
     transition: filter 0.15s, transform 0.1s;
-    color: #fff;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }}
-.gantt-bar:hover {{
-    filter: brightness(1.2);
-    transform: scaleY(1.15);
-    z-index: 5;
+.tg-bar-normal {{ background: #1f6feb; }}
+.tg-bar-done {{ background: #238636; opacity: 0.7; }}
+.tg-bar-delayed {{ background: #da3633; }}
+.tg-bar-today-due {{ background: #d2991d; }}
+.tg-bar-urgent {{ background: #f0883e; }}
+.tg-empty {{
+    padding: 40px; text-align: center;
+    color: #484f5a; font-size: 14px;
 }}
-.gantt-bar-normal {{ background: #1f6feb; }}
-.gantt-bar-done {{ background: #238636; opacity: 0.7; }}
-.gantt-bar-delayed {{ background: #da3633; }}
-.gantt-bar-today-due {{ background: #d2991d; }}
-.gantt-bar-urgent {{ background: #f0883e; }}
-.gantt-empty {{
-    padding: 40px;
-    text-align: center;
-    color: #484f5a;
-    font-size: 14px;
-}}
-#kanbanView, #completedView {{
-    /* 칸반 보기 기본 표시 */
-}}
-
-/* ── 뷰 토글 버튼 ── */
+/* ── 뷰 토글 ── */
 .view-toggle {{
-    display: flex;
-    gap: 4px;
-    padding: 0 32px;
-    margin-top: 12px;
+    display: flex; gap: 4px;
+    padding: 0 32px; margin-top: 12px;
 }}
 .view-toggle-btn {{
     padding: 6px 16px;
     border-radius: 8px 8px 0 0;
-    border: 1px solid #2a2d3a;
-    border-bottom: none;
-    background: #1c1f2a;
-    color: #8b949e;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
+    border: 1px solid #2a2d3a; border-bottom: none;
+    background: #1c1f2a; color: #8b949e;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
 }}
-.view-toggle-btn:hover {{
-    color: #e1e4e8;
-    background: #1f2937;
-}}
+.view-toggle-btn:hover {{ color: #e1e4e8; background: #1f2937; }}
 .view-toggle-btn.active {{
-    background: #16181d;
-    color: #58a6ff;
+    background: #16181d; color: #58a6ff;
     border-color: #2a2d3a;
 }}
+/* ── 프로젝트 필터 ── */
+.filter-btn.proj {{ border-color: #3fb950; color: #3fb950; }}
+.filter-btn.proj:hover {{ border-color: #3fb950; background: rgba(63,185,80,0.1); }}
+.filter-btn.proj.active {{ background: #3fb950; color: #000; border-color: #3fb950; }}
+.proj-cnt {{ font-size: 9px; opacity: 0.7; }}
+/* ── 프로젝트 모달 ── */
+.project-modal .modal-body label {{ font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px; }}
+.project-modal input, .project-modal textarea, .project-modal select {{
+    width: 100%; padding: 8px 12px; margin-bottom: 12px;
+    background: #0f1117; border: 1px solid #2a2d3a;
+    border-radius: 6px; color: #e1e4e8; font-size: 13px;
+}}
+.project-modal input:focus, .project-modal textarea:focus, .project-modal select:focus {{
+    outline: none; border-color: #58a6ff;
+}}
+.project-modal .btn-row {{
+    display: flex; gap: 8px; margin-top: 12px;
+}}
+.project-modal .btn-row button {{
+    padding: 8px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    border: 1px solid #2a2d3a;
+}}
+.project-modal .btn-primary {{
+    background: #238636; color: #fff; border-color: #238636;
+}}
+.project-modal .btn-primary:hover {{ background: #2ea043; }}
+.project-modal .btn-danger {{
+    background: #3a1a1a; color: #f85149; border-color: #f85149;
+}}
+.project-modal .btn-danger:hover {{ background: #4a1f1f; }}
 </style>
 </head>
 <body>
 <div class="header">
-    <h1>📊 브랜업 대시보드</h1>
+    <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
 </div>
 <div class="filters">{filter_btns}</div>
@@ -1069,23 +1353,29 @@ body {{
     </div>
 </div>
 <div class="view-toggle">
-    <button class="view-toggle-btn active" id="btnKanban" onclick="switchView('kanban')">📋 칸반</button>
-    <button class="view-toggle-btn" id="btnGantt" onclick="switchView('gantt')">📊 간트</button>
+    <button class="view-toggle-btn active" id="btnKanban" onclick="switchToView('kanban')">📋 칸반</button>
+    <button class="view-toggle-btn" id="btnGantt" onclick="switchToView('gantt')">📊 업무 간트</button>
 </div>
 <div id="kanbanView">
+{gantt_html}
+<div class="filters" id="projFilters">{proj_filter_html}</div>
 <div class="board">
 {col_html}
 </div>
 {completed_html}
 </div><!-- #kanbanView -->
-{gantt_html}
+{task_gantt_html}
 
 <!-- ── 모달 ── -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)"></div>
 <div class="toast" id="toast"></div>
 
 <!-- ── 에이전트 보드 ── -->
-<button class="create-fab" onclick="openCreateModal()" title="새 업무">＋</button>
+<button class="create-fab" id="createFab" onclick="toggleCreateMenu()" title="새로 만들기">＋</button>
+<div class="create-menu" id="createMenu">
+    <button onclick="openCreateModal();toggleCreateMenu()">📋 새 업무</button>
+    <button onclick="openProjectModal();toggleCreateMenu()">📊 새 프로젝트</button>
+</div>
 <button class="agent-fab" id="agentFab" onclick="toggleAgent()" title="에이전트 보드">🤖</button>
 <div class="agent-panel" id="agentPanel">
     <div class="agent-messages" id="agentMessages">
@@ -1108,9 +1398,12 @@ body {{
 <div class="footer">브랜업 대시보드 · {now_str} · 10분 자동갱신</div>
 <script>
 var TASKS_DATA = {tasks_json};
-var API = (window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api');
+var PROJECTS_DATA = {projects_json};
+var API_BASE = '{API_BASE}';
+var API = API_BASE || ((window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api'));
 var currentTaskId = null;
 var isStaticHost = false;
+var currentProjectId = null;
 var modalMode = 'edit';  // 'edit' or 'create'
 
 // 페이지 로드 시 API 연결 확인 → 연결 안 되면 Mac Mini API로 폴백
@@ -1156,7 +1449,7 @@ function forceRefresh() {{
         sessionStorage.setItem('branup_filter', activeBtn.textContent.trim());
     }}
     // API 서버가 같은 호스트의 다른 포트거나 로컬이면 API 서버의 대시보드로 리디렉션
-    if (API.indexOf(':8800') !== -1) {{
+    if (API.indexOf(':{API_PORT}') !== -1) {{
         window.location.href = API.replace('/api', '/index.html');
         return;
     }}
@@ -1204,6 +1497,11 @@ function updateCounts() {{
 }}
 
 function filterAssignee(name) {{
+    // 직원 필터 선택 시 프로젝트 필터는 전체로 전환
+    if (currentProjectId) {{
+        filterByProject(null);
+    }}
+
     sessionStorage.setItem('branup_filter', name);
     document.querySelectorAll('.filter-btn').forEach(function(btn) {{
         btn.classList.remove('active');
@@ -1227,6 +1525,61 @@ function filterAssignee(name) {{
             }} else {{
                 card.classList.add('hidden');
             }}
+        }}
+    }});
+
+    updateCounts();
+}}
+
+function filterByProject(projectId) {{
+    currentProjectId = projectId;
+    // 프로젝트 선택 상태 저장 (업무 추가 후 페이지 새로고침 시 복원)
+    if (projectId) {{
+        sessionStorage.setItem('branup_project', projectId);
+    }} else {{
+        sessionStorage.removeItem('branup_project');
+    }}
+
+    // 프로젝트 필터 버튼 active 토글
+    document.querySelectorAll('.filter-btn.proj').forEach(function(btn) {{
+        btn.classList.remove('active');
+    }});
+    if (projectId) {{
+        var btns = document.querySelectorAll('.filter-btn.proj');
+        for (var i = 0; i < btns.length; i++) {{
+            if (btns[i].getAttribute('onclick').indexOf("'" + projectId + "'") !== -1) {{
+                btns[i].classList.add('active');
+                break;
+            }}
+        }}
+    }} else {{
+        var first = document.querySelector('.filter-btn.proj');
+        if (first) first.classList.add('active');
+    }}
+
+    // 프로젝트 전체일 때만 assignee 필터 적용
+    var assigneeFilter = null;
+    if (!projectId) {{
+        var activeAssigneeBtn = document.querySelector('.filter-btn:not(.proj):not(.urgent).active');
+        if (activeAssigneeBtn) assigneeFilter = activeAssigneeBtn.textContent.trim();
+    }}
+
+    // 카드 필터링
+    document.querySelectorAll('.card').forEach(function(card) {{
+        var show = true;
+        if (projectId) {{
+            var tid = card.getAttribute('data-task-id');
+            var task = TASKS_DATA[tid];
+            if (!task || task.project_id !== projectId) show = false;
+        }}
+        if (show && assigneeFilter && assigneeFilter !== 'ALL') {{
+            var a = card.getAttribute('data-assignee');
+            if (!(a.split(/,\\s*/).includes(assigneeFilter) || a.split(/,\\s*/).includes('모두'))) show = false;
+        }}
+        if (show) {{
+            card.classList.remove('hidden');
+        }} else {{
+            card.classList.add('hidden');
         }}
     }});
 
@@ -1267,6 +1620,7 @@ function createModalEl() {{
         '<div class="modal-field"><label>우선순위</label><select class="edit-priority">' +
         '<option value="긴급">🔴 긴급</option><option value="높음">🟠 높음</option><option value="중간" selected>🟡 중간</option><option value="낮음">🟢 낮음</option>' +
         '</select></div>' +
+        '<div class="modal-field"><label>📁 프로젝트</label><select class="edit-project"><option value="">없음</option>{proj_options}</select></div>' +
         '<div class="modal-field"><label>🔗 연관업무</label>' +
         '<div class="related-tasks" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center"></div>' +
         '<div style="display:flex;gap:6px;margin-top:8px">' +
@@ -1296,6 +1650,7 @@ function populateModal(modalEl, task) {{
     modalEl.querySelector('.edit-summary').value = task.summary || task.title || '';
     modalEl.querySelector('.edit-feedback').value = task.feedback || '';
     modalEl.querySelector('.edit-priority').value = task.priority || '중간';
+    modalEl.querySelector('.edit-project').value = task.project_id || '';
     modalEl.querySelector('.modal-meta').innerHTML =
         '<strong>상태:</strong> ' + (task.status || '진행중') +
         ' &nbsp;|&nbsp; <strong>생성:</strong> ' + (task.created_at ? task.created_at.slice(0,16).replace('T',' ') : '-') +
@@ -1403,13 +1758,19 @@ function openCreateModal() {{
 
     var sel = modalEl.querySelector('.edit-assignee');
     for (var i = 0; i < sel.options.length; i++) {{ sel.options[i].selected = false; }}
-    var activeBtn = document.querySelector('.filter-btn.active');
+    var activeBtn = document.querySelector('.filter-btn:not(.proj).active');
     var filterName = activeBtn ? activeBtn.textContent.trim() : '';
     var validAssignees = ['강경철', '노수민', '이상원', '이향석', '전경표', '모두'];
     if (validAssignees.indexOf(filterName) !== -1) {{
         for (var i = 0; i < sel.options.length; i++) {{
             if (sel.options[i].value === filterName) {{ sel.options[i].selected = true; break; }}
         }}
+    }}
+
+    // 현재 선택된 프로젝트를 기본값으로 설정
+    if (currentProjectId) {{
+        var projSel = modalEl.querySelector('.edit-project');
+        if (projSel) {{ projSel.value = currentProjectId; }}
     }}
     renderRelatedButtonsInModal(modalEl, '');
 }}
@@ -1435,7 +1796,8 @@ function createTask() {{
         assignee: getAssigneeValue(modalEl),
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
-        priority: modalEl.querySelector('.edit-priority').value
+        priority: modalEl.querySelector('.edit-priority').value,
+        project_id: modalEl.querySelector('.edit-project').value || null
     }};
     fetch(API + '/tasks', {{
         method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
@@ -1461,7 +1823,8 @@ function saveTask(btnEl) {{
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
         feedback: modalEl.querySelector('.edit-feedback').value.trim(),
-        priority: modalEl.querySelector('.edit-priority').value
+        priority: modalEl.querySelector('.edit-priority').value,
+        project_id: modalEl.querySelector('.edit-project').value || null
     }};
     if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
     fetch(API + '/tasks/' + m.taskId, {{
@@ -1490,7 +1853,8 @@ function completeTask(btnEl) {{
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
         feedback: modalEl.querySelector('.edit-feedback').value.trim(),
-        priority: modalEl.querySelector('.edit-priority').value
+        priority: modalEl.querySelector('.edit-priority').value,
+        project_id: modalEl.querySelector('.edit-project').value || null
     }};
     if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
 
@@ -1635,26 +1999,23 @@ function openRelatedTask(displayNum, event) {{
         }});
 }}
 
-// ── 뷰 토글 (칸반 ↔ 간트) ──
-function switchView(view) {{
+// ── 뷰 토글 (칸반 ↔ 업무간트) ──
+function switchToView(view) {{
     var kanban = document.getElementById('kanbanView');
-    var gantt = document.getElementById('ganttView');
+    var taskGantt = document.getElementById('taskGanttView');
     var btnKanban = document.getElementById('btnKanban');
     var btnGantt = document.getElementById('btnGantt');
-    var viewToggle = document.querySelector('.view-toggle');
 
     if (view === 'kanban') {{
         if (kanban) kanban.style.display = '';
-        if (gantt) gantt.style.display = 'none';
+        if (taskGantt) taskGantt.style.display = 'none';
         if (btnKanban) btnKanban.classList.add('active');
         if (btnGantt) btnGantt.classList.remove('active');
-        if (viewToggle) viewToggle.style.display = '';
     }} else {{
         if (kanban) kanban.style.display = 'none';
-        if (gantt) gantt.style.display = '';
+        if (taskGantt) taskGantt.style.display = '';
         if (btnKanban) btnKanban.classList.remove('active');
         if (btnGantt) btnGantt.classList.add('active');
-        if (viewToggle) viewToggle.style.display = '';
     }}
 }}
 
@@ -1675,6 +2036,13 @@ function toggleAgent() {{
         fab.classList.remove('active');
         fab.textContent = '🤖';
     }}
+}}
+
+function toggleCreateMenu() {{
+    var menu = document.getElementById('createMenu');
+    var fab = document.getElementById('createFab');
+    menu.classList.toggle('open');
+    fab.classList.toggle('active');
 }}
 
 function addAgentMsg(text, type) {{
@@ -1751,6 +2119,30 @@ function quickRegister() {{
 
 // ── 페이지 로드 시 필터 복원 ──
 (function() {{
+    // 프로젝트 필터 우선 복원
+    var savedProject = sessionStorage.getItem('branup_project');
+    if (savedProject) {{
+        currentProjectId = savedProject;
+        document.querySelectorAll('.filter-btn.proj').forEach(function(btn) {{
+            btn.classList.remove('active');
+            if (btn.getAttribute('onclick').indexOf("'" + savedProject + "'") !== -1) {{
+                btn.classList.add('active');
+            }}
+        }});
+        document.querySelectorAll('.card').forEach(function(card) {{
+            var tid = card.getAttribute('data-task-id');
+            var task = TASKS_DATA[tid];
+            if (task && task.project_id === savedProject) {{
+                card.classList.remove('hidden');
+            }} else {{
+                card.classList.add('hidden');
+            }}
+        }});
+        updateCounts();
+        return;  // 프로젝트 선택 중이면 assignee 필터 무시
+    }}
+
+    // 프로젝트 전체일 때만 assignee 필터 복원
     var saved = sessionStorage.getItem('branup_filter');
     if (saved && saved !== 'ALL') {{
         document.querySelectorAll('.filter-btn').forEach(function(btn) {{
@@ -1779,6 +2171,130 @@ function quickRegister() {{
         updateCounts();
     }}
 }})();
+
+// ── 프로젝트 모달 ──
+function openProjectModal(projectId) {{
+    var modalEl = document.createElement('div');
+    modalEl.className = 'modal project-modal';
+    modalEl.style.zIndex = MODAL_Z_BASE + modalStack.length * 10 + 100;
+    modalEl.onclick = function(e) {{ e.stopPropagation(); }};
+
+    var proj = projectId ? (PROJECTS_DATA[projectId] || {{}}) : {{}};
+    var isEdit = !!projectId;
+    var title = proj.title || '';
+    var desc = proj.description || '';
+    var status = proj.status || '계획';
+    var sd = proj.start_date ? proj.start_date.slice(0,10) : '';
+    var ed = proj.expected_end_date ? proj.expected_end_date.slice(0,10) : '';
+    var assignees = proj.assignees || '';
+
+    var statusOpts = ['계획','진행','완료','지연','보류'].map(function(s) {{
+        return '<option value="' + s + '"' + (status === s ? ' selected' : '') + '>' + s + '</option>';
+    }}).join('');
+
+    modalEl.innerHTML =
+        '<div class="modal-header">' +
+        '<h2 class="modal-title">' + (isEdit ? '프로젝트 상세' : '새 프로젝트') + '</h2>' +
+        '<button class="modal-close" onclick="closeModal(this.parentElement.parentElement)">&times;</button>' +
+        '</div>' +
+        '<div class="modal-body">' +
+        '<label>제목</label><input type="text" class="proj-title" value="' + title + '" placeholder="프로젝트명">' +
+        '<label>설명</label><textarea class="proj-desc" rows="3" placeholder="프로젝트 설명...">' + desc + '</textarea>' +
+        '<label>상태</label><select class="proj-status">' + statusOpts + '</select>' +
+        '<label>시작일</label><input type="date" class="proj-start" value="' + sd + '">' +
+        '<label>예상 종료일</label><input type="date" class="proj-end" value="' + ed + '">' +
+        '<label>담당자</label><input type="text" class="proj-assignees" value="' + assignees + '" placeholder="쉼표로 구분">' +
+        (isEdit ? '<div style="margin-top:12px"><button onclick="addProjectTaskFromModal(this)" style="padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%">➕ 하위 업무 추가</button></div>' : '') +
+        '<div class="btn-row">' +
+        '<button class="btn-primary" onclick="saveProjectFromModal(this)">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
+        (isEdit ? '<button class="btn-danger" onclick="deleteProjectFromModal(this)">🗑 삭제</button>' : '') +
+        '<button class="btn-cancel" style="background:#1c1f2a;color:#8b949e" onclick="closeModal(this.closest(&apos;.modal&apos;))">취소</button>' +
+        '</div></div>';
+
+    modalEl.setAttribute('data-project-id', projectId || '');
+
+    document.getElementById('modalOverlay').appendChild(modalEl);
+    document.getElementById('modalOverlay').classList.add('active');
+    modalStack.push({{ taskId: null, el: modalEl }});
+}}
+
+function saveProject(projectId, modalEl) {{
+    var data = {{
+        title: modalEl.querySelector('.proj-title').value.trim(),
+        description: modalEl.querySelector('.proj-desc').value.trim(),
+        status: modalEl.querySelector('.proj-status').value,
+        start_date: modalEl.querySelector('.proj-start').value || null,
+        expected_end_date: modalEl.querySelector('.proj-end').value || null,
+        assignees: modalEl.querySelector('.proj-assignees').value.trim()
+    }};
+    if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
+
+    var method = projectId ? 'PATCH' : 'POST';
+    var url = projectId ? (API + '/projects/' + projectId) : (API + '/projects');
+
+    fetch(url, {{
+        method: method, headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify(data)
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        if (result.error) {{ showToast('오류: ' + result.error, true); return; }}
+        showToast(projectId ? '프로젝트 저장 완료!' : '프로젝트 생성 완료!');
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function saveProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var projectId = modalEl.getAttribute('data-project-id') || '';
+    saveProject(projectId, modalEl);
+}}
+
+function deleteProject(projectId, modalEl) {{
+    if (!confirm('프로젝트를 삭제하시겠습니까?\\n하위 업무는 프로젝트에서 해제됩니다.')) return;
+    fetch(API + '/projects/' + projectId, {{ method: 'DELETE' }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        if (result.error) {{ showToast('삭제 실패: ' + result.error, true); return; }}
+        showToast('프로젝트 삭제 완료!');
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function deleteProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var projectId = modalEl.getAttribute('data-project-id');
+    if (!projectId) {{ showToast('프로젝트 ID 없음', true); return; }}
+    deleteProject(projectId, modalEl);
+}}
+
+function addProjectTask(projectId, modalEl) {{
+    var title = prompt('업무 제목을 입력하세요:');
+    if (!title || !title.trim()) return;
+    fetch(API + '/projects/' + projectId + '/tasks', {{
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ title: title.trim() }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        if (result.error) {{ showToast('추가 실패: ' + result.error, true); return; }}
+        showToast('업무 추가 완료! #' + result.display_num);
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function addProjectTaskFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var projectId = modalEl.getAttribute('data-project-id');
+    if (!projectId) {{ showToast('프로젝트 ID 없음', true); return; }}
+    addProjectTask(projectId, modalEl);
+}}
 </script>
 </body>
 </html>"""
