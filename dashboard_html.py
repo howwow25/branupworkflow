@@ -66,7 +66,7 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def render_card(t, dd, task_lookup=None):
+def render_card(t, dd, task_lookup=None, project_lookup=None):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     due = t.get("due_at", "")
@@ -78,6 +78,14 @@ def render_card(t, dd, task_lookup=None):
     prio = t.get("priority", "중간")
     prio_icon = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
     prio_html = f'<span class="prio-icon">{prio_icon}</span>' if prio_icon else ""
+
+    # ── 프로젝트 태그 ──
+    project_html = ""
+    pid = t.get("project_id", "")
+    if pid and project_lookup:
+        proj = project_lookup.get(pid)
+        if proj:
+            project_html = f'<span class="project-tag">📁 {esc(proj.get("title", ""))}</span>'
 
     # ── 연관업무 칩 ──
     related_html = ""
@@ -99,7 +107,7 @@ def render_card(t, dd, task_lookup=None):
             related_html = '<div class="rel-chips">' + "".join(chips) + '</div>'
 
     return f"""<div class="card" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-{css}">#{num}</span>{prio_html}{related_html}
+    <span class="dday badge-{css}">#{num}</span>{prio_html}{related_html}{project_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="dday badge-{css}">{label}</span>
@@ -595,6 +603,9 @@ def render():
         if dn:
             task_lookup[dn] = t
 
+    # ── project_id → project lookup (카드에 프로젝트명 표시용) ──
+    project_lookup = {p["id"]: p for p in projects}
+
     columns = [
         ("🔥 지연", "delayed", groups["delayed"]),
         ("⬜ 미정", "no_due", groups["no_due"]),
@@ -622,7 +633,7 @@ def render():
     for title, key, items in columns:
         cards_parts = []
         for t, dd in sorted(items, key=lambda x: x[1] or 999):
-            cards_parts.append(render_card(t, dd, task_lookup))
+            cards_parts.append(render_card(t, dd, task_lookup, project_lookup))
         cards = "".join(cards_parts)
         if not cards:
             cards = '<div class="empty">없음</div>'
@@ -803,6 +814,15 @@ body {{
 .prio-icon {{
     font-size: 14px; margin-left: 4px;
     vertical-align: middle;
+}}
+.project-tag {{
+    display: inline-block; margin-left: 6px;
+    padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    background: rgba(63,185,80,0.12); color: #3fb950;
+    border: 1px solid rgba(63,185,80,0.2);
+    vertical-align: middle; max-width: 140px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }}
 .dday {{
     display: inline-block; padding: 2px 8px;
