@@ -1466,8 +1466,10 @@ function updateCounts() {{
 }}
 
 function filterAssignee(name) {{
-    // 특정 프로젝트 선택 중이면 assignee 필터 무시
-    if (currentProjectId) return;
+    // 직원 필터 선택 시 프로젝트 필터는 전체로 전환
+    if (currentProjectId) {{
+        filterByProject(null);
+    }}
 
     sessionStorage.setItem('branup_filter', name);
     document.querySelectorAll('.filter-btn').forEach(function(btn) {{
