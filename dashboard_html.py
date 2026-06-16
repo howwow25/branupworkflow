@@ -2225,7 +2225,8 @@ function saveProject(projectId, modalEl) {{
         status: modalEl.querySelector('.proj-status').value,
         start_date: modalEl.querySelector('.proj-start').value || null,
         expected_end_date: modalEl.querySelector('.proj-end').value || null,
-        assignees: modalEl.querySelector('.proj-assignees').value.trim()
+        assignees: modalEl.querySelector('.proj-assignees').value.trim(),
+        _editor: (document.querySelector('.filter-btn:not(.proj):not(.urgent).active') || {{}}).textContent || ''
     }};
     if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
 
