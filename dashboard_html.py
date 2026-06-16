@@ -1099,7 +1099,7 @@ body {{
 .gantt-row:hover {{ opacity: 0.8; }}
 .gantt-label {{
     width: auto; min-width: 120px; max-width: 200px;
-    font-size: 12px; color: #c9d1d9;
+    font-size: 12px; color: #e1e4e8;
     text-align: right; flex-shrink: 0;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }}
