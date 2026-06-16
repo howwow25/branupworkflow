@@ -2244,9 +2244,10 @@ function saveProject(projectId, modalEl) {{
     .then(function(result) {{
         if (result.error) {{ showToast('오류: ' + result.error, true); return; }}
         showToast(projectId ? '프로젝트 저장 완료!' : '프로젝트 생성 완료!');
-        // 직원 필터 상태 저장
+        // 직원 필터 상태 저장 + 프로젝트 전체 전환
         var ab = document.querySelector('.filter-btn:not(.proj).active');
         if (ab) sessionStorage.setItem('branup_filter', ab.textContent.trim());
+        filterByProject(null);
         closeModal(modalEl);
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
