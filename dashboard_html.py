@@ -1094,9 +1094,7 @@ body {{
 .gantt-row {{
     display: flex; align-items: center; gap: 8px;
     padding: 4px 0; cursor: pointer;
-    transition: opacity 0.15s;
 }}
-.gantt-row:hover {{ opacity: 0.8; }}
 .gantt-label {{
     width: auto; min-width: 120px; max-width: 200px;
     font-size: 12px; color: #e1e4e8;
@@ -1216,9 +1214,7 @@ body {{
     display: flex; flex-wrap: nowrap;
     border-bottom: 1px solid #202433;
     cursor: pointer;
-    transition: background 0.15s;
 }}
-.tg-task-row:hover {{ background: rgba(88,166,255,0.06); }}
 .tg-task-row .tg-label-cell {{
     background: #0f1117;
     font-size: 12px; font-weight: 400; color: #c9d1d9;
@@ -1236,9 +1232,6 @@ body {{
     font-weight: 600; cursor: pointer;
     transition: filter 0.15s, transform 0.1s;
     color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
-}}
-.tg-bar:hover {{
-    filter: brightness(1.2); transform: scaleY(1.15); z-index: 5;
 }}
 .tg-bar-normal {{ background: #1f6feb; }}
 .tg-bar-done {{ background: #238636; opacity: 0.7; }}
