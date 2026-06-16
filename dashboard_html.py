@@ -190,75 +190,99 @@ def render_completed_card(t, closed_date, label, task_lookup=None):
 
 
 def render_gantt(projects, tasks):
-    """프로젝트 간트차트 HTML. 날짜 범위는 전체 프로젝트+업무 기준."""
+    """엑셀 스타일 프로젝트 간트차트 - 2단 헤더(월 병합+일 개별) + 빨간 오늘선"""
     if not projects:
         return ""
 
     today = datetime.now().date()
+    DAY_W = 32
+    LABEL_W = 180
 
-    # 날짜 범위 계산
-    all_dates = [today]
+    # ── 날짜 범위 (프로젝트 start_date / expected_end_date) ──
+    dates_set = set()
+    proj_start = None
+    proj_end = None
     for p in projects:
-        for f in ("start_date", "expected_end_date"):
-            v = p.get(f)
+        for k in ("start_date", "expected_end_date"):
+            v = p.get(k, "")
             if v:
                 try:
-                    all_dates.append(datetime.strptime(v[:10], "%Y-%m-%d").date())
+                    d = datetime.strptime(v[:10], "%Y-%m-%d").date()
+                    dates_set.add(d)
+                    if k == "start_date" and (proj_start is None or d < proj_start):
+                        proj_start = d
+                    if k == "expected_end_date" and (proj_end is None or d > proj_end):
+                        proj_end = d
                 except Exception:
                     pass
-    for t in tasks:
-        d = t.get("due_at")
-        if d:
-            try:
-                all_dates.append(datetime.strptime(d[:10], "%Y-%m-%d").date())
-            except Exception:
-                pass
 
-    min_date = min(all_dates) - timedelta(days=3)
-    max_date = max(all_dates) + timedelta(days=3)
-    total_days = (max_date - min_date).days
-    if total_days < 1:
-        total_days = 1
+    if not dates_set:
+        start_date = today - timedelta(days=45)
+        end_date = today + timedelta(days=45)
+    else:
+        if proj_start:
+            start_date = proj_start - timedelta(days=2)
+        else:
+            start_date = min(dates_set) - timedelta(days=3)
+        if proj_end:
+            end_date = proj_end + timedelta(days=5)
+        else:
+            end_date = max(dates_set) + timedelta(days=7)
+        if today < start_date:
+            start_date = today - timedelta(days=5)
+        if today > end_date:
+            end_date = today + timedelta(days=5)
+        span = (end_date - start_date).days
+        if span < 90:
+            mid = start_date + (end_date - start_date) // 2
+            start_date = mid - timedelta(days=45)
+            end_date = mid + timedelta(days=45)
 
-    # ── 주별 얼룩말 배경 + 일 단위 세로선 + 월 레이블 ──
-    week_cursor = min_date - timedelta(days=min_date.weekday())
-    grid_html = ""
-    wi = 0
-    while week_cursor <= max_date:
-        ws = week_cursor
-        we = min(week_cursor + timedelta(days=6), max_date)
-        lp = max(0, (ws - min_date).days / total_days * 100)
-        wp = max(0.3, (we - ws).days / total_days * 100)
-        bg = "#1c1f2a" if wi % 2 == 0 else "#16181d"
-        grid_html += f'<div class="gantt-grid-week" style="left:{lp:.1f}%;width:{wp:.1f}%;background:{bg}"></div>'
-        week_cursor += timedelta(days=7)
-        wi += 1
+    date_list = []
+    d = start_date
+    while d <= end_date:
+        date_list.append(d)
+        d += timedelta(days=1)
 
-    ticks_html = ""
-    last_month = None
-    cursor = min_date
-    while cursor <= max_date:
-        lp = max(0, (cursor - min_date).days / total_days * 100)
-        cur_month = cursor.month
-        is_mon = (cur_month != last_month)
-        is_mon_start = is_mon
-        is_monday = (cursor.weekday() == 0)
+    total_days = len(date_list)
+    total_width = total_days * DAY_W
 
-        # 일 단위 세로선
-        line_style = "gantt-tick-day month" if is_mon_start else "gantt-tick-day"
-        ticks_html += f'<div class="{line_style}" style="left:{lp:.1f}%"></div>'
+    # ── 월 헤더 ──
+    month_cells = []
+    month_colors = ["#1c2533", "#1e2840"]
+    mi = 0
+    i = 0
+    while i < total_days:
+        m_key = date_list[i].strftime("%Y-%m")
+        j = i
+        while j < total_days and date_list[j].strftime("%Y-%m") == m_key:
+            j += 1
+        span = j - i
+        label = f"{date_list[i].year}년 {date_list[i].month}월"
+        bg = month_colors[mi % 2]
+        month_cells.append(
+            f'<div class="tg-month-cell" style="flex:0 0 {span * DAY_W}px;background:{bg}">'
+            f'{label}</div>')
+        i = j
+        mi += 1
+    month_row = "".join(month_cells)
 
-        if is_mon_start:
-            ticks_html += f'<div class="gantt-tick-month-label" style="left:{lp:.1f}%"><span>{cursor.strftime("%m월")}</span></div>'
-        if is_monday or is_mon_start:
-            ticks_html += f'<div class="gantt-tick-date-label" style="left:{lp:.1f}%"><span>{cursor.strftime("%m/%d")}</span></div>'
+    # ── 일 헤더 ──
+    day_cells = []
+    for dt in date_list:
+        cls = "tg-day-cell"
+        if dt == today:
+            cls += " tg-today-col"
+        elif dt.weekday() == 6:
+            cls += " tg-sunday"
+        elif dt.weekday() == 5:
+            cls += " tg-saturday"
+        day_cells.append(f'<div class="{cls}">{dt.day}</div>')
+    day_row = "".join(day_cells)
 
-        last_month = cur_month
-        cursor += timedelta(days=1)
-
+    # ── 프로젝트 행 ──
     status_color = {"계획": "#8b949e", "진행": "#58a6ff", "완료": "#3fb950", "지연": "#f85149", "보류": "#484f5a"}
-
-    rows = ""
+    proj_rows = []
     for p in projects:
         sd_str = p.get("start_date", "")
         ed_str = p.get("expected_end_date", "")
@@ -269,53 +293,60 @@ def render_gantt(projects, tasks):
             if ed_str: ed = datetime.strptime(ed_str[:10], "%Y-%m-%d").date()
         except Exception:
             pass
-
         if not sd:
             continue
 
-        left_pct = max(0, (sd - min_date).days / total_days * 100)
+        left_offset = max(0, (sd - start_date).days) * DAY_W
         if ed:
-            width_pct = max(1, (ed - sd).days / total_days * 100)
+            bar_width = max(DAY_W * 2, (ed - sd).days * DAY_W + DAY_W)
         else:
-            width_pct = max(1, (today - sd).days / total_days * 100)
-            if width_pct < 1: width_pct = 1
+            bar_width = max(DAY_W * 2, (today - sd).days * DAY_W + DAY_W)
 
         color = status_color.get(p.get("status", "계획"), "#8b949e")
-        title = esc(p.get("title", ""))
+        title = p.get("title", "")
         pstatus = p.get("status", "계획")
         pid = p.get("id", "")
-
-        # 프로젝트별 업무 수
         task_count = sum(1 for t in tasks if t.get("project_id") == pid)
 
-        rows += f"""<div class="gantt-row" onclick="filterByProject('{pid}')" ondblclick="openProjectModal('{pid}')" title="{title} · {pstatus} · 업무 {task_count}건 (더블클릭: 상세보기)">
-    <span class="gantt-label" title="{title}">{title}</span>
-    <span class="gantt-count">{task_count}</span>
-    <div class="gantt-bar-wrap">
-        <div class="gantt-bar" style="left:{left_pct:.1f}%;width:{width_pct:.1f}%;background:{color}" data-status="{pstatus}"></div>
+        proj_rows.append(f'''<div class="tg-task-row" onclick="filterByProject('{pid}')" ondblclick="openProjectModal('{pid}')" title="{title} · {pstatus} · 업무 {task_count}건">
+    <div class="tg-label-cell" title="{title}">📁 {title}</div>
+    <div class="tg-bar-area" style="width:{total_width}px">
+        <div class="tg-bar" style="left:{left_offset}px;width:{bar_width}px;background:{color};border-radius:6px;opacity:0.85">
+            {task_count}건
+        </div>
     </div>
-</div>"""
+</div>''')
 
-    # 오늘 마커 위치 + 날짜 라벨
-    today_pct = (today - min_date).days / total_days * 100
-    today_str = today.strftime("%m/%d")
+    if not proj_rows:
+        return ""
 
-    return f"""<div class="gantt-section" id="ganttSection">
-    <div class="gantt-header">
-        <span class="gantt-title">📊 프로젝트</span>
-        <button class="gantt-refresh" onclick="toggleCreateMenu()" title="새로 만들기">＋</button>
+    # ── 오늘 라인 ──
+    today_line_html = ""
+    if start_date <= today <= end_date:
+        today_offset = LABEL_W + ((today - start_date).days * DAY_W) + (DAY_W // 2)
+        today_str = today.strftime("%m/%d")
+        today_line_html = f'<div class="tg-today-line" style="left:{today_offset}px"><span class="tg-today-label">{today_str}</span></div>'
+
+    return f'''<div class="tg-section" id="ganttSection">
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📊 프로젝트 <span style="font-weight:400;font-size:12px;color:#8b949e">{start_date} ~ {end_date}</span></span>
+        <button class="filter-btn" onclick="toggleCreateMenu()" style="font-size:11px">＋</button>
     </div>
-    <div class="gantt-chart">
-        <div class="gantt-grid">{grid_html}</div>
-        <div class="gantt-ticks">{ticks_html}</div>
-        <div class="gantt-today-line" style="left:{today_pct:.1f}%"><span class="gantt-today-label">{today_str}</span></div>
-        {rows}
+    <div class="tg-container">
+        <div class="tg-scroll-area">
+            {today_line_html}
+            <div class="tg-header-row tg-month-row">
+                <div class="tg-label-cell tg-label-header">📁 프로젝트</div>
+                {month_row}
+            </div>
+            <div class="tg-header-row tg-day-row">
+                <div class="tg-label-cell tg-label-header"></div>
+                {day_row}
+            </div>
+            {"".join(proj_rows)}
+        </div>
     </div>
-    <div class="gantt-range">
-        <span>{min_date.strftime('%m/%d')}</span>
-        <span>{max_date.strftime('%m/%d')}</span>
-    </div>
-</div>"""
+</div>'''
 
 
 def generate_task_gantt(tasks, completed, projects=None):
