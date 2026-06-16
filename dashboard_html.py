@@ -1372,6 +1372,7 @@ var API_BASE = '{API_BASE}';
 var API = API_BASE || ((window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api'));
 var currentTaskId = null;
 var isStaticHost = false;
+var currentProjectId = null;
 var modalMode = 'edit';  // 'edit' or 'create'
 
 // 페이지 로드 시 API 연결 확인 → 연결 안 되면 Mac Mini API로 폴백
@@ -1465,6 +1466,9 @@ function updateCounts() {{
 }}
 
 function filterAssignee(name) {{
+    // 특정 프로젝트 선택 중이면 assignee 필터 무시
+    if (currentProjectId) return;
+
     sessionStorage.setItem('branup_filter', name);
     document.querySelectorAll('.filter-btn').forEach(function(btn) {{
         btn.classList.remove('active');
@@ -1495,6 +1499,14 @@ function filterAssignee(name) {{
 }}
 
 function filterByProject(projectId) {{
+    currentProjectId = projectId;
+    // 프로젝트 선택 상태 저장 (업무 추가 후 페이지 새로고침 시 복원)
+    if (projectId) {{
+        sessionStorage.setItem('branup_project', projectId);
+    }} else {{
+        sessionStorage.removeItem('branup_project');
+    }}
+
     // 프로젝트 필터 버튼 active 토글
     document.querySelectorAll('.filter-btn.proj').forEach(function(btn) {{
         btn.classList.remove('active');
@@ -1508,23 +1520,33 @@ function filterByProject(projectId) {{
             }}
         }}
     }} else {{
-        // '전체' 버튼 active
         var first = document.querySelector('.filter-btn.proj');
         if (first) first.classList.add('active');
     }}
 
+    // 프로젝트 전체일 때만 assignee 필터 적용
+    var assigneeFilter = null;
+    if (!projectId) {{
+        var activeAssigneeBtn = document.querySelector('.filter-btn:not(.proj):not(.urgent).active');
+        if (activeAssigneeBtn) assigneeFilter = activeAssigneeBtn.textContent.trim();
+    }}
+
     // 카드 필터링
     document.querySelectorAll('.card').forEach(function(card) {{
-        if (!projectId) {{
-            card.classList.remove('hidden');
-        }} else {{
+        var show = true;
+        if (projectId) {{
             var tid = card.getAttribute('data-task-id');
             var task = TASKS_DATA[tid];
-            if (task && task.project_id === projectId) {{
-                card.classList.remove('hidden');
-            }} else {{
-                card.classList.add('hidden');
-            }}
+            if (!task || task.project_id !== projectId) show = false;
+        }}
+        if (show && assigneeFilter && assigneeFilter !== 'ALL') {{
+            var a = card.getAttribute('data-assignee');
+            if (!(a.split(/,\\s*/).includes(assigneeFilter) || a.split(/,\\s*/).includes('모두'))) show = false;
+        }}
+        if (show) {{
+            card.classList.remove('hidden');
+        }} else {{
+            card.classList.add('hidden');
         }}
     }});
 
@@ -2058,6 +2080,30 @@ function quickRegister() {{
 
 // ── 페이지 로드 시 필터 복원 ──
 (function() {{
+    // 프로젝트 필터 우선 복원
+    var savedProject = sessionStorage.getItem('branup_project');
+    if (savedProject) {{
+        currentProjectId = savedProject;
+        document.querySelectorAll('.filter-btn.proj').forEach(function(btn) {{
+            btn.classList.remove('active');
+            if (btn.getAttribute('onclick').indexOf("'" + savedProject + "'") !== -1) {{
+                btn.classList.add('active');
+            }}
+        }});
+        document.querySelectorAll('.card').forEach(function(card) {{
+            var tid = card.getAttribute('data-task-id');
+            var task = TASKS_DATA[tid];
+            if (task && task.project_id === savedProject) {{
+                card.classList.remove('hidden');
+            }} else {{
+                card.classList.add('hidden');
+            }}
+        }});
+        updateCounts();
+        return;  // 프로젝트 선택 중이면 assignee 필터 무시
+    }}
+
+    // 프로젝트 전체일 때만 assignee 필터 복원
     var saved = sessionStorage.getItem('branup_filter');
     if (saved && saved !== 'ALL') {{
         document.querySelectorAll('.filter-btn').forEach(function(btn) {{
