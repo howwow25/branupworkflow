@@ -414,7 +414,7 @@ class APIHandler(BaseHTTPRequestHandler):
         restricted = {"status", "start_date", "expected_end_date"}
         editor = body.get("_editor", "")
         if any(k in restricted for k in body):
-            if editor not in ("이상원", "이향석"):
+            if editor and editor not in ("이상원", "이향석"):
                 self._send_json({
                     "error": "상태와 일정은 이상원 또는 이향석만 수정할 수 있습니다",
                     "restricted_fields": list(restricted)
