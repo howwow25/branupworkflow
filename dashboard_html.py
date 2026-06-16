@@ -296,8 +296,9 @@ def render_gantt(projects, tasks):
     </div>
 </div>"""
 
-    # 오늘 마커 위치
+    # 오늘 마커 위치 + 날짜 라벨
     today_pct = (today - min_date).days / total_days * 100
+    today_str = today.strftime("%m/%d")
 
     return f"""<div class="gantt-section" id="ganttSection">
     <div class="gantt-header">
@@ -307,7 +308,7 @@ def render_gantt(projects, tasks):
     <div class="gantt-chart">
         <div class="gantt-grid">{grid_html}</div>
         <div class="gantt-ticks">{ticks_html}</div>
-        <div class="gantt-today-line" style="left:{today_pct:.1f}%"></div>
+        <div class="gantt-today-line" style="left:{today_pct:.1f}%"><span class="gantt-today-label">{today_str}</span></div>
         {rows}
     </div>
     <div class="gantt-range">
@@ -325,7 +326,7 @@ def generate_task_gantt(tasks, completed, projects=None):
 
     today = datetime.now().date()
     DAY_W = 32  # 하루 칸 너비 (px)
-    LABEL_W = 160  # 좌측 업무명 너비 (px)
+    LABEL_W = 180  # 좌측 업무명 너비 (px)
 
     # ── 프로젝트 시작일·종료예정일도 날짜 범위에 포함 ──
     dates_set = set()
@@ -496,11 +497,12 @@ def generate_task_gantt(tasks, completed, projects=None):
     if not task_rows:
         return '<div class="tg-empty">날짜 정보가 있는 업무가 없습니다</div>'
 
-    # ── 오늘 빨간선 (일 칸 중앙) ──
+    # ── 오늘 빨간선 (일 칸 중앙) + 날짜 라벨 ──
     today_line_html = ""
     if start_date <= today <= end_date:
         today_offset = LABEL_W + ((today - start_date).days * DAY_W) + (DAY_W // 2)
-        today_line_html = f'<div class="tg-today-line" style="left:{today_offset}px"></div>'
+        today_str = today.strftime("%m/%d")
+        today_line_html = f'<div class="tg-today-line" style="left:{today_offset}px"><span class="tg-today-label">{today_str}</span></div>'
 
     return f'''<div class="tg-section" id="taskGanttView" style="display:none">
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -1077,6 +1079,13 @@ body {{
     opacity: 0.9; z-index: 15; pointer-events: none;
     box-shadow: 0 0 8px rgba(248,81,73,0.5);
 }}
+.gantt-today-label {{
+    position: absolute; top: -16px; left: -14px;
+    font-size: 10px; color: #f85149; font-weight: 800;
+    white-space: nowrap;
+    background: #0d1117; padding: 1px 4px; border-radius: 3px;
+    border: 1px solid rgba(248,81,73,0.3);
+}}
 .gantt-ticks {{ position: relative; height: 40px; z-index: 1; margin-bottom: 4px; }}
 .gantt-tick-day {{ position: absolute; top: 0; height: 100%; width: 1px; background: #21262d; z-index: 0; }}
 .gantt-tick-day.month {{ background: #30363d; }}
@@ -1089,17 +1098,10 @@ body {{
 }}
 .gantt-row:hover {{ opacity: 0.8; }}
 .gantt-label {{
-    width: 120px; font-size: 12px; color: #8b949e;
+    width: auto; min-width: 120px; max-width: 200px;
+    font-size: 12px; color: #c9d1d9;
     text-align: right; flex-shrink: 0;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-    transition: width 0.2s, color 0.2s;
-}}
-.gantt-row:hover .gantt-label {{
-    width: auto; max-width: 300px;
-    color: #e1e4e8; overflow: visible;
-    background: #16181d; z-index: 5;
-    padding: 2px 6px; border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }}
 .gantt-count {{
     font-size: 10px; color: #484f5a;
@@ -1152,7 +1154,7 @@ body {{
     border-bottom: 2px solid #30363d;
 }}
 .tg-label-cell {{
-    flex: 0 0 160px;
+    flex: 0 0 180px;
     position: sticky; left: 0;
     background: #1c1f2a; z-index: 12;
     padding: 6px 12px;
@@ -1203,6 +1205,13 @@ body {{
     position: absolute; top: -2px; left: -5px;
     font-size: 10px; color: #f85149; line-height: 1;
 }}
+.tg-today-label {{
+    position: absolute; top: -16px; left: -14px;
+    font-size: 10px; color: #f85149; font-weight: 800;
+    white-space: nowrap;
+    background: #0f1117; padding: 1px 4px; border-radius: 3px;
+    border: 1px solid rgba(248,81,73,0.3);
+}}
 .tg-task-row {{
     display: flex; flex-wrap: nowrap;
     border-bottom: 1px solid #202433;
@@ -1214,14 +1223,6 @@ body {{
     background: #0f1117;
     font-size: 12px; font-weight: 400; color: #c9d1d9;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-    transition: width 0.2s, background 0.2s;
-}}
-.tg-task-row:hover .tg-label-cell {{
-    width: auto; max-width: 320px; min-width: 160px;
-    overflow: visible; white-space: nowrap;
-    background: #16181d; z-index: 15;
-    box-shadow: 2px 0 8px rgba(0,0,0,0.5);
-    color: #fff;
 }}
 .tg-bar-area {{
     position: relative;
