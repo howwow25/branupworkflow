@@ -289,7 +289,7 @@ def render_gantt(projects, tasks):
         task_count = sum(1 for t in tasks if t.get("project_id") == pid)
 
         rows += f"""<div class="gantt-row" onclick="filterByProject('{pid}')" ondblclick="openProjectModal('{pid}')" title="{title} · {pstatus} · 업무 {task_count}건 (더블클릭: 상세보기)">
-    <span class="gantt-label">{title[:16]}{'…' if len(title)>16 else ''}</span>
+    <span class="gantt-label" title="{title}">{title}</span>
     <span class="gantt-count">{task_count}</span>
     <div class="gantt-bar-wrap">
         <div class="gantt-bar" style="left:{left_pct:.1f}%;width:{width_pct:.1f}%;background:{color}" data-status="{pstatus}"></div>
@@ -478,7 +478,7 @@ def generate_task_gantt(tasks, completed, projects=None):
         else:
             bar_cls = "tg-bar-normal"
 
-        title = t.get("title", "")[:20]
+        title = t.get("title", "")
         num = t.get("display_num", "?")
         assignee = (t.get("assignee") or "미정").split(",")[0].strip()
         task_id = t.get("id", "")
@@ -1073,8 +1073,9 @@ body {{
 .gantt-grid-week {{ position: absolute; top: 0; bottom: 0; }}
 .gantt-today-line {{
     position: absolute; top: 0; bottom: 0;
-    width: 2px; background: #f85149;
-    opacity: 0.8; z-index: 2;
+    width: 3px; background: #f85149;
+    opacity: 0.9; z-index: 15; pointer-events: none;
+    box-shadow: 0 0 8px rgba(248,81,73,0.5);
 }}
 .gantt-ticks {{ position: relative; height: 40px; z-index: 1; margin-bottom: 4px; }}
 .gantt-tick-day {{ position: absolute; top: 0; height: 100%; width: 1px; background: #21262d; z-index: 0; }}
@@ -1090,6 +1091,15 @@ body {{
 .gantt-label {{
     width: 120px; font-size: 12px; color: #8b949e;
     text-align: right; flex-shrink: 0;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    transition: width 0.2s, color 0.2s;
+}}
+.gantt-row:hover .gantt-label {{
+    width: auto; max-width: 300px;
+    color: #e1e4e8; overflow: visible;
+    background: #16181d; z-index: 5;
+    padding: 2px 6px; border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
 }}
 .gantt-count {{
     font-size: 10px; color: #484f5a;
@@ -1184,9 +1194,9 @@ body {{
 .tg-day-cell.tg-saturday {{ color: #3a4a6a; }}
 .tg-today-line {{
     position: absolute; top: 0; bottom: 0;
-    width: 2px; background: #f85149;
+    width: 3px; background: #f85149;
     z-index: 20; pointer-events: none;
-    box-shadow: 0 0 6px rgba(248,81,73,0.4);
+    box-shadow: 0 0 10px rgba(248,81,73,0.5);
 }}
 .tg-today-line::before {{
     content: '▼';
@@ -1203,6 +1213,15 @@ body {{
 .tg-task-row .tg-label-cell {{
     background: #0f1117;
     font-size: 12px; font-weight: 400; color: #c9d1d9;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    transition: width 0.2s, background 0.2s;
+}}
+.tg-task-row:hover .tg-label-cell {{
+    width: auto; max-width: 320px; min-width: 160px;
+    overflow: visible; white-space: nowrap;
+    background: #16181d; z-index: 15;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.5);
+    color: #fff;
 }}
 .tg-bar-area {{
     position: relative;
