@@ -317,8 +317,8 @@ def render_gantt(projects, tasks):
 </div>"""
 
 
-def generate_task_gantt(tasks, completed):
-    """엑셀 스타일 업무 간트차트 - 월 병합 헤더 + 일별 칸 + 빨간 오늘선"""
+def generate_task_gantt(tasks, completed, projects=None):
+    """엑셀 스타일 업무 간트차트 - 월 병합 헤더 + 일별 칸 + 빨간 오늘선 (일 칸 중앙)"""
     all_ts = tasks + completed
     if not all_ts:
         return '<div class="tg-empty">날짜 정보가 있는 업무가 없습니다</div>'
@@ -327,6 +327,7 @@ def generate_task_gantt(tasks, completed):
     DAY_W = 32  # 하루 칸 너비 (px)
     LABEL_W = 160  # 좌측 업무명 너비 (px)
 
+    # ── 프로젝트 시작일·종료예정일도 날짜 범위에 포함 ──
     dates_set = set()
     for t in all_ts:
         for k in ("created_at", "due_at", "closed_at"):
@@ -337,12 +338,38 @@ def generate_task_gantt(tasks, completed):
                 except Exception:
                     pass
 
+    # 프로젝트 일정 추가
+    proj_start = None
+    proj_end = None
+    if projects:
+        for p in projects:
+            for k in ("start_date", "expected_end_date"):
+                v = p.get(k, "")
+                if v:
+                    try:
+                        d = datetime.strptime(v[:10], "%Y-%m-%d").date()
+                        dates_set.add(d)
+                        if k == "start_date" and (proj_start is None or d < proj_start):
+                            proj_start = d
+                        if k == "expected_end_date" and (proj_end is None or d > proj_end):
+                            proj_end = d
+                    except Exception:
+                        pass
+
     if not dates_set:
         start_date = today - timedelta(days=10)
         end_date = today + timedelta(days=20)
     else:
-        start_date = min(dates_set) - timedelta(days=3)
-        end_date = max(dates_set) + timedelta(days=7)
+        # 프로젝트 시작일이 있으면 그걸 기준으로 타임라인 시작
+        if proj_start and proj_start < min(dates_set):
+            start_date = proj_start - timedelta(days=2)
+        else:
+            start_date = min(dates_set) - timedelta(days=3)
+        # 프로젝트 종료예정일이 있으면 그걸 기준으로 타임라인 종료
+        if proj_end and proj_end > max(dates_set):
+            end_date = proj_end + timedelta(days=5)
+        else:
+            end_date = max(dates_set) + timedelta(days=7)
         if today < start_date:
             start_date = today - timedelta(days=3)
         if today > end_date:
@@ -357,8 +384,10 @@ def generate_task_gantt(tasks, completed):
     total_days = len(date_list)
     total_width = total_days * DAY_W
 
-    # ── 월 헤더 (병합) ──
+    # ── 월 헤더 (병합 - 엑셀 스타일) ──
     month_cells = []
+    month_colors = ["#1c2533", "#1e2840"]  # 월별 교차 배경
+    mi = 0
     i = 0
     while i < total_days:
         m_key = date_list[i].strftime("%Y-%m")
@@ -367,12 +396,16 @@ def generate_task_gantt(tasks, completed):
             j += 1
         span = j - i
         label = f"{date_list[i].year}년 {date_list[i].month}월"
-        month_cells.append(f'<div class="tg-month-cell" style="flex:0 0 {span * DAY_W}px">{label}</div>')
+        bg = month_colors[mi % 2]
+        month_cells.append(
+            f'<div class="tg-month-cell" style="flex:0 0 {span * DAY_W}px;background:{bg}">'
+            f'{label}</div>')
         i = j
+        mi += 1
 
     month_row = "".join(month_cells)
 
-    # ── 일 헤더 ──
+    # ── 일 헤더 (엑셀 셀 그리드) ──
     day_cells = []
     for d in date_list:
         cls = "tg-day-cell"
@@ -382,6 +415,7 @@ def generate_task_gantt(tasks, completed):
             cls += " tg-sunday"
         elif d.weekday() == 5:
             cls += " tg-saturday"
+        # 오늘은 하이라이트 + 빨간 좌우 보더
         day_cells.append(f'<div class="{cls}">{d.day}</div>')
     day_row = "".join(day_cells)
 
@@ -532,7 +566,7 @@ def render():
 
     # ── 간트차트 ──
     gantt_html = render_gantt(projects, tasks)
-    task_gantt_html = generate_task_gantt(tasks, completed)
+    task_gantt_html = generate_task_gantt(tasks, completed, projects)
 
     # ── 프로젝트 필터 칩 ──
     proj_filter_html = '<button class="filter-btn proj active" onclick="filterByProject(null)">📊 전체</button>'
@@ -1076,7 +1110,7 @@ body {{
 .tg-container {{
     overflow-x: auto;
     margin: 12px 32px 0;
-    border: 1px solid #2a2d3a;
+    border: 1px solid #30363d;
     border-radius: 12px;
     background: #0f1117;
     max-height: 70vh;
@@ -1088,16 +1122,17 @@ body {{
 }}
 .tg-header-row {{
     display: flex; flex-wrap: nowrap;
-    position: sticky; top: 0; z-index: 10;
+    position: sticky; z-index: 10;
     background: #16181d;
 }}
 .tg-month-row {{
     top: 0; z-index: 11;
-    border-bottom: 1px solid #2a2d3a;
+    border-bottom: 2px solid #30363d;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }}
 .tg-day-row {{
     top: 28px; z-index: 10;
-    border-bottom: 1px solid #2a2d3a;
+    border-bottom: 2px solid #30363d;
 }}
 .tg-label-cell {{
     flex: 0 0 160px;
@@ -1106,45 +1141,50 @@ body {{
     padding: 6px 12px;
     font-size: 13px; font-weight: 600; color: #e1e4e8;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    border-right: 1px solid #2a2d3a;
+    border-right: 2px solid #30363d;
     display: flex; align-items: center;
 }}
 .tg-label-header {{
     background: #16181d; z-index: 13;
     font-size: 12px; color: #8b949e;
     justify-content: center;
+    border-bottom: 2px solid #30363d;
 }}
 .tg-month-cell {{
     flex: 0 0 auto;
-    padding: 4px 0; text-align: center;
-    font-size: 12px; font-weight: 700; color: #8b949e;
-    background: #1c1f2a;
-    border-right: 1px solid #2a2d3a;
+    padding: 5px 0; text-align: center;
+    font-size: 12px; font-weight: 700; color: #c9d1d9;
+    border-right: 1px solid #21262d;
     white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }}
 .tg-day-cell {{
     flex: 0 0 32px;
     padding: 2px 0; text-align: center;
     font-size: 10px; font-weight: 500; color: #8b949e;
-    border-right: 1px solid #202433;
+    border-right: 1px solid #21262d;
     background: #16181d; line-height: 20px;
+    transition: background 0.15s;
 }}
 .tg-day-cell.tg-today-col {{
-    background: rgba(248,81,73,0.15);
+    background: rgba(248,81,73,0.12);
     color: #f85149; font-weight: 800;
-    border-right-color: rgba(248,81,73,0.25);
+    border-left: 1px solid rgba(248,81,73,0.3);
+    border-right: 1px solid rgba(248,81,73,0.3);
+    box-shadow: inset 0 0 8px rgba(248,81,73,0.08);
 }}
-.tg-day-cell.tg-sunday {{ color: #484f5a; }}
+.tg-day-cell.tg-sunday {{ color: #484f5a; border-right-color: #1c2128; }}
 .tg-day-cell.tg-saturday {{ color: #3a4a6a; }}
 .tg-today-line {{
     position: absolute; top: 0; bottom: 0;
     width: 2px; background: #f85149;
     z-index: 20; pointer-events: none;
+    box-shadow: 0 0 6px rgba(248,81,73,0.4);
 }}
 .tg-today-line::before {{
-    content: '●';
+    content: '▼';
     position: absolute; top: -2px; left: -5px;
-    font-size: 12px; color: #f85149; line-height: 1;
+    font-size: 10px; color: #f85149; line-height: 1;
 }}
 .tg-task-row {{
     display: flex; flex-wrap: nowrap;
