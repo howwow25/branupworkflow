@@ -357,8 +357,8 @@ def generate_task_gantt(tasks, completed, projects=None):
                         pass
 
     if not dates_set:
-        start_date = today - timedelta(days=10)
-        end_date = today + timedelta(days=20)
+        start_date = today - timedelta(days=45)
+        end_date = today + timedelta(days=45)
     else:
         # 프로젝트 시작일이 있으면 그걸 기준으로 타임라인 시작
         if proj_start and proj_start < min(dates_set):
@@ -370,10 +370,17 @@ def generate_task_gantt(tasks, completed, projects=None):
             end_date = proj_end + timedelta(days=5)
         else:
             end_date = max(dates_set) + timedelta(days=7)
+        # 오늘이 범위 밖이면 보정
         if today < start_date:
-            start_date = today - timedelta(days=3)
+            start_date = today - timedelta(days=5)
         if today > end_date:
-            end_date = today + timedelta(days=7)
+            end_date = today + timedelta(days=5)
+        # ── 최소 3달(90일) 범위 보장 ──
+        span = (end_date - start_date).days
+        if span < 90:
+            mid = start_date + (end_date - start_date) // 2
+            start_date = mid - timedelta(days=45)
+            end_date = mid + timedelta(days=45)
 
     date_list = []
     d = start_date
