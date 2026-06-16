@@ -1412,8 +1412,14 @@ var modalMode = 'edit';  // 'edit' or 'create'
 }})();
 
 function forceRefresh() {{
-    // 현재 필터 상태 저장
-    var activeBtn = document.querySelector('.filter-btn.active');
+    // 프로젝트 필터 상태 저장
+    if (currentProjectId) {{
+        sessionStorage.setItem('branup_project', currentProjectId);
+    }} else {{
+        sessionStorage.removeItem('branup_project');
+    }}
+    // 현재 assignee 필터 상태 저장 (프로젝트 버튼 제외)
+    var activeBtn = document.querySelector('.filter-btn:not(.proj).active');
     if (activeBtn) {{
         sessionStorage.setItem('branup_filter', activeBtn.textContent.trim());
     }}
@@ -1725,13 +1731,19 @@ function openCreateModal() {{
 
     var sel = modalEl.querySelector('.edit-assignee');
     for (var i = 0; i < sel.options.length; i++) {{ sel.options[i].selected = false; }}
-    var activeBtn = document.querySelector('.filter-btn.active');
+    var activeBtn = document.querySelector('.filter-btn:not(.proj).active');
     var filterName = activeBtn ? activeBtn.textContent.trim() : '';
     var validAssignees = ['강경철', '노수민', '이상원', '이향석', '전경표', '모두'];
     if (validAssignees.indexOf(filterName) !== -1) {{
         for (var i = 0; i < sel.options.length; i++) {{
             if (sel.options[i].value === filterName) {{ sel.options[i].selected = true; break; }}
         }}
+    }}
+
+    // 현재 선택된 프로젝트를 기본값으로 설정
+    if (currentProjectId) {{
+        var projSel = modalEl.querySelector('.edit-project');
+        if (projSel) {{ projSel.value = currentProjectId; }}
     }}
     renderRelatedButtonsInModal(modalEl, '');
 }}
