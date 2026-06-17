@@ -158,7 +158,7 @@ def group_completed(tasks):
     return weeks, months
 
 
-def render_completed_card(t, closed_date, label, task_lookup=None):
+def render_completed_card(t, closed_date, label, task_lookup=None, project_lookup=None):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     closed_str = closed_date.strftime("%m/%d")
@@ -167,6 +167,14 @@ def render_completed_card(t, closed_date, label, task_lookup=None):
     num = t.get("display_num", "?")
     prio_icon = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}.get(prio, "")
     prio_html = f'<span class="prio-icon">{prio_icon}</span>' if prio_icon else ""
+
+    # ── 프로젝트 태그 ──
+    project_html = ""
+    pid = t.get("project_id", "")
+    if pid and project_lookup:
+        proj = project_lookup.get(pid)
+        if proj:
+            project_html = f'<span class="project-tag">📁 {esc(proj.get("title", ""))}</span>'
 
     # ── 연관업무 칩 ──
     related_html = ""
@@ -188,7 +196,7 @@ def render_completed_card(t, closed_date, label, task_lookup=None):
             related_html = '<div class="rel-chips">' + "".join(chips) + '</div>'
 
     return f"""<div class="card done" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-done">#{num}</span>{prio_html}{related_html}
+    <span class="dday badge-done">#{num}</span>{prio_html}{related_html}{project_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="assignee">👤 {assignee}</span>
@@ -658,7 +666,7 @@ def render():
             completed_html += '<div class="section-title">📅 주 단위</div><div class="board">'
             for w in range(1, 5):
                 items = c_weeks.get(w, [])
-                cards = "".join(render_completed_card(t, cd, week_labels[w], task_lookup) for t, cd in items)
+                cards = "".join(render_completed_card(t, cd, week_labels[w], task_lookup, project_lookup) for t, cd in items)
                 if not cards:
                     cards = '<div class="empty">없음</div>'
                 completed_html += f"""<div class="column" data-col="week-{w}">
@@ -673,7 +681,7 @@ def render():
             completed_html += '<div class="section-title">📆 월 단위</div><div class="board">'
             for m in range(1, 5):
                 items = c_months.get(m, [])
-                cards = "".join(render_completed_card(t, cd, month_labels[m], task_lookup) for t, cd in items)
+                cards = "".join(render_completed_card(t, cd, month_labels[m], task_lookup, project_lookup) for t, cd in items)
                 if not cards:
                     cards = '<div class="empty">없음</div>'
                 completed_html += f"""<div class="column" data-col="month-{m}">
