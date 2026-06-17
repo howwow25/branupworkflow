@@ -914,6 +914,48 @@ body {{
 .modal-field textarea {{
     resize: vertical; min-height: 80px;
 }}
+/* ── 파일 첨부 ── */
+.file-dropzone {{
+    border: 2px dashed #2a2d3a; border-radius: 8px;
+    padding: 16px; text-align: center;
+    cursor: pointer; transition: border-color .2s;
+    background: #0d1117; margin-bottom: 10px;
+}}
+.file-dropzone:hover, .file-dropzone.dragover {{
+    border-color: #1f6feb; background: #161b22;
+}}
+.file-dropzone span {{
+    color: #8b949e; font-size: 12px;
+}}
+.file-list {{ display: flex; flex-direction: column; gap: 6px; }}
+.file-item {{
+    display: flex; align-items: center; gap: 8px;
+    background: #0f1117; border: 1px solid #1a2a3a;
+    border-radius: 6px; padding: 8px 10px;
+}}
+.file-icon {{ font-size: 16px; flex-shrink: 0; }}
+.file-name {{
+    flex: 1; color: #58a6ff; font-size: 12px;
+    text-decoration: none; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}}
+.file-name:hover {{ text-decoration: underline; }}
+.file-size {{
+    color: #8b949e; font-size: 11px; flex-shrink: 0;
+}}
+.file-del {{
+    color: #f85149; cursor: pointer; font-size: 14px;
+    flex-shrink: 0; padding: 2px 6px; border-radius: 4px;
+}}
+.file-del:hover {{ background: #3a1a1a; }}
+.file-empty {{
+    color: #484f5a; font-size: 12px; text-align: center;
+    padding: 10px;
+}}
+.file-limit-info {{
+    color: #484f5a; font-size: 11px; margin-top: 6px;
+    text-align: right;
+}}
 .modal-actions {{
     display: flex; gap: 10px; margin-top: 20px;
     flex-wrap: wrap;
@@ -1655,6 +1697,15 @@ function createModalEl() {{
         '<input type="number" class="related-input" placeholder="업무번호" onkeydown="if(event.key===&quot;Enter&quot;)addRelatedTask(this)" style="width:90px;padding:6px 10px;background:#0f1117;border:1px solid #2a2d3a;border-radius:6px;color:#e1e4e8;font-size:13px">' +
         '<button onclick="addRelatedTask(this)" style="padding:6px 12px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">추가</button>' +
         '</div></div>' +
+        '<div class="modal-field file-section">' +
+        '<label>📎 첨부파일</label>' +
+        '<div class="file-dropzone" onclick="this.querySelector(\'input\').click()" ondragover="event.preventDefault();this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault();this.classList.remove(\'dragover\');var inp=this.querySelector(\'input\');inp.files=event.dataTransfer.files;inp.onchange()">' +
+        '<span>클릭 또는 드래그로 파일 추가</span>' +
+        '<input type="file" class="file-input" multiple onchange="uploadModalFiles(this)" style="display:none">' +
+        '</div>' +
+        '<div class="file-list"></div>' +
+        '<div class="file-limit-info"></div>' +
+        '</div>' +
         '<div class="modal-actions">' +
         '<button class="btn-save modal-btn-save" onclick="saveTask(this)">💾 저장</button>' +
         '<button class="btn-save modal-btn-create" onclick="createTask()" style="display:none">➕ 추가</button>' +
@@ -1706,6 +1757,9 @@ function populateModal(modalEl, task) {{
 
     // 연관업무 렌더링
     renderRelatedButtonsInModal(modalEl, task.related_tasks || '');
+
+    // 첨부파일 렌더링
+    renderFiles(modalEl, task.id);
 
     if (isStaticHost) {{
         modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete').forEach(function(btn) {{ btn.classList.add('disabled'); }});
@@ -2030,6 +2084,200 @@ function openRelatedTask(displayNum, event) {{
         }});
 }}
 
+// ── 파일 첨부 ──
+
+function renderFiles(modalEl, taskId) {{
+    var list = modalEl.querySelector('.file-list');
+    var limit = modalEl.querySelector('.file-limit-info');
+    if (!list || !taskId) return;
+
+    fetch(API + '/tasks/' + taskId + '/files')
+        .then(function(r) {{ return r.json(); }})
+        .then(function(files) {{
+            var totalSize = 0;
+            list.innerHTML = '';
+            for (var i = 0; i < files.length; i++) {{
+                var f = files[i];
+                totalSize += f.file_size;
+                var sizeStr = f.file_size < 1024*1024
+                    ? (f.file_size / 1024).toFixed(1) + 'KB'
+                    : (f.file_size / 1024 / 1024).toFixed(1) + 'MB';
+                var icon = '📄';
+                var ext = (f.original_name || '').split('.').pop().toLowerCase();
+                if (['png','jpg','jpeg','gif','webp','svg'].indexOf(ext) >= 0) icon = '🖼';
+                else if (ext === 'pdf') icon = '📕';
+                else if (['xlsx','xls','csv'].indexOf(ext) >= 0) icon = '📊';
+                else if (['docx','doc'].indexOf(ext) >= 0) icon = '📝';
+                else if (['zip','rar','7z'].indexOf(ext) >= 0) icon = '📦';
+                else if (ext === 'hwp') icon = '📋';
+                list.innerHTML += '<div class="file-item">' +
+                    '<span class="file-icon">' + icon + '</span>' +
+                    '<a class="file-name" href="' + API + '/files/' + f.id + '" download="' + f.original_name + '">' + f.original_name + '</a>' +
+                    '<span class="file-size">' + sizeStr + '</span>' +
+                    '<span class="file-del" onclick="deleteModalFile(this, \'' + f.id + '\')" title="삭제">✕</span>' +
+                    '</div>';
+            }}
+            if (files.length === 0) {{
+                list.innerHTML = '<div class="file-empty">첨부된 파일이 없습니다</div>';
+            }}
+            var limitMB = 50;
+            var usedMB = (totalSize / 1024 / 1024).toFixed(1);
+            limit.textContent = '용량: ' + usedMB + 'MB / ' + limitMB + 'MB';
+        }}).catch(function() {{}});
+}}
+
+function uploadModalFiles(inputEl) {{
+    var modalEl = inputEl.closest('.modal');
+    if (!modalEl) return;
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    var taskId = m ? m.taskId : null;
+    if (!taskId) return;
+
+    var files = inputEl.files;
+    if (!files || files.length === 0) return;
+
+    var formData = new FormData();
+    var totalSize = 0;
+    for (var i = 0; i < files.length; i++) {{
+        if (files[i].size > 20 * 1024 * 1024) {{
+            showToast(files[i].name + ': 20MB 제한 초과', true);
+            inputEl.value = '';
+            return;
+        }}
+        formData.append('file_' + i, files[i]);
+        totalSize += files[i].size;
+    }}
+
+    showToast('업로드 중...');
+    fetch(API + '/tasks/' + taskId + '/files', {{
+        method: 'POST',
+        body: formData
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        inputEl.value = '';
+        if (result.errors && result.errors.length > 0) {{
+            showToast(result.errors.join('\\n'), true);
+        }}
+        if (result.uploaded && result.uploaded.length > 0) {{
+            showToast(result.uploaded.length + '개 파일 업로드 완료');
+        }}
+        renderFiles(modalEl, taskId);
+    }}).catch(function() {{
+        showToast('업로드 실패', true);
+        inputEl.value = '';
+    }});
+}}
+
+function deleteModalFile(el, fileId) {{
+    if (!confirm('파일을 삭제하시겠습니까?')) return;
+    var modalEl = el.closest('.modal');
+    var m = modalEl ? modalStack.find(function(x) {{ return x.el === modalEl; }}) : null;
+    var taskId = m ? m.taskId : null;
+    fetch(API + '/files/' + fileId, {{ method: 'DELETE' }})
+        .then(function(r) {{ return r.json(); }})
+        .then(function(res) {{
+            if (res.error) {{ showToast(res.error, true); return; }}
+            showToast('파일 삭제됨');
+            if (modalEl && taskId) renderFiles(modalEl, taskId);
+        }}).catch(function() {{ showToast('삭제 실패', true); }});
+}}
+
+// ── 프로젝트 파일 ──
+
+function renderProjectFiles(modalEl, projectId) {{
+    var list = modalEl.querySelector('.file-list');
+    var limit = modalEl.querySelector('.file-limit-info');
+    if (!list || !projectId) return;
+
+    fetch(API + '/projects/' + projectId + '/files')
+        .then(function(r) {{ return r.json(); }})
+        .then(function(files) {{
+            var totalSize = 0;
+            list.innerHTML = '';
+            for (var i = 0; i < files.length; i++) {{
+                var f = files[i];
+                totalSize += f.file_size;
+                var sizeStr = f.file_size < 1024*1024
+                    ? (f.file_size / 1024).toFixed(1) + 'KB'
+                    : (f.file_size / 1024 / 1024).toFixed(1) + 'MB';
+                var icon = '📄';
+                var ext = (f.original_name || '').split('.').pop().toLowerCase();
+                if (['png','jpg','jpeg','gif','webp','svg'].indexOf(ext) >= 0) icon = '🖼';
+                else if (ext === 'pdf') icon = '📕';
+                else if (['xlsx','xls','csv'].indexOf(ext) >= 0) icon = '📊';
+                else if (['docx','doc'].indexOf(ext) >= 0) icon = '📝';
+                else if (['zip','rar','7z'].indexOf(ext) >= 0) icon = '📦';
+                else if (ext === 'hwp') icon = '📋';
+                list.innerHTML += '<div class="file-item">' +
+                    '<span class="file-icon">' + icon + '</span>' +
+                    '<a class="file-name" href="' + API + '/files/' + f.id + '" download="' + f.original_name + '">' + f.original_name + '</a>' +
+                    '<span class="file-size">' + sizeStr + '</span>' +
+                    '<span class="file-del" onclick="deleteProjectFile(this, \'' + f.id + '\')" title="삭제">✕</span>' +
+                    '</div>';
+            }}
+            if (files.length === 0) {{
+                list.innerHTML = '<div class="file-empty">첨부된 파일이 없습니다</div>';
+            }}
+            var limitMB = 200;
+            var usedMB = (totalSize / 1024 / 1024).toFixed(1);
+            limit.textContent = '용량: ' + usedMB + 'MB / ' + limitMB + 'MB';
+        }}).catch(function() {{}});
+}}
+
+function uploadProjectFiles(inputEl) {{
+    var modalEl = inputEl.closest('.modal');
+    if (!modalEl) return;
+    var projectId = modalEl.getAttribute('data-project-id');
+    if (!projectId) return;
+
+    var files = inputEl.files;
+    if (!files || files.length === 0) return;
+
+    var formData = new FormData();
+    for (var i = 0; i < files.length; i++) {{
+        if (files[i].size > 20 * 1024 * 1024) {{
+            showToast(files[i].name + ': 20MB 제한 초과', true);
+            inputEl.value = '';
+            return;
+        }}
+        formData.append('file_' + i, files[i]);
+    }}
+
+    showToast('업로드 중...');
+    fetch(API + '/projects/' + projectId + '/files', {{
+        method: 'POST',
+        body: formData
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(result) {{
+        inputEl.value = '';
+        if (result.errors && result.errors.length > 0) {{
+            showToast(result.errors.join('\\n'), true);
+        }}
+        if (result.uploaded && result.uploaded.length > 0) {{
+            showToast(result.uploaded.length + '개 파일 업로드 완료');
+        }}
+        renderProjectFiles(modalEl, projectId);
+    }}).catch(function() {{
+        showToast('업로드 실패', true);
+        inputEl.value = '';
+    }});
+}}
+
+function deleteProjectFile(el, fileId) {{
+    if (!confirm('파일을 삭제하시겠습니까?')) return;
+    var modalEl = el.closest('.modal');
+    var projectId = modalEl ? modalEl.getAttribute('data-project-id') : null;
+    fetch(API + '/files/' + fileId, {{ method: 'DELETE' }})
+        .then(function(r) {{ return r.json(); }})
+        .then(function(res) {{
+            if (res.error) {{ showToast(res.error, true); return; }}
+            showToast('파일 삭제됨');
+            if (modalEl && projectId) renderProjectFiles(modalEl, projectId);
+        }}).catch(function() {{ showToast('삭제 실패', true); }});
+}}
+
 // ── 뷰 토글 (칸반 ↔ 업무간트) ──
 function switchToView(view) {{
     var kanban = document.getElementById('kanbanView');
@@ -2235,6 +2483,15 @@ function openProjectModal(projectId) {{
         '<label>시작일</label><input type="date" class="proj-start" value="' + sd + '">' +
         '<label>예상 종료일</label><input type="date" class="proj-end" value="' + ed + '">' +
         '<label>담당자</label><input type="text" class="proj-assignees" value="' + assignees + '" placeholder="쉼표로 구분">' +
+        '<div class="modal-field file-section" style="margin-top:12px">' +
+        '<label>📎 첨부파일</label>' +
+        '<div class="file-dropzone" onclick="this.querySelector(\'input\').click()" ondragover="event.preventDefault();this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault();this.classList.remove(\'dragover\');var inp=this.querySelector(\'input\');inp.files=event.dataTransfer.files;inp.onchange()">' +
+        '<span>클릭 또는 드래그로 파일 추가</span>' +
+        '<input type="file" class="file-input" multiple onchange="uploadProjectFiles(this)" style="display:none">' +
+        '</div>' +
+        '<div class="file-list"></div>' +
+        '<div class="file-limit-info"></div>' +
+        '</div>' +
         (isEdit ? '<div style="margin-top:12px"><button onclick="addProjectTaskFromModal(this)" style="padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%">➕ 하위 업무 추가</button></div>' : '') +
         '<div class="btn-row">' +
         '<button class="btn-primary" onclick="saveProjectFromModal(this)">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
@@ -2247,6 +2504,10 @@ function openProjectModal(projectId) {{
     document.getElementById('modalOverlay').appendChild(modalEl);
     document.getElementById('modalOverlay').classList.add('active');
     modalStack.push({{ taskId: null, el: modalEl }});
+
+    if (isEdit) {{
+        renderProjectFiles(modalEl, projectId);
+    }}
 }}
 
 function saveProject(projectId, modalEl) {{

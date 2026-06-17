@@ -116,6 +116,22 @@ def _ensure_schema(conn):
         conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT REFERENCES projects(id)")
     except Exception:
         pass  # already exists
+    # ── migration: files table ──
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS files (
+        id TEXT PRIMARY KEY,
+        task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        original_name TEXT NOT NULL,
+        stored_name TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+        created_at TEXT NOT NULL,
+        CHECK (task_id IS NOT NULL OR project_id IS NOT NULL)
+    );
+    CREATE INDEX IF NOT EXISTS idx_files_task ON files(task_id);
+    CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
+    """)
     # assign display_num to tasks without one (ordered by created_at)
     nulls = conn.execute(
         "SELECT id FROM tasks WHERE display_num IS NULL ORDER BY created_at ASC"
@@ -382,6 +398,103 @@ def add_event(task_id: str, event_type: str, payload: Optional[Dict] = None):
         "INSERT INTO task_events (id,task_id,event_type,payload,created_at) VALUES (?,?,?,?,?)",
         (str(uuid4()), task_id, event_type, json.dumps(payload or {}), now_iso()))
     conn.commit()
+
+
+# ── files ────────────────────────────────────────────────
+
+def _files_dir():
+    """파일 저장 디렉토리 반환 및 생성"""
+    d = Path(DATA_DIR) / "files"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def add_file(task_id=None, project_id=None, original_name="",
+             file_data=b"", mime_type="application/octet-stream") -> Dict:
+    """파일 저장 (task 또는 project에 귀속)"""
+    conn = get_conn()
+    fid = str(uuid4())
+    ts = now_iso()
+    # 확장자 보존
+    ext = Path(original_name).suffix
+    stored_name = f"{fid}{ext}"
+    file_size = len(file_data)
+
+    # 저장 디렉토리
+    target_dir = _files_dir() / "tasks" if task_id else _files_dir() / "projects"
+    sub_id = task_id or project_id
+    target_dir = target_dir / sub_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filepath = target_dir / stored_name
+
+    with open(filepath, "wb") as f:
+        f.write(file_data)
+
+    conn.execute(
+        "INSERT INTO files (id,task_id,project_id,original_name,stored_name,file_size,mime_type,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (fid, task_id, project_id, original_name, stored_name, file_size, mime_type, ts))
+    conn.commit()
+    return {"id": fid, "task_id": task_id, "project_id": project_id,
+            "original_name": original_name, "file_size": file_size,
+            "mime_type": mime_type, "created_at": ts}
+
+
+def get_files_by_task(task_id: str) -> List[Dict]:
+    conn = get_conn()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM files WHERE task_id=? ORDER BY created_at ASC", (task_id,))]
+
+
+def get_files_by_project(project_id: str) -> List[Dict]:
+    conn = get_conn()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM files WHERE project_id=? ORDER BY created_at ASC", (project_id,))]
+
+
+def get_file_by_id(file_id: str) -> Optional[Dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM files WHERE id=?", (file_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_file_path(file_record: Dict) -> Path:
+    """파일 레코드로 실제 파일 경로 반환"""
+    sub = "tasks" if file_record.get("task_id") else "projects"
+    sub_id = file_record.get("task_id") or file_record.get("project_id")
+    return _files_dir() / sub / sub_id / file_record["stored_name"]
+
+
+def delete_file(file_id: str) -> Optional[Dict]:
+    """파일 삭제 (DB + 디스크)"""
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM files WHERE id=?", (file_id,)).fetchone()
+    if not row:
+        return None
+    rec = dict(row)
+    # 디스크에서 삭제
+    filepath = get_file_path(rec)
+    try:
+        filepath.unlink(missing_ok=True)
+    except Exception:
+        pass
+    conn.execute("DELETE FROM files WHERE id=?", (file_id,))
+    conn.commit()
+    return rec
+
+
+def get_file_size_sum(task_id=None, project_id=None) -> int:
+    """task/project별 총 파일 크기 (bytes)"""
+    conn = get_conn()
+    if task_id:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(file_size), 0) FROM files WHERE task_id=?", (task_id,)).fetchone()
+    elif project_id:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(file_size), 0) FROM files WHERE project_id=?", (project_id,)).fetchone()
+    else:
+        return 0
+    return row[0]
 
 
 # ── CLI ────────────────────────────────────────────────

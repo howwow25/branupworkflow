@@ -27,7 +27,10 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 create_task, get_room_by_chat_id, upsert_room,
                 get_task_by_display_num,
                 get_projects, get_project_by_id, create_project,
-                update_project, delete_project, get_tasks_by_project)
+                update_project, delete_project, get_tasks_by_project,
+                add_file, get_files_by_task, get_files_by_project,
+                get_file_by_id, get_file_path, delete_file,
+                get_file_size_sum)
 
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
@@ -208,6 +211,53 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "project not found"}, 404)
             return
 
+        # /api/tasks/<id>/files → 업무 파일 목록
+        m = re.match(r'^/api/tasks/([^/]+)/files$', path)
+        if m:
+            task_id = unquote(m.group(1))
+            task = get_task_by_id(task_id)
+            if not task:
+                self._send_json({"error": "task not found"}, 404)
+                return
+            files = get_files_by_task(task_id)
+            self._send_json(files)
+            return
+
+        # /api/projects/<id>/files → 프로젝트 파일 목록
+        m = re.match(r'^/api/projects/([^/]+)/files$', path)
+        if m:
+            project_id = unquote(m.group(1))
+            proj = get_project_by_id(project_id)
+            if not proj:
+                self._send_json({"error": "project not found"}, 404)
+                return
+            files = get_files_by_project(project_id)
+            self._send_json(files)
+            return
+
+        # /api/files/<id> → 파일 다운로드
+        m = re.match(r'^/api/files/([^/]+)$', path)
+        if m:
+            file_id = unquote(m.group(1))
+            file_rec = get_file_by_id(file_id)
+            if not file_rec:
+                self._send_json({"error": "file not found"}, 404)
+                return
+            filepath = get_file_path(file_rec)
+            if not filepath.exists():
+                self._send_json({"error": "file missing"}, 404)
+                return
+            content = filepath.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", file_rec.get("mime_type", "application/octet-stream"))
+            self.send_header("Content-Disposition",
+                f'attachment; filename="{file_rec["original_name"]}"')
+            self._cors_headers()
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
         task_id, _ = self._extract_task_id()
         if not task_id:
             self._send_json({"error": "not found"}, 404)
@@ -264,6 +314,11 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_remove_related(parts[2], parts[4])
             return
 
+        # /api/files/<id> → 파일 삭제
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "files":
+            self._handle_file_delete(parts[2])
+            return
+
         task_id, _ = self._extract_task_id()
         if not task_id:
             self._send_json({"error": "not found"}, 404)
@@ -313,6 +368,16 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_add_related(parts[2])
             return
 
+        # /api/tasks/<id>/files → 업무 파일 업로드
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "tasks" and parts[3] == "files":
+            self._handle_file_upload(task_id=unquote(parts[2]))
+            return
+
+        # /api/projects/<id>/files → 프로젝트 파일 업로드
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "projects" and parts[3] == "files":
+            self._handle_file_upload(project_id=unquote(parts[2]))
+            return
+
         # /api/tasks/<id>/complete
         task_id, action = self._extract_task_id()
         if not task_id or action != "complete":
@@ -333,6 +398,127 @@ class APIHandler(BaseHTTPRequestHandler):
         task = get_task_by_id(task_id)
         self._refresh_dashboard()
         self._send_json(task)
+
+    # ── 파일 업로드/삭제 핸들러 ──────────────────────────
+
+    def _parse_multipart(self):
+        """multipart/form-data 파싱 → {filename: (data, content_type)}"""
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in content_type:
+            return {}
+        import cgi, io
+        # boundary 추출
+        boundary = None
+        for part in content_type.split(";"):
+            part = part.strip()
+            if part.startswith("boundary="):
+                boundary = part[9:]
+        if not boundary:
+            return {}
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        # multipart 파싱
+        result = {}
+        raw = b"--" + boundary.encode() + b"\r\n" + body + b"\r\n--" + boundary.encode() + b"--"
+        # 간단한 수동 파싱 (cgi.FieldStorage는 wsgi 전용이므로)
+        parts = body.split(b"--" + boundary.encode())
+        for part in parts:
+            if b"Content-Disposition" not in part:
+                continue
+            headers_end = part.find(b"\r\n\r\n")
+            if headers_end == -1:
+                continue
+            headers_raw = part[:headers_end].decode("utf-8", errors="replace")
+            data = part[headers_end + 4:]
+            if data.endswith(b"\r\n"):
+                data = data[:-2]
+            # filename 추출
+            filename = None
+            for line in headers_raw.split("\r\n"):
+                if "filename=" in line:
+                    import re
+                    m = re.search(r'filename="([^"]*)"', line)
+                    if m:
+                        filename = m.group(1)
+            if filename and data:
+                result[filename] = data
+        return result
+
+    def _handle_file_upload(self, task_id=None, project_id=None):
+        """POST /api/tasks/<id>/files 또는 /api/projects/<id>/files"""
+        LIMITS = {
+            "file": 20 * 1024 * 1024,      # 20MB per file
+            "task": 50 * 1024 * 1024,      # 50MB per task
+            "project": 200 * 1024 * 1024,  # 200MB per project
+        }
+
+        # 소유자 확인
+        if task_id:
+            owner = get_task_by_id(task_id)
+            if not owner:
+                self._send_json({"error": "task not found"}, 404)
+                return
+            current_total = get_file_size_sum(task_id=task_id)
+            max_total = LIMITS["task"]
+        elif project_id:
+            owner = get_project_by_id(project_id)
+            if not owner:
+                self._send_json({"error": "project not found"}, 404)
+                return
+            current_total = get_file_size_sum(project_id=project_id)
+            max_total = LIMITS["project"]
+        else:
+            self._send_json({"error": "task_id or project_id required"}, 400)
+            return
+
+        files = self._parse_multipart()
+        if not files:
+            self._send_json({"error": "no files uploaded"}, 400)
+            return
+
+        uploaded = []
+        errors = []
+        for filename, data in files.items():
+            size = len(data)
+            # 개별 파일 크기 제한
+            if size > LIMITS["file"]:
+                errors.append(f"{filename}: {size/1024/1024:.1f}MB (20MB 제한 초과)")
+                continue
+            # 총량 제한 체크
+            if current_total + size > max_total:
+                limit_mb = max_total / 1024 / 1024
+                errors.append(f"{filename}: 총량 {limit_mb:.0f}MB 제한 초과")
+                continue
+            # MIME 추정
+            ext = Path(filename).suffix.lower()
+            mime_map = {
+                ".pdf": "application/pdf",
+                ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+                ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ".xls": "application/vnd.ms-excel",
+                ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ".doc": "application/msword",
+                ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                ".ppt": "application/vnd.ms-powerpoint",
+                ".zip": "application/zip", ".hwp": "application/haansofthwp",
+            }
+            mime = mime_map.get(ext, "application/octet-stream")
+            rec = add_file(task_id=task_id, project_id=project_id,
+                          original_name=filename, file_data=data, mime_type=mime)
+            current_total += size
+            uploaded.append(rec)
+
+        self._send_json({"uploaded": uploaded, "errors": errors})
+
+    def _handle_file_delete(self, file_id):
+        """DELETE /api/files/<id>"""
+        rec = get_file_by_id(unquote(file_id))
+        if not rec:
+            self._send_json({"error": "file not found"}, 404)
+            return
+        delete_file(unquote(file_id))
+        self._send_json({"deleted": True, "file_id": file_id,
+                         "original_name": rec["original_name"]})
 
     # ── 에이전트 명령어 처리 ──────────────────────────
 
