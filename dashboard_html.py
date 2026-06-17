@@ -1699,7 +1699,7 @@ function createModalEl() {{
         '</div></div>' +
         '<div class="modal-field file-section">' +
         '<label>📎 첨부파일</label>' +
-        '<div class="file-dropzone" onclick="this.querySelector(\'input\').click()" ondragover="event.preventDefault();this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault();this.classList.remove(\'dragover\');var inp=this.querySelector(\'input\');inp.files=event.dataTransfer.files;inp.onchange()">' +
+        '<div class="file-dropzone" onclick="this.querySelector(\\'input\\').click()" ondragover="event.preventDefault();this.classList.add(\\'dragover\\')" ondragleave="this.classList.remove(\\'dragover\\')" ondrop="event.preventDefault();this.classList.remove(\\'dragover\\');var inp=this.querySelector(\\'input\\');inp.files=event.dataTransfer.files;inp.onchange()">' +
         '<span>클릭 또는 드래그로 파일 추가</span>' +
         '<input type="file" class="file-input" multiple onchange="uploadModalFiles(this)" style="display:none">' +
         '</div>' +
@@ -2485,7 +2485,7 @@ function openProjectModal(projectId) {{
         '<label>담당자</label><input type="text" class="proj-assignees" value="' + assignees + '" placeholder="쉼표로 구분">' +
         '<div class="modal-field file-section" style="margin-top:12px">' +
         '<label>📎 첨부파일</label>' +
-        '<div class="file-dropzone" onclick="this.querySelector(\'input\').click()" ondragover="event.preventDefault();this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault();this.classList.remove(\'dragover\');var inp=this.querySelector(\'input\');inp.files=event.dataTransfer.files;inp.onchange()">' +
+        '<div class="file-dropzone" onclick="this.querySelector(\\'input\\').click()" ondragover="event.preventDefault();this.classList.add(\\'dragover\\')" ondragleave="this.classList.remove(\\'dragover\\')" ondrop="event.preventDefault();this.classList.remove(\\'dragover\\');var inp=this.querySelector(\\'input\\');inp.files=event.dataTransfer.files;inp.onchange()">' +
         '<span>클릭 또는 드래그로 파일 추가</span>' +
         '<input type="file" class="file-input" multiple onchange="uploadProjectFiles(this)" style="display:none">' +
         '</div>' +
