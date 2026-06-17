@@ -2114,7 +2114,7 @@ function renderFiles(modalEl, taskId) {{
                     '<span class="file-icon">' + icon + '</span>' +
                     '<a class="file-name" href="' + API + '/files/' + f.id + '" download="' + f.original_name + '">' + f.original_name + '</a>' +
                     '<span class="file-size">' + sizeStr + '</span>' +
-                    '<span class="file-del" onclick="deleteModalFile(this, \'' + f.id + '\')" title="삭제">✕</span>' +
+                    '<span class="file-del" onclick="deleteModalFile(this, \\'' + f.id + '\\')" title="삭제">✕</span>' +
                     '</div>';
             }}
             if (files.length === 0) {{
@@ -2213,7 +2213,7 @@ function renderProjectFiles(modalEl, projectId) {{
                     '<span class="file-icon">' + icon + '</span>' +
                     '<a class="file-name" href="' + API + '/files/' + f.id + '" download="' + f.original_name + '">' + f.original_name + '</a>' +
                     '<span class="file-size">' + sizeStr + '</span>' +
-                    '<span class="file-del" onclick="deleteProjectFile(this, \'' + f.id + '\')" title="삭제">✕</span>' +
+                    '<span class="file-del" onclick="deleteProjectFile(this, \\'' + f.id + '\\')" title="삭제">✕</span>' +
                     '</div>';
             }}
             if (files.length === 0) {{
