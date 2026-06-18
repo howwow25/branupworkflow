@@ -16,7 +16,7 @@ import sys
 import re
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, quote
 
 DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
     str(Path(__file__).parent.parent / "data"))
@@ -251,7 +251,7 @@ class APIHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", file_rec.get("mime_type", "application/octet-stream"))
             self.send_header("Content-Disposition",
-                f'attachment; filename="{file_rec["original_name"]}"')
+                f"attachment; filename*=UTF-8''{quote(file_rec['original_name'], safe='')}")
             self._cors_headers()
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
