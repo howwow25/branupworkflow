@@ -184,6 +184,11 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json(tasks)
             return
 
+        # /api/weekly-report?assignee=강경철 → 주간리포트 요청
+        if path == "/api/weekly-report":
+            self._handle_weekly_report()
+            return
+
         # /api/rooms/<chat_id> → room 조회
         m = re.match(r'^/api/rooms/([^/]+)$', path)
         if m:
@@ -519,6 +524,85 @@ class APIHandler(BaseHTTPRequestHandler):
         delete_file(unquote(file_id))
         self._send_json({"deleted": True, "file_id": file_id,
                          "original_name": rec["original_name"]})
+
+    # ── 주간리포트 요청 처리 ──────────────────────────
+
+    def _handle_weekly_report(self):
+        """GET /api/weekly-report?assignee=강경철 → Hermes에 분석 요청 (비동기)"""
+        from urllib.parse import parse_qs
+
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        assignee = qs.get("assignee", [None])[0]
+
+        if not assignee:
+            self._send_json({"error": "assignee 파라미터가 필요합니다"}, 400)
+            return
+
+        # ── 이번주 월~일 범위 계산 ──
+        from datetime import datetime, timezone, timedelta
+        KST = timezone(timedelta(hours=9))
+        today = datetime.now(KST).date()
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+
+        # ── 해당 직원의 모든 업무 조회 (진행중+완료) ──
+        conn = get_conn()
+        rows = conn.execute(
+            """SELECT display_num, title, status, summary, due_at, assignee,
+                      priority, created_at, closed_at, project_id, feedback, related_tasks
+               FROM tasks
+               WHERE assignee LIKE ?
+                 AND status NOT IN ('보류')
+               ORDER BY due_at ASC""",
+            (f"%{assignee}%",)
+        ).fetchall()
+
+        tasks = []
+        for r in rows:
+            t = dict(r)
+            due = t.get("due_at", "")
+            closed = t.get("closed_at", "")
+            try:
+                if due:
+                    d = datetime.strptime(due[:10], "%Y-%m-%d").date()
+                    if monday <= d <= sunday:
+                        t["_in_week"] = True
+                    else:
+                        t["_in_week"] = False
+                elif closed:
+                    d = datetime.strptime(closed[:10], "%Y-%m-%d").date()
+                    if monday <= d <= sunday:
+                        t["_in_week"] = True
+                    else:
+                        t["_in_week"] = False
+                else:
+                    t["_in_week"] = False
+            except Exception:
+                t["_in_week"] = False
+            tasks.append(t)
+
+        # ── JSON 페이로드 구성 ──
+        payload = {
+            "assignee": assignee,
+            "week_start": monday.isoformat(),
+            "week_end": sunday.isoformat(),
+            "total": len(tasks),
+            "tasks": tasks
+        }
+
+        # ── 요청 파일로 저장 (Hermes 크론이 폴링 처리) ──
+        from datetime import datetime as dt
+        requests_dir = Path(DATA_DIR) / "weekly_requests"
+        requests_dir.mkdir(parents=True, exist_ok=True)
+        ts = dt.now().strftime("%Y%m%d_%H%M%S")
+        req_file = requests_dir / f"{ts}_{assignee}.json"
+        req_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        self._send_json({
+            "ok": True,
+            "message": f"📊 {assignee}님 주간리포트 생성 요청 완료!\n잠시 후 텔레그램을 확인하세요."
+        })
 
     # ── 에이전트 명령어 처리 ──────────────────────────
 
