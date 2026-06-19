@@ -592,24 +592,38 @@ class APIHandler(BaseHTTPRequestHandler):
         }
 
         # ── Hermes로 분석 요청 전송 (Telethon → DM) ──
-        message = json.dumps({
-            "action": "weekly-report",
-            "payload": payload
-        }, ensure_ascii=False)
-
         import subprocess
-        script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
-        env = os.environ.copy()
+        import tempfile
+        from datetime import datetime as dt_now
 
-        # fire-and-forget: Telethon으로 Hermes 봇에게 전송
+        log_dir = Path(DATA_DIR) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "telethon_weekly.log"
+
+        # 메시지가 너무 길면 CLI 인자 제한에 걸리므로 임시파일 사용
         try:
-            subprocess.Popen(
-                [sys.executable, script, "--msg", message, "--timeout", "10"],
-                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                cwd=os.path.dirname(__file__)
-            )
-        except Exception:
-            pass
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json",
+                                              delete=False, encoding="utf-8")
+            tmp.write(json.dumps({"action": "weekly-report", "payload": payload},
+                                 ensure_ascii=False))
+            tmp.close()
+
+            script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
+            env = os.environ.copy()
+
+            with open(log_file, "a", encoding="utf-8") as lf:
+                lf.write(f"\n[{dt_now.now().isoformat()}] sending weekly-report for {assignee}\n")
+                subprocess.Popen(
+                    [sys.executable, script, "--msg-file", tmp.name, "--timeout", "15"],
+                    env=env, stdout=lf, stderr=lf,
+                    cwd=os.path.dirname(__file__)
+                )
+        except Exception as e:
+            try:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"[ERROR] {e}\n")
+            except Exception:
+                pass
 
         # ── 백업: 요청 파일로도 저장 ──
         try:

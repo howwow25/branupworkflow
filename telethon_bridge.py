@@ -95,12 +95,20 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--login", action="store_true")
     p.add_argument("--msg", type=str)
+    p.add_argument("--msg-file", type=str, help="파일에서 메시지 읽기")
     p.add_argument("--timeout", type=int, default=120)
     args = p.parse_args()
     
     if args.login:
         asyncio.run(do_login())
+    elif args.msg_file:
+        try:
+            with open(args.msg_file, "r", encoding="utf-8") as f:
+                msg = f.read()
+            asyncio.run(send_and_wait(msg, args.timeout))
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": f"파일 읽기 실패: {e}"}))
     elif args.msg:
         asyncio.run(send_and_wait(args.msg, args.timeout))
     else:
-        print("사용법: --login 또는 --msg '메시지'")
+        print("사용법: --login 또는 --msg '메시지' 또는 --msg-file 경로")
