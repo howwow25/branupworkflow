@@ -91,16 +91,42 @@ async def send_and_wait(message: str, timeout: int = 120):
     finally:
         await client.disconnect()
 
+async def send_file(filepath: str, caption: str = "") -> dict:
+    """파일 전송"""
+    api_id, api_hash, phone = get_auth()
+    client = TelegramClient(SESSION_PATH, api_id, api_hash)
+    try:
+        await client.start(phone=phone)
+        # 봇 엔티티 검색
+        bot_entity = None
+        async for d in client.iter_dialogs():
+            if d.id == HERMES_CHAT:
+                bot_entity = d.entity
+                break
+        if not bot_entity:
+            return {"ok": False, "error": f"ID {HERMES_CHAT} 봇을 찾을 수 없습니다"}
+        await client.send_message(bot_entity, caption, file=filepath)
+        return {"ok": True, "file": filepath}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    finally:
+        await client.disconnect()
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--login", action="store_true")
     p.add_argument("--msg", type=str)
     p.add_argument("--msg-file", type=str, help="파일에서 메시지 읽기")
+    p.add_argument("--send-file", type=str, help="파일 전송")
+    p.add_argument("--caption", type=str, default="", help="파일 전송 시 캡션")
     p.add_argument("--timeout", type=int, default=120)
     args = p.parse_args()
     
     if args.login:
         asyncio.run(do_login())
+    elif args.send_file:
+        asyncio.run(send_file(args.send_file, args.caption))
     elif args.msg_file:
         try:
             with open(args.msg_file, "r", encoding="utf-8") as f:
@@ -111,4 +137,4 @@ if __name__ == "__main__":
     elif args.msg:
         asyncio.run(send_and_wait(args.msg, args.timeout))
     else:
-        print("사용법: --login 또는 --msg '메시지' 또는 --msg-file 경로")
+        print("사용법: --login 또는 --msg '메시지' 또는 --msg-file 경로 또는 --send-file 경로")

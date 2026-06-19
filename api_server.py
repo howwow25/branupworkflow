@@ -591,7 +591,7 @@ class APIHandler(BaseHTTPRequestHandler):
             "tasks": tasks
         }
 
-        # ── Hermes로 분석 요청 전송 (Telethon → DM) ──
+        # ── Hermes로 리포트 전송 (로컬에서 weekly_report.py 실행 후 결과만 전송) ──
         import subprocess
         import tempfile
         from datetime import datetime as dt_now
@@ -600,24 +600,60 @@ class APIHandler(BaseHTTPRequestHandler):
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "telethon_weekly.log"
 
-        # 메시지가 너무 길면 CLI 인자 제한에 걸리므로 임시파일 사용
         try:
+            # 1. 페이로드 임시파일 저장
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json",
                                               delete=False, encoding="utf-8")
-            tmp.write(json.dumps({"action": "weekly-report", "payload": payload},
-                                 ensure_ascii=False))
+            tmp.write(json.dumps(payload, ensure_ascii=False))
+            payload_file = tmp.name
             tmp.close()
 
-            script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
-            env = os.environ.copy()
+            # 2. weekly_report.py 실행 → .md 리포트 생성
+            report_script = os.path.join(os.path.dirname(__file__), "weekly_report.py")
+            report_result = subprocess.run(
+                [sys.executable, report_script, "--file", payload_file],
+                capture_output=True, text=True, timeout=30,
+                env=os.environ.copy()
+            )
+            report = json.loads(report_result.stdout.strip())
 
-            with open(log_file, "a", encoding="utf-8") as lf:
-                lf.write(f"\n[{dt_now.now().isoformat()}] sending weekly-report for {assignee}\n")
-                subprocess.Popen(
-                    [sys.executable, script, "--msg-file", tmp.name, "--timeout", "15"],
-                    env=env, stdout=lf, stderr=lf,
-                    cwd=os.path.dirname(__file__)
-                )
+            if report.get("ok"):
+                md_content = report.get("md_content", "")
+                # 3. .md 내용을 텔레그램으로 전송 (길이 제한 체크)
+                bridge_script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
+                env = os.environ.copy()
+
+                if len(md_content) < 3800:
+                    # 짧으면 메시지로 전송
+                    msg = f"📊 *{assignee} 주간리포트*\n{md_content}"
+                    with open(log_file, "a", encoding="utf-8") as lf:
+                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as msg ({len(md_content)} chars)\n")
+                        subprocess.Popen(
+                            [sys.executable, bridge_script, "--msg", msg, "--timeout", "15"],
+                            env=env, stdout=lf, stderr=lf,
+                            cwd=os.path.dirname(__file__)
+                        )
+                else:
+                    # 길면 파일로 전송
+                    report_path = report.get("report_path")
+                    with open(log_file, "a", encoding="utf-8") as lf:
+                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as file: {report_path}\n")
+                        subprocess.Popen(
+                            [sys.executable, bridge_script, "--send-file", report_path,
+                             "--caption", f"📊 {assignee} 주간리포트"],
+                            env=env, stdout=lf, stderr=lf,
+                            cwd=os.path.dirname(__file__)
+                        )
+            else:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"[ERROR] report generation failed: {report}\n")
+
+            # 임시파일 정리
+            try:
+                os.unlink(payload_file)
+            except Exception:
+                pass
+
         except Exception as e:
             try:
                 with open(log_file, "a", encoding="utf-8") as lf:
@@ -627,10 +663,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # ── 백업: 요청 파일로도 저장 ──
         try:
-            from datetime import datetime as dt
             requests_dir = Path(DATA_DIR) / "weekly_requests"
             requests_dir.mkdir(parents=True, exist_ok=True)
-            ts = dt.now().strftime("%Y%m%d_%H%M%S")
+            ts = dt_now.now().strftime("%Y%m%d_%H%M%S")
             req_file = requests_dir / f"{ts}_{assignee}.json"
             req_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         except Exception:
