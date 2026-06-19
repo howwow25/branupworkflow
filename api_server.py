@@ -591,13 +591,36 @@ class APIHandler(BaseHTTPRequestHandler):
             "tasks": tasks
         }
 
-        # ── 요청 파일로 저장 (Hermes 크론이 폴링 처리) ──
-        from datetime import datetime as dt
-        requests_dir = Path(DATA_DIR) / "weekly_requests"
-        requests_dir.mkdir(parents=True, exist_ok=True)
-        ts = dt.now().strftime("%Y%m%d_%H%M%S")
-        req_file = requests_dir / f"{ts}_{assignee}.json"
-        req_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        # ── Hermes로 분석 요청 전송 (Telethon → DM) ──
+        message = json.dumps({
+            "action": "weekly-report",
+            "payload": payload
+        }, ensure_ascii=False)
+
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
+        env = os.environ.copy()
+
+        # fire-and-forget: Telethon으로 Hermes 봇에게 전송
+        try:
+            subprocess.Popen(
+                [sys.executable, script, "--msg", message, "--timeout", "10"],
+                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=os.path.dirname(__file__)
+            )
+        except Exception:
+            pass
+
+        # ── 백업: 요청 파일로도 저장 ──
+        try:
+            from datetime import datetime as dt
+            requests_dir = Path(DATA_DIR) / "weekly_requests"
+            requests_dir.mkdir(parents=True, exist_ok=True)
+            ts = dt.now().strftime("%Y%m%d_%H%M%S")
+            req_file = requests_dir / f"{ts}_{assignee}.json"
+            req_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
         self._send_json({
             "ok": True,
