@@ -64,14 +64,12 @@ async def send_and_wait(message: str, timeout: int = 120, target_chat: int | Non
     
     await client.start(phone=phone)
     
-    # 대상 엔티티를 다이얼로그에서 검색
-    target_entity = None
-    async for d in client.iter_dialogs():
-        if d.id == chat_id:
-            target_entity = d.entity
-            break
-    if not target_entity:
-        print(json.dumps({"ok": False, "error": f"ID {chat_id} 대상을 찾을 수 없습니다"}, ensure_ascii=False))
+    # get_entity()로 대상 조회 (다이얼로그에 없어도 가능)
+    try:
+        target_entity = await client.get_entity(chat_id)
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"ID {chat_id} 대상을 찾을 수 없습니다: {e}"}, ensure_ascii=False))
+        await client.disconnect()
         return
     await client.send_message(target_entity, message)
     
@@ -100,14 +98,8 @@ async def send_file(filepath: str, caption: str = "", target_chat: int | None = 
     chat_id = target_chat if target_chat else HERMES_CHAT
     try:
         await client.start(phone=phone)
-        # 대상 엔티티 검색
-        target_entity = None
-        async for d in client.iter_dialogs():
-            if d.id == chat_id:
-                target_entity = d.entity
-                break
-        if not target_entity:
-            return {"ok": False, "error": f"ID {chat_id} 대상을 찾을 수 없습니다"}
+        # get_entity()로 대상 조회 (다이얼로그에 없어도 가능)
+        target_entity = await client.get_entity(chat_id)
         await client.send_message(target_entity, caption, file=filepath)
         return {"ok": True, "file": filepath}
     except Exception as e:
