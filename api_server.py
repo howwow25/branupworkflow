@@ -112,7 +112,9 @@ class APIHandler(BaseHTTPRequestHandler):
             scripts_dir = Path(__file__).parent
             subprocess.Popen(
                 [sys.executable, str(scripts_dir / "dashboard_html.py")],
-                env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR},
+                env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR,
+                     "BRANUP_API_PORT": os.environ.get("BRANUP_API_PORT", "8800"),
+                     "BRANUP_API_BASE": os.environ.get("BRANUP_API_BASE", "")},
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
