@@ -6,6 +6,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(SCRIPT_DIR, ".telethon.env")
 SESSION_PATH = os.path.join(SCRIPT_DIR, "telethon_session")
 HERMES_CHAT = 8992344528  # 브랜업업무봇
+GROUP_CHAT = int(os.environ.get("BRANUP_GROUP_CHAT_ID", "0"))  # 브랜업 그룹챗
 
 def load_env():
     env = {}
@@ -43,10 +44,11 @@ async def do_login():
     finally:
         await client.disconnect()
 
-async def send_and_wait(message: str, timeout: int = 120):
+async def send_and_wait(message: str, timeout: int = 120, target_chat: int | None = None):
     api_id, api_hash, phone = get_auth()
     client = TelegramClient(SESSION_PATH, api_id, api_hash)
     
+    chat_id = target_chat if target_chat else HERMES_CHAT
     responses = []
     last_msg_time = [0]
     done = asyncio.Event()
@@ -62,16 +64,16 @@ async def send_and_wait(message: str, timeout: int = 120):
     
     await client.start(phone=phone)
     
-    # 봇 엔티티를 다이얼로그에서 검색
-    bot_entity = None
+    # 대상 엔티티를 다이얼로그에서 검색
+    target_entity = None
     async for d in client.iter_dialogs():
-        if d.id == HERMES_CHAT:
-            bot_entity = d.entity
+        if d.id == chat_id:
+            target_entity = d.entity
             break
-    if not bot_entity:
-        print(json.dumps({"ok": False, "error": f"ID {HERMES_CHAT} 봇을 찾을 수 없습니다"}, ensure_ascii=False))
+    if not target_entity:
+        print(json.dumps({"ok": False, "error": f"ID {chat_id} 대상을 찾을 수 없습니다"}, ensure_ascii=False))
         return
-    await client.send_message(bot_entity, message)
+    await client.send_message(target_entity, message)
     
     # 마지막 메시지 후 5초간 새 메시지 없으면 종료
     try:
@@ -91,21 +93,22 @@ async def send_and_wait(message: str, timeout: int = 120):
     finally:
         await client.disconnect()
 
-async def send_file(filepath: str, caption: str = "") -> dict:
-    """파일 전송"""
+async def send_file(filepath: str, caption: str = "", target_chat: int | None = None) -> dict:
+    """파일 전송 (target_chat 지정 시 해당 채팅방으로, 기본값은 봇 DM)"""
     api_id, api_hash, phone = get_auth()
     client = TelegramClient(SESSION_PATH, api_id, api_hash)
+    chat_id = target_chat if target_chat else HERMES_CHAT
     try:
         await client.start(phone=phone)
-        # 봇 엔티티 검색
-        bot_entity = None
+        # 대상 엔티티 검색
+        target_entity = None
         async for d in client.iter_dialogs():
-            if d.id == HERMES_CHAT:
-                bot_entity = d.entity
+            if d.id == chat_id:
+                target_entity = d.entity
                 break
-        if not bot_entity:
-            return {"ok": False, "error": f"ID {HERMES_CHAT} 봇을 찾을 수 없습니다"}
-        await client.send_message(bot_entity, caption, file=filepath)
+        if not target_entity:
+            return {"ok": False, "error": f"ID {chat_id} 대상을 찾을 수 없습니다"}
+        await client.send_message(target_entity, caption, file=filepath)
         return {"ok": True, "file": filepath}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -120,21 +123,25 @@ if __name__ == "__main__":
     p.add_argument("--msg-file", type=str, help="파일에서 메시지 읽기")
     p.add_argument("--send-file", type=str, help="파일 전송")
     p.add_argument("--caption", type=str, default="", help="파일 전송 시 캡션")
+    p.add_argument("--chat-id", type=int, default=0, help="대상 채팅방 ID (0=봇 DM, >0=지정 채팅방)")
     p.add_argument("--timeout", type=int, default=120)
     args = p.parse_args()
+    
+    # --chat-id가 지정되었으면 해당 값 사용, 아니면 GROUP_CHAT 환경변수 확인
+    target = args.chat_id if args.chat_id > 0 else (GROUP_CHAT if GROUP_CHAT > 0 else None)
     
     if args.login:
         asyncio.run(do_login())
     elif args.send_file:
-        asyncio.run(send_file(args.send_file, args.caption))
+        asyncio.run(send_file(args.send_file, args.caption, target))
     elif args.msg_file:
         try:
             with open(args.msg_file, "r", encoding="utf-8") as f:
                 msg = f.read()
-            asyncio.run(send_and_wait(msg, args.timeout))
+            asyncio.run(send_and_wait(msg, args.timeout, target))
         except Exception as e:
             print(json.dumps({"ok": False, "error": f"파일 읽기 실패: {e}"}))
     elif args.msg:
-        asyncio.run(send_and_wait(args.msg, args.timeout))
+        asyncio.run(send_and_wait(args.msg, args.timeout, target))
     else:
-        print("사용법: --login 또는 --msg '메시지' 또는 --msg-file 경로 또는 --send-file 경로")
+        print("사용법: --login 또는 --msg '메시지' 또는 --msg-file 경로 또는 --send-file 경로 [--chat-id ID]")

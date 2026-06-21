@@ -112,7 +112,9 @@ class APIHandler(BaseHTTPRequestHandler):
             scripts_dir = Path(__file__).parent
             subprocess.Popen(
                 [sys.executable, str(scripts_dir / "dashboard_html.py")],
-                env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR},
+                env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR,
+                     "BRANUP_API_PORT": str(PORT),
+                     "BRANUP_API_BASE": os.environ.get("BRANUP_API_BASE", "")},
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -600,6 +602,9 @@ class APIHandler(BaseHTTPRequestHandler):
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "telethon_weekly.log"
 
+        # ── 그룹챗 ID (브랜업 그룹) ──
+        group_chat_id = os.environ.get("BRANUP_GROUP_CHAT_ID", "51271702")
+
         try:
             # 1. 페이로드 임시파일 저장
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json",
@@ -619,7 +624,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
             if report.get("ok"):
                 md_content = report.get("md_content", "")
-                # 3. .md 내용을 텔레그램으로 전송 (길이 제한 체크)
+                # 3. .md 내용을 텔레그램 그룹챗으로 전송 (길이 제한 체크)
                 bridge_script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
                 env = os.environ.copy()
 
@@ -627,9 +632,10 @@ class APIHandler(BaseHTTPRequestHandler):
                     # 짧으면 메시지로 전송
                     msg = f"📊 *{assignee} 주간리포트*\n{md_content}"
                     with open(log_file, "a", encoding="utf-8") as lf:
-                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as msg ({len(md_content)} chars)\n")
+                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as msg to chat {group_chat_id} ({len(md_content)} chars)\n")
                         subprocess.Popen(
-                            [sys.executable, bridge_script, "--msg", msg, "--timeout", "15"],
+                            [sys.executable, bridge_script, "--msg", msg, "--timeout", "15",
+                             "--chat-id", group_chat_id],
                             env=env, stdout=lf, stderr=lf,
                             cwd=os.path.dirname(__file__)
                         )
@@ -637,10 +643,11 @@ class APIHandler(BaseHTTPRequestHandler):
                     # 길면 파일로 전송
                     report_path = report.get("report_path")
                     with open(log_file, "a", encoding="utf-8") as lf:
-                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as file: {report_path}\n")
+                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as file to chat {group_chat_id}: {report_path}\n")
                         subprocess.Popen(
                             [sys.executable, bridge_script, "--send-file", report_path,
-                             "--caption", f"📊 {assignee} 주간리포트"],
+                             "--caption", f"📊 {assignee} 주간리포트",
+                             "--chat-id", group_chat_id],
                             env=env, stdout=lf, stderr=lf,
                             cwd=os.path.dirname(__file__)
                         )
