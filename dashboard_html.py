@@ -756,6 +756,18 @@ body {{
 .stat.danger .num {{ color: #f85149; }}
 .stat.warn .num {{ color: #d2991d; }}
 .stat.done .num {{ color: #3fb950; }}
+.weekly-report-btn {{
+    display: none;
+    margin-left: auto;
+    padding: 8px 16px;
+    background: #238636; color: #fff;
+    border: none; border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
+    transition: background .2s;
+}}
+.weekly-report-btn:hover {{ background: #2ea043; }}
+.weekly-report-btn.active {{ display: inline-block; }}
 .board {{
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -1421,6 +1433,7 @@ body {{
         <div class="num">{done_count}</div>
         <div class="label">완료</div>
     </div>
+    <button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button>
 </div>
 <div class="view-toggle">
     <button class="view-toggle-btn active" id="btnKanban" onclick="switchToView('kanban')">📋 칸반</button>
@@ -1578,6 +1591,18 @@ function filterAssignee(name) {{
     }});
     event.target.classList.add('active');
 
+    // ── 주간리포트 버튼 표시/숨김 ──
+    var weeklyBtn = document.getElementById('weeklyReportBtn');
+    if (weeklyBtn) {{
+        if (name === 'ALL' || name === '긴급') {{
+            weeklyBtn.classList.remove('active');
+        }} else {{
+            weeklyBtn.classList.add('active');
+            // 선택된 직원 이름 저장
+            weeklyBtn.setAttribute('data-assignee', name);
+        }}
+    }}
+
     document.querySelectorAll('.card').forEach(function(card) {{
         if (name === 'ALL') {{
             card.classList.remove('hidden');
@@ -1662,6 +1687,36 @@ function showToast(msg, isError) {{
     t.className = 'toast ' + (isError ? 'error' : '');
     setTimeout(function() {{ t.classList.add('show'); }}, 10);
     setTimeout(function() {{ t.classList.remove('show'); }}, 2500);
+}}
+
+// ── 주간리포트 요청 ──
+function requestWeeklyReport() {{
+    var btn = document.getElementById('weeklyReportBtn');
+    var assignee = btn.getAttribute('data-assignee');
+    if (!assignee) {{
+        showToast('직원을 먼저 선택하세요', true);
+        return;
+    }}
+
+    btn.textContent = '⏳ 생성 중...';
+    btn.disabled = true;
+
+    fetch(API + '/weekly-report?assignee=' + encodeURIComponent(assignee))
+        .then(function(r) {{ return r.json(); }})
+        .then(function(data) {{
+            if (data.ok) {{
+                showToast(data.message || '📊 리포트 생성 요청 완료!');
+            }} else {{
+                showToast(data.error || '요청 실패', true);
+            }}
+        }})
+        .catch(function(err) {{
+            showToast('API 연결 실패', true);
+        }})
+        .finally(function() {{
+            btn.textContent = '📊 주간리포트';
+            btn.disabled = false;
+        }});
 }}
 
 // ── 모달 ──

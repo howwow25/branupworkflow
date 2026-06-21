@@ -1067,3 +1067,19 @@ After doing this, you may fix the identity used for this commit with:
    웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
 [main 4169050] 2026-06-09 15:33 대시보드 갱신
  1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[report-add-01 49e99ba] 2026-06-21 20:50 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[report-add-01 e6e88db] 2026-06-21 21:50 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[report-add-01 780f30e] 2026-06-21 22:50 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+✅ HTML 대시보드 생성 완료: /Users/eekek/.hermes/profiles/branup-watcher/data/dashboard.html
+   웹 서빙: /Users/eekek/.hermes/profiles/branup-watcher/index.html
+[report-add-01 bf7a198] 2026-06-21 23:50 대시보드 갱신
+ 1 file changed, 2 insertions(+), 2 deletions(-)

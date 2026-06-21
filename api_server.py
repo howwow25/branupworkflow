@@ -113,7 +113,7 @@ class APIHandler(BaseHTTPRequestHandler):
             subprocess.Popen(
                 [sys.executable, str(scripts_dir / "dashboard_html.py")],
                 env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR,
-                     "BRANUP_API_PORT": os.environ.get("BRANUP_API_PORT", "8800"),
+                     "BRANUP_API_PORT": str(PORT),
                      "BRANUP_API_BASE": os.environ.get("BRANUP_API_BASE", "")},
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -184,6 +184,11 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/api/tasks/completed":
             tasks = get_completed_tasks()
             self._send_json(tasks)
+            return
+
+        # /api/weekly-report?assignee=강경철 → 주간리포트 요청
+        if path == "/api/weekly-report":
+            self._handle_weekly_report()
             return
 
         # /api/rooms/<chat_id> → room 조회
@@ -521,6 +526,162 @@ class APIHandler(BaseHTTPRequestHandler):
         delete_file(unquote(file_id))
         self._send_json({"deleted": True, "file_id": file_id,
                          "original_name": rec["original_name"]})
+
+    # ── 주간리포트 요청 처리 ──────────────────────────
+
+    def _handle_weekly_report(self):
+        """GET /api/weekly-report?assignee=강경철 → Hermes에 분석 요청 (비동기)"""
+        from urllib.parse import parse_qs
+
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        assignee = qs.get("assignee", [None])[0]
+
+        if not assignee:
+            self._send_json({"error": "assignee 파라미터가 필요합니다"}, 400)
+            return
+
+        # ── 이번주 월~일 범위 계산 ──
+        from datetime import datetime, timezone, timedelta
+        KST = timezone(timedelta(hours=9))
+        today = datetime.now(KST).date()
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+
+        # ── 해당 직원의 모든 업무 조회 (진행중+완료) ──
+        conn = get_conn()
+        rows = conn.execute(
+            """SELECT display_num, title, status, summary, due_at, assignee,
+                      priority, created_at, closed_at, project_id, feedback, related_tasks
+               FROM tasks
+               WHERE assignee LIKE ?
+                 AND status NOT IN ('보류')
+               ORDER BY due_at ASC""",
+            (f"%{assignee}%",)
+        ).fetchall()
+
+        tasks = []
+        for r in rows:
+            t = dict(r)
+            due = t.get("due_at", "")
+            closed = t.get("closed_at", "")
+            try:
+                if due:
+                    d = datetime.strptime(due[:10], "%Y-%m-%d").date()
+                    if monday <= d <= sunday:
+                        t["_in_week"] = True
+                    else:
+                        t["_in_week"] = False
+                elif closed:
+                    d = datetime.strptime(closed[:10], "%Y-%m-%d").date()
+                    if monday <= d <= sunday:
+                        t["_in_week"] = True
+                    else:
+                        t["_in_week"] = False
+                else:
+                    t["_in_week"] = False
+            except Exception:
+                t["_in_week"] = False
+            tasks.append(t)
+
+        # ── JSON 페이로드 구성 ──
+        payload = {
+            "assignee": assignee,
+            "week_start": monday.isoformat(),
+            "week_end": sunday.isoformat(),
+            "total": len(tasks),
+            "tasks": tasks
+        }
+
+        # ── Hermes로 리포트 전송 (로컬에서 weekly_report.py 실행 후 결과만 전송) ──
+        import subprocess
+        import tempfile
+        from datetime import datetime as dt_now
+
+        log_dir = Path(DATA_DIR) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "telethon_weekly.log"
+
+        # ── 그룹챗 ID (브랜업 그룹) ──
+        group_chat_id = os.environ.get("BRANUP_GROUP_CHAT_ID", "51271702")
+
+        try:
+            # 1. 페이로드 임시파일 저장
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json",
+                                              delete=False, encoding="utf-8")
+            tmp.write(json.dumps(payload, ensure_ascii=False))
+            payload_file = tmp.name
+            tmp.close()
+
+            # 2. weekly_report.py 실행 → .md 리포트 생성
+            report_script = os.path.join(os.path.dirname(__file__), "weekly_report.py")
+            report_result = subprocess.run(
+                [sys.executable, report_script, "--file", payload_file],
+                capture_output=True, text=True, timeout=30,
+                env=os.environ.copy()
+            )
+            report = json.loads(report_result.stdout.strip())
+
+            if report.get("ok"):
+                md_content = report.get("md_content", "")
+                # 3. .md 내용을 텔레그램 그룹챗으로 전송 (길이 제한 체크)
+                bridge_script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
+                env = os.environ.copy()
+
+                if len(md_content) < 3800:
+                    # 짧으면 메시지로 전송
+                    msg = f"📊 *{assignee} 주간리포트*\n{md_content}"
+                    with open(log_file, "a", encoding="utf-8") as lf:
+                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as msg to chat {group_chat_id} ({len(md_content)} chars)\n")
+                        subprocess.Popen(
+                            [sys.executable, bridge_script, "--msg", msg, "--timeout", "15",
+                             "--chat-id", group_chat_id],
+                            env=env, stdout=lf, stderr=lf,
+                            cwd=os.path.dirname(__file__)
+                        )
+                else:
+                    # 길면 파일로 전송
+                    report_path = report.get("report_path")
+                    with open(log_file, "a", encoding="utf-8") as lf:
+                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as file to chat {group_chat_id}: {report_path}\n")
+                        subprocess.Popen(
+                            [sys.executable, bridge_script, "--send-file", report_path,
+                             "--caption", f"📊 {assignee} 주간리포트",
+                             "--chat-id", group_chat_id],
+                            env=env, stdout=lf, stderr=lf,
+                            cwd=os.path.dirname(__file__)
+                        )
+            else:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"[ERROR] report generation failed: {report}\n")
+
+            # 임시파일 정리
+            try:
+                os.unlink(payload_file)
+            except Exception:
+                pass
+
+        except Exception as e:
+            try:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"[ERROR] {e}\n")
+            except Exception:
+                pass
+
+        # ── 백업: 요청 파일로도 저장 ──
+        try:
+            requests_dir = Path(DATA_DIR) / "weekly_requests"
+            requests_dir.mkdir(parents=True, exist_ok=True)
+            ts = dt_now.now().strftime("%Y%m%d_%H%M%S")
+            req_file = requests_dir / f"{ts}_{assignee}.json"
+            req_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+        self._send_json({
+            "ok": True,
+            "message": f"📊 {assignee}님 주간리포트 생성 요청 완료!\n잠시 후 텔레그램을 확인하세요."
+        })
 
     # ── 에이전트 명령어 처리 ──────────────────────────
 
