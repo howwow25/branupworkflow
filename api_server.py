@@ -652,7 +652,19 @@ class APIHandler(BaseHTTPRequestHandler):
                 capture_output=True, text=True, timeout=30,
                 env=os.environ.copy()
             )
-            report = json.loads(report_result.stdout.strip())
+
+            # stderr 로깅
+            if report_result.stderr:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"\n[{dt_now.now().isoformat()}] weekly_report STDERR:\n{report_result.stderr}\n")
+
+            stdout = report_result.stdout.strip()
+            if not stdout:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"[ERROR] weekly_report returned empty stdout (rc={report_result.returncode})\n")
+                raise RuntimeError(f"weekly_report returned empty stdout (rc={report_result.returncode})")
+
+            report = json.loads(stdout)
 
             if report.get("ok"):
                 md_content = report.get("md_content", "")
