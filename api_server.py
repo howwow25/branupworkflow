@@ -191,6 +191,26 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_weekly_report()
             return
 
+        # /api/reports/<filename> → 리포트 md 파일 다운로드
+        m = re.match(r'^/api/reports/([^/]+\.md)$', path)
+        if m:
+            from urllib.parse import quote
+            filename = unquote(m.group(1))
+            filepath = Path(DATA_DIR) / "reports" / filename
+            if filepath.exists():
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Content-Disposition",
+                                 f"attachment; filename*=UTF-8''{quote(filename)}")
+                self.send_header("Content-Length", str(filepath.stat().st_size))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                with open(filepath, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self._send_json({"error": "파일을 찾을 수 없습니다"}, 404)
+            return
+
         # /api/rooms/<chat_id> → room 조회
         m = re.match(r'^/api/rooms/([^/]+)$', path)
         if m:
@@ -530,23 +550,37 @@ class APIHandler(BaseHTTPRequestHandler):
     # ── 주간리포트 요청 처리 ──────────────────────────
 
     def _handle_weekly_report(self):
-        """GET /api/weekly-report?assignee=강경철 → Hermes에 분석 요청 (비동기)"""
+        """GET /api/weekly-report?assignee=강경철&week_start=2026-06-15&week_end=2026-06-21 → Hermes에 분석 요청 (비동기)"""
         from urllib.parse import parse_qs
+
+        API_BASE = os.environ.get("BRANUP_API_BASE", "")
+        report = None
 
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         assignee = qs.get("assignee", [None])[0]
+        week_start_str = qs.get("week_start", [None])[0]
+        week_end_str = qs.get("week_end", [None])[0]
 
         if not assignee:
             self._send_json({"error": "assignee 파라미터가 필요합니다"}, 400)
             return
 
-        # ── 이번주 월~일 범위 계산 ──
+        # ── 기준 주 범위 결정 (파라미터 없으면 이번주) ──
         from datetime import datetime, timezone, timedelta
         KST = timezone(timedelta(hours=9))
         today = datetime.now(KST).date()
-        monday = today - timedelta(days=today.weekday())
-        sunday = monday + timedelta(days=6)
+
+        if week_start_str and week_end_str:
+            try:
+                monday = datetime.strptime(week_start_str, "%Y-%m-%d").date()
+                sunday = datetime.strptime(week_end_str, "%Y-%m-%d").date()
+            except ValueError:
+                self._send_json({"error": "날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)"}, 400)
+                return
+        else:
+            monday = today - timedelta(days=today.weekday())
+            sunday = monday + timedelta(days=6)
 
         # ── 해당 직원의 모든 업무 조회 (진행중+완료) ──
         conn = get_conn()
@@ -617,40 +651,66 @@ class APIHandler(BaseHTTPRequestHandler):
             report_script = os.path.join(os.path.dirname(__file__), "weekly_report.py")
             report_result = subprocess.run(
                 [sys.executable, report_script, "--file", payload_file],
-                capture_output=True, text=True, timeout=30,
-                env=os.environ.copy()
+                capture_output=True, text=True, encoding="utf-8", timeout=30,
+                env={**os.environ.copy(), "PYTHONIOENCODING": "utf-8"}
             )
-            report = json.loads(report_result.stdout.strip())
+
+            # stderr 로깅
+            if report_result.stderr:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"\n[{dt_now.now().isoformat()}] weekly_report STDERR:\n{report_result.stderr}\n")
+
+            stdout = report_result.stdout.strip()
+            if not stdout:
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"[ERROR] weekly_report returned empty stdout (rc={report_result.returncode})\n")
+                raise RuntimeError(f"weekly_report returned empty stdout (rc={report_result.returncode})")
+
+            report = json.loads(stdout)
 
             if report.get("ok"):
                 md_content = report.get("md_content", "")
-                # 3. .md 내용을 텔레그램 그룹챗으로 전송 (길이 제한 체크)
+                # 3. .md 내용을 텔레그램으로 전송 (길이 제한 체크)
                 bridge_script = os.path.join(os.path.dirname(__file__), "telethon_bridge.py")
                 env = os.environ.copy()
 
-                if len(md_content) < 3800:
-                    # 짧으면 메시지로 전송
-                    msg = f"📊 *{assignee} 주간리포트*\n{md_content}"
-                    with open(log_file, "a", encoding="utf-8") as lf:
-                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as msg to chat {group_chat_id} ({len(md_content)} chars)\n")
-                        subprocess.Popen(
-                            [sys.executable, bridge_script, "--msg", msg, "--timeout", "15",
-                             "--chat-id", group_chat_id],
-                            env=env, stdout=lf, stderr=lf,
-                            cwd=os.path.dirname(__file__)
-                        )
-                else:
-                    # 길면 파일로 전송
-                    report_path = report.get("report_path")
-                    with open(log_file, "a", encoding="utf-8") as lf:
-                        lf.write(f"\n[{dt_now.now().isoformat()}] sending as file to chat {group_chat_id}: {report_path}\n")
-                        subprocess.Popen(
-                            [sys.executable, bridge_script, "--send-file", report_path,
-                             "--caption", f"📊 {assignee} 주간리포트",
-                             "--chat-id", group_chat_id],
-                            env=env, stdout=lf, stderr=lf,
-                            cwd=os.path.dirname(__file__)
-                        )
+                # ── 직원 → Telegram ID 매핑 (환경변수 BRANUP_TG_이름=chat_id) ──
+                tg_map = {}
+                for key, val in os.environ.items():
+                    if key.startswith("BRANUP_TG_"):
+                        name = key[len("BRANUP_TG_"):]
+                        tg_map[name] = val
+
+                # 전송 대상 목록: 그룹챗 + 개인 DM
+                targets = [(group_chat_id, "그룹챗")]
+                if assignee in tg_map:
+                    targets.append((tg_map[assignee], f"{assignee}님 DM"))
+
+                def send_to(chat_id, label):
+                    if len(md_content) < 3800:
+                        msg = f"📊 *{assignee} 주간리포트*\n{md_content}"
+                        with open(log_file, "a", encoding="utf-8") as lf:
+                            lf.write(f"\n[{dt_now.now().isoformat()}] sending as msg to {label} ({chat_id}) ({len(md_content)} chars)\n")
+                            subprocess.Popen(
+                                [sys.executable, bridge_script, "--msg", msg, "--timeout", "15",
+                                 "--chat-id", chat_id],
+                                env=env, stdout=lf, stderr=lf,
+                                cwd=os.path.dirname(__file__)
+                            )
+                    else:
+                        report_path = report.get("report_path")
+                        with open(log_file, "a", encoding="utf-8") as lf:
+                            lf.write(f"\n[{dt_now.now().isoformat()}] sending as file to {label} ({chat_id}): {report_path}\n")
+                            subprocess.Popen(
+                                [sys.executable, bridge_script, "--send-file", report_path,
+                                 "--caption", f"📊 {assignee} 주간리포트",
+                                 "--chat-id", chat_id],
+                                env=env, stdout=lf, stderr=lf,
+                                cwd=os.path.dirname(__file__)
+                            )
+
+                for chat_id, label in targets:
+                    send_to(chat_id, label)
             else:
                 with open(log_file, "a", encoding="utf-8") as lf:
                     lf.write(f"[ERROR] report generation failed: {report}\n")
@@ -678,10 +738,13 @@ class APIHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        self._send_json({
+        resp = {
             "ok": True,
-            "message": f"📊 {assignee}님 주간리포트 생성 요청 완료!\n잠시 후 텔레그램을 확인하세요."
-        })
+            "message": f"📊 {assignee}님 주간리포트 생성 완료!"
+        }
+        if report and report.get("filename"):
+            resp["filename"] = report["filename"]
+        self._send_json(resp)
 
     # ── 에이전트 명령어 처리 ──────────────────────────
 

@@ -1689,7 +1689,7 @@ function showToast(msg, isError) {{
     setTimeout(function() {{ t.classList.remove('show'); }}, 2500);
 }}
 
-// ── 주간리포트 요청 ──
+// ── 주간리포트 요청 (주 선택 모달) ──
 function requestWeeklyReport() {{
     var btn = document.getElementById('weeklyReportBtn');
     var assignee = btn.getAttribute('data-assignee');
@@ -1698,14 +1698,144 @@ function requestWeeklyReport() {{
         return;
     }}
 
+    // ── 최근 6주 목록 생성 ──
+    var today = new Date();
+    var dayOfWeek = today.getDay();          // 0=일,1=월,...,6=토
+    var daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    var thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() - daysFromMonday);
+    thisMonday.setHours(0,0,0,0);
+
+    function fmtDate(d) {{
+        return (d.getMonth()+1) + '/' + d.getDate();
+    }}
+    function isoDate(d) {{
+        var y = d.getFullYear();
+        var m = String(d.getMonth()+1).padStart(2,'0');
+        var day = String(d.getDate()).padStart(2,'0');
+        return y + '-' + m + '-' + day;
+    }}
+    function getDayLabel(d) {{
+        var days = ['일','월','화','수','목','금','토'];
+        return days[d.getDay()];
+    }}
+
+    var weeks = [];
+    for (var i = -2; i <= 3; i++) {{
+        var mon = new Date(thisMonday);
+        mon.setDate(thisMonday.getDate() + i * 7);
+        var sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        var ws = isoDate(mon);
+        var we = isoDate(sun);
+        var label = fmtDate(mon) + '(' + getDayLabel(mon) + ') ~ ' + fmtDate(sun) + '(' + getDayLabel(sun) + ')';
+        var tag = '';
+        if (i === 0) tag = ' [이번주]';
+        else if (i === -1) tag = ' [지난주]';
+        else if (i === 1) tag = ' [다음주]';
+        weeks.push({{week_start: ws, week_end: we, label: label, tag: tag, isCurrent: (i===0)}});
+    }}
+
+    // ── 모달 생성 ──
+    var modal = createModalEl();
+    modal.querySelector('.modal-title').textContent = '📊 주간리포트 기준 주 선택';
+    modal.querySelector('.modal-status').textContent = assignee + '님 리포트';
+
+    var body = modal.querySelector('.modal-body');
+    // 불필요 필드 숨김
+    body.querySelector('.edit-title').parentElement.style.display = 'none';
+    body.querySelector('.edit-assignee').parentElement.style.display = 'none';
+    body.querySelector('.edit-due').parentElement.style.display = 'none';
+    body.querySelector('.edit-summary').parentElement.style.display = 'none';
+    body.querySelector('.edit-priority').parentElement.style.display = 'none';
+    body.querySelector('.edit-project').parentElement.style.display = 'none';
+    body.querySelector('.content-field').style.display = 'none';
+    body.querySelector('.file-section').style.display = 'none';
+
+    // 주 버튼 컨테이너
+    var container = document.createElement('div');
+    container.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:8px 0;';
+
+    weeks.forEach(function(w) {{
+        (function(wk) {{
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;background:#161b22;border:1px solid #2a2d3a;border-radius:8px;cursor:pointer;transition:background .15s,border-color .15s';
+        if (wk.isCurrent) row.style.borderColor = '#58a6ff';
+        row.onmouseenter = function() {{ this.style.background = '#1c2129'; }};
+        row.onmouseleave = function() {{
+            this.style.background = '#161b22';
+            if (wk.isCurrent) this.style.borderColor = '#58a6ff';
+        }};
+
+        var radio = document.createElement('div');
+        radio.style.cssText = 'width:18px;height:18px;border-radius:50%;border:2px solid ' + (wk.isCurrent ? '#58a6ff' : '#484f5e') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0';
+        if (wk.isCurrent) {{
+            radio.innerHTML = '<div style="width:9px;height:9px;border-radius:50%;background:#58a6ff"></div>';
+        }}
+
+        var textDiv = document.createElement('div');
+        textDiv.style.flex = '1';
+        textDiv.innerHTML = '<span style="font-size:14px;color:#e1e4e8;font-weight:600">' + wk.label + '</span>' +
+                           (wk.tag ? '<span style="font-size:11px;color:#8b949e;margin-left:6px">' + wk.tag + '</span>' : '');
+
+        row.appendChild(radio);
+        row.appendChild(textDiv);
+
+        row.onclick = function() {{
+            closeModal(modal);
+            doRequestWeeklyReport(assignee, wk.week_start, wk.week_end, wk.label);
+        }};
+
+        container.appendChild(row);
+        }})(w);
+    }});
+
+    body.appendChild(container);
+
+    // 저장/완료/삭제 버튼 숨김
+    var actions = modal.querySelector('.modal-actions');
+    actions.querySelector('.btn-save').style.display = 'none';
+    actions.querySelector('.btn-complete').style.display = 'none';
+    actions.querySelector('.btn-delete').style.display = 'none';
+    // 취소 버튼 추가
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '취소';
+    cancelBtn.style.cssText = 'padding:8px 20px;background:#2a2d3a;color:#e1e4e8;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600';
+    cancelBtn.onclick = function() {{ closeModal(modal); }};
+    actions.appendChild(cancelBtn);
+
+    document.getElementById('modalOverlay').appendChild(modal);
+    document.getElementById('modalOverlay').classList.add('active');
+    modalStack.push({{ taskId: '__weekly__', el: modal }});
+}}
+
+function doRequestWeeklyReport(assignee, week_start, week_end, label) {{
+    var btn = document.getElementById('weeklyReportBtn');
     btn.textContent = '⏳ 생성 중...';
     btn.disabled = true;
 
-    fetch(API + '/weekly-report?assignee=' + encodeURIComponent(assignee))
+    fetch(API + '/weekly-report?assignee=' + encodeURIComponent(assignee) +
+          '&week_start=' + encodeURIComponent(week_start) +
+          '&week_end=' + encodeURIComponent(week_end))
         .then(function(r) {{ return r.json(); }})
         .then(function(data) {{
             if (data.ok) {{
-                showToast(data.message || '📊 리포트 생성 요청 완료!');
+                showToast('📊 ' + label + ' 리포트 생성 완료!');
+                if (data.filename) {{
+                    // 자동 다운로드 (fetch + Blob 방식으로 HTTP 경고 우회)
+                    var url = API + '/reports/' + encodeURIComponent(data.filename);
+                    fetch(url)
+                        .then(function(r) {{ return r.blob(); }})
+                        .then(function(blob) {{
+                            var a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = data.filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(a.href);
+                        }});
+                }}
             }} else {{
                 showToast(data.error || '요청 실패', true);
             }}
