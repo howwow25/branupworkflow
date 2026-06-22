@@ -650,7 +650,7 @@ class APIHandler(BaseHTTPRequestHandler):
             report_result = subprocess.run(
                 [sys.executable, report_script, "--file", payload_file],
                 capture_output=True, text=True, timeout=30,
-                env=os.environ.copy()
+                env={**os.environ.copy(), "PYTHONIOENCODING": "utf-8"}
             )
 
             # stderr 로깅
