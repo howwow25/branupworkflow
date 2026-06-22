@@ -191,6 +191,24 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_weekly_report()
             return
 
+        # /api/reports/<filename> → 리포트 md 파일 다운로드
+        m = re.match(r'^/api/reports/([^/]+\.md)$', path)
+        if m:
+            filename = unquote(m.group(1))
+            filepath = Path(DATA_DIR) / "reports" / filename
+            if filepath.exists():
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Length", str(filepath.stat().st_size))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                with open(filepath, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self._send_json({"error": "파일을 찾을 수 없습니다"}, 404)
+            return
+
         # /api/rooms/<chat_id> → room 조회
         m = re.match(r'^/api/rooms/([^/]+)$', path)
         if m:
@@ -533,6 +551,9 @@ class APIHandler(BaseHTTPRequestHandler):
         """GET /api/weekly-report?assignee=강경철&week_start=2026-06-15&week_end=2026-06-21 → Hermes에 분석 요청 (비동기)"""
         from urllib.parse import parse_qs
 
+        API_BASE = os.environ.get("BRANUP_API_BASE", "")
+        report = None
+
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         assignee = qs.get("assignee", [None])[0]
@@ -703,10 +724,14 @@ class APIHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        self._send_json({
+        resp = {
             "ok": True,
-            "message": f"📊 {assignee}님 주간리포트 생성 요청 완료!\n잠시 후 텔레그램을 확인하세요."
-        })
+            "message": f"📊 {assignee}님 주간리포트 생성 완료!"
+        }
+        if report and report.get("filename"):
+            resp["filename"] = report["filename"]
+            resp["download_url"] = f"{API_BASE}/api/reports/{report['filename']}"
+        self._send_json(resp)
 
     # ── 에이전트 명령어 처리 ──────────────────────────
 
