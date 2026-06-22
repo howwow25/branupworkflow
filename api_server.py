@@ -194,12 +194,14 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/reports/<filename> → 리포트 md 파일 다운로드
         m = re.match(r'^/api/reports/([^/]+\.md)$', path)
         if m:
+            from urllib.parse import quote
             filename = unquote(m.group(1))
             filepath = Path(DATA_DIR) / "reports" / filename
             if filepath.exists():
                 self.send_response(200)
                 self.send_header("Content-Type", "text/markdown; charset=utf-8")
-                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+                self.send_header("Content-Disposition",
+                                 f"attachment; filename*=UTF-8''{quote(filename)}")
                 self.send_header("Content-Length", str(filepath.stat().st_size))
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
