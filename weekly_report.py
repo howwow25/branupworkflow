@@ -262,11 +262,20 @@ def main():
         sys.exit(1)
 
     if not payload or not payload.get("tasks"):
+        week_start_str = (payload or {}).get("week_start", datetime.now(KST).strftime("%Y%m%d"))
+        week_label = week_start_str.replace("-", "") if week_start_str else "weekly"
+        assignee_name = (payload or {}).get("assignee", "미정")
+        filename = f"{assignee_name}_{week_label}.md"
+        filepath = REPORT_DIR / filename
+        md_content = "# 📊 주간리포트\n\n등록된 업무가 없습니다."
+        filepath.write_text(md_content, encoding="utf-8")
         print(json.dumps({
             "ok": True,
-            "assignee": payload.get("assignee", "미정") if payload else "미정",
-            "md_content": "# 📊 주간리포트\n\n등록된 업무가 없습니다.",
-            "stats": {"total": 0, "completed": 0, "in_progress": 0, "delayed": 0, "today_due": 0}
+            "assignee": assignee_name,
+            "md_content": md_content,
+            "report_path": str(filepath),
+            "filename": filename,
+            "stats": {"total": 0, "completed_this_week": 0, "delayed": 0, "next_week": 0, "other": 0}
         }))
         return
 
