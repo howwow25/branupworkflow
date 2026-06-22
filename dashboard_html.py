@@ -1822,13 +1822,19 @@ function doRequestWeeklyReport(assignee, week_start, week_end, label) {{
             if (data.ok) {{
                 showToast('📊 ' + label + ' 리포트 생성 완료!');
                 if (data.filename) {{
-                    // 자동 다운로드
-                    var a = document.createElement('a');
-                    a.href = API + '/reports/' + encodeURIComponent(data.filename);
-                    a.download = data.filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
+                    // 자동 다운로드 (fetch + Blob 방식으로 HTTP 경고 우회)
+                    var url = API + '/reports/' + encodeURIComponent(data.filename);
+                    fetch(url)
+                        .then(function(r) {{ return r.blob(); }})
+                        .then(function(blob) {{
+                            var a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = data.filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(a.href);
+                        }});
                 }}
             }} else {{
                 showToast(data.error || '요청 실패', true);
