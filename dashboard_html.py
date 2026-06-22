@@ -1821,11 +1821,11 @@ function doRequestWeeklyReport(assignee, week_start, week_end, label) {{
         .then(function(data) {{
             if (data.ok) {{
                 showToast('📊 ' + label + ' 리포트 생성 완료!');
-                if (data.download_url) {{
+                if (data.filename) {{
                     // 자동 다운로드
                     var a = document.createElement('a');
-                    a.href = data.download_url;
-                    a.download = data.filename || 'report.md';
+                    a.href = API + '/reports/' + encodeURIComponent(data.filename);
+                    a.download = data.filename;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);

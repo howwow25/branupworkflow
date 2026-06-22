@@ -742,7 +742,6 @@ class APIHandler(BaseHTTPRequestHandler):
         }
         if report and report.get("filename"):
             resp["filename"] = report["filename"]
-            resp["download_url"] = f"{API_BASE}/api/reports/{report['filename']}"
         self._send_json(resp)
 
     # ── 에이전트 명령어 처리 ──────────────────────────
