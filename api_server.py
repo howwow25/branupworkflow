@@ -530,23 +530,34 @@ class APIHandler(BaseHTTPRequestHandler):
     # ── 주간리포트 요청 처리 ──────────────────────────
 
     def _handle_weekly_report(self):
-        """GET /api/weekly-report?assignee=강경철 → Hermes에 분석 요청 (비동기)"""
+        """GET /api/weekly-report?assignee=강경철&week_start=2026-06-15&week_end=2026-06-21 → Hermes에 분석 요청 (비동기)"""
         from urllib.parse import parse_qs
 
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         assignee = qs.get("assignee", [None])[0]
+        week_start_str = qs.get("week_start", [None])[0]
+        week_end_str = qs.get("week_end", [None])[0]
 
         if not assignee:
             self._send_json({"error": "assignee 파라미터가 필요합니다"}, 400)
             return
 
-        # ── 이번주 월~일 범위 계산 ──
+        # ── 기준 주 범위 결정 (파라미터 없으면 이번주) ──
         from datetime import datetime, timezone, timedelta
         KST = timezone(timedelta(hours=9))
         today = datetime.now(KST).date()
-        monday = today - timedelta(days=today.weekday())
-        sunday = monday + timedelta(days=6)
+
+        if week_start_str and week_end_str:
+            try:
+                monday = datetime.strptime(week_start_str, "%Y-%m-%d").date()
+                sunday = datetime.strptime(week_end_str, "%Y-%m-%d").date()
+            except ValueError:
+                self._send_json({"error": "날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)"}, 400)
+                return
+        else:
+            monday = today - timedelta(days=today.weekday())
+            sunday = monday + timedelta(days=6)
 
         # ── 해당 직원의 모든 업무 조회 (진행중+완료) ──
         conn = get_conn()

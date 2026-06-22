@@ -51,143 +51,157 @@ def generate_report(payload: dict) -> dict:
     업무 데이터를 분석해 마크다운 리포트 생성
     payload = {"assignee": "강경철", "week_start": "2026-06-15",
                "week_end": "2026-06-21", "total": 10, "tasks": [...]}
+    
+    리포트 구성:
+    1. 기준 주 완료 업무 (기준 주에 완료된 업무)
+    2. 기준 주 지연 업무 (마감이 기준 주 이전이고 완료되지 않은 업무)
+    3. 다음주 예정 업무 (다음주에 마감인 진행중 업무)
+    4. 요약 통계
     """
     assignee = payload.get("assignee", "미정")
     week_start = payload.get("week_start", "")
     week_end = payload.get("week_end", "")
     tasks = payload.get("tasks", [])
 
+    # ── 날짜 파싱 ──
+    try:
+        ws_date = datetime.strptime(week_start, "%Y-%m-%d").date() if week_start else None
+        we_date = datetime.strptime(week_end, "%Y-%m-%d").date() if week_end else None
+    except ValueError:
+        ws_date = we_date = None
+
+    # 다음주 범위
+    nw_start = ws_date + timedelta(days=7) if ws_date else None
+    nw_end = we_date + timedelta(days=7) if we_date else None
+
     # ── 업무 분류 ──
-    completed = []       # 완료된 업무
-    in_progress = []     # 진행중
-    delayed = []         # 지연 (마감 지남)
-    today_due = []       # 오늘 마감
-    upcoming = []        # 예정
-    no_due = []          # 마감 미정
+    completed_this_week = []    # 기준 주에 완료된 업무
+    delayed = []                # 지연 (마감이 기준 주 이전, 미완료)
+    next_week_tasks = []        # 다음주 마감 (진행중)
+    other = []                  # 기타
 
     for t in tasks:
         status = t.get("status", "")
-        dd = dday(t.get("due_at"))
+        due_str = t.get("due_at", "")
+        closed_str = t.get("closed_at", "")
 
-        if status == "완료":
-            completed.append((t, dd))
-        elif dd is not None and dd < 0:
-            delayed.append((t, dd))
-        elif dd == 0:
-            today_due.append((t, dd))
-        elif dd is not None and dd > 0:
-            upcoming.append((t, dd))
-        else:
-            no_due.append((t, dd))
+        # 완료일 파싱
+        closed_date = None
+        if closed_str:
+            try:
+                closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
 
-    # ── 이번주 실적 (이번주에 완료되었거나 마감이 이번주인 것) ──
-    week_completed = [t for t, _ in completed if t.get("_in_week")]
-    week_tasks_all = [t for t in tasks if t.get("_in_week")]
+        # 마감일 파싱
+        due_date = None
+        if due_str:
+            try:
+                due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+
+        # 1) 기준 주에 완료된 업무
+        if status == "완료" and closed_date and ws_date and we_date:
+            if ws_date <= closed_date <= we_date:
+                completed_this_week.append(t)
+                continue
+
+        # 2) 지연 업무: 마감이 기준 주 종료일 이전이고, 아직 완료되지 않음
+        if status != "완료" and due_date and we_date:
+            if due_date <= we_date:
+                dd = (datetime.now(KST).date() - due_date).days if due_date else 0
+                delayed.append((t, max(0, dd)))
+                continue
+
+        # 3) 다음주 마감 업무 (진행중)
+        if status != "완료" and due_date and nw_start and nw_end:
+            if nw_start <= due_date <= nw_end:
+                dd_val = (due_date - datetime.now(KST).date()).days
+                next_week_tasks.append((t, dd_val))
+                continue
+
+        other.append(t)
 
     # ── 마크다운 생성 ──
     today = datetime.now(KST)
     now_str = today.strftime("%Y-%m-%d %H:%M")
 
+    def fmt_date(d):
+        if not d:
+            return "미정"
+        return d.strftime("%m/%d")
+
     lines = []
     lines.append(f"# 📊 {assignee} 주간리포트")
-    lines.append(f"**기간:** {week_start} ~ {week_end}  ")
+    lines.append(f"**기준 주:** {week_start} ~ {week_end}  ")
     lines.append(f"**생성일:** {now_str}  ")
     lines.append(f"**전체 업무:** {len(tasks)}건  ")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    # ── 섹션 1: 이번주 완료 ──
-    lines.append("## ✅ 이번주 완료")
+    # ── 섹션 1: 기준 주 완료 업무 ──
+    lines.append("## ✅ 기준 주 완료")
     lines.append("")
-    if week_completed:
-        lines.append(f"| # | 제목 | 완료일 |")
+    if completed_this_week:
+        lines.append("| # | 제목 | 완료일 |")
         lines.append("|---|---|---|")
-        for t in week_completed:
+        for t in completed_this_week:
             closed = (t.get("closed_at") or "")[:10]
             num = t.get("display_num", "?")
             title = t.get("title", "")
             lines.append(f"| #{num} | {title} | {closed} |")
     else:
-        lines.append("*이번주 완료된 업무가 없습니다.*")
+        lines.append("*기준 주에 완료된 업무가 없습니다.*")
     lines.append("")
 
-    # ── 섹션 2: 이번주 전체 현황 ──
-    lines.append("## 📋 이번주 업무 현황")
-    lines.append("")
-    if week_tasks_all:
-        lines.append(f"| # | 제목 | 상태 | 마감 | D-Day |")
-        lines.append("|---|---|---|---|---|")
-        for t in week_tasks_all:
-            num = t.get("display_num", "?")
-            title = t.get("title", "")
-            status = t.get("status", "")
-            due = (t.get("due_at") or "")[:10] if t.get("due_at") else "미정"
-            lbl = dday_label(dday(t.get("due_at")))
-            status_icon = "✅" if status == "완료" else "🔄"
-            lines.append(f"| #{num} | {title} | {status_icon} {status} | {due} | {lbl} |")
-    else:
-        lines.append("*이번주 해당하는 업무가 없습니다.*")
-    lines.append("")
-
-    # ── 섹션 3: 지연 업무 경고 ──
+    # ── 섹션 2: 지연 업무 ──
     lines.append("## ⚠️ 지연 업무")
     lines.append("")
     if delayed:
-        lines.append(f"| # | 제목 | 마감 | 지연일 |")
+        lines.append("| # | 제목 | 마감 | 지연일 |")
         lines.append("|---|---|---|---|")
         for t, dd in delayed:
             num = t.get("display_num", "?")
             title = t.get("title", "")
             due = (t.get("due_at") or "")[:10]
-            lines.append(f"| #{num} | {title} | {due} | {dday_label(dd)} |")
+            lines.append(f"| #{num} | {title} | {due} | D+{dd} |")
     else:
         lines.append("*지연된 업무가 없습니다.* 👍")
     lines.append("")
 
-    # ── 섹션 4: 오늘 마감 ──
-    if today_due:
-        lines.append("## 🔴 오늘 마감")
-        lines.append("")
-        lines.append(f"| # | 제목 | 상태 |")
-        lines.append("|---|---|---|")
-        for t, dd in today_due:
-            num = t.get("display_num", "?")
-            title = t.get("title", "")
-            status = t.get("status", "")
-            lines.append(f"| #{num} | {title} | {status} |")
-        lines.append("")
-
-    # ── 섹션 5: 진행중 (완료/지연/오늘마감 제외) ──
-    in_progress = [(t, dd) for t, dd in upcoming + no_due
-                   if t.get("status") != "완료"]
-    lines.append("## 🔄 진행중 업무")
-    lines.append("")
-    if in_progress:
-        lines.append(f"| # | 제목 | 마감 | D-Day |")
-        lines.append("|---|---|---|---|")
-        for t, dd in in_progress:
-            num = t.get("display_num", "?")
-            title = t.get("title", "")
-            due = (t.get("due_at") or "")[:10] if t.get("due_at") else "미정"
-            lbl = dday_label(dd)
-            lines.append(f"| #{num} | {title} | {due} | {lbl} |")
+    # ── 섹션 3: 다음주 예정 업무 ──
+    if nw_start and nw_end:
+        next_label = f"{nw_start} ~ {nw_end}"
     else:
-        lines.append("*진행중인 업무가 없습니다.*")
+        next_label = "다음주"
+    lines.append(f"## 📅 다음주 예정 ({next_label})")
+    lines.append("")
+    if next_week_tasks:
+        lines.append("| # | 제목 | 마감 | D-Day |")
+        lines.append("|---|---|---|---|")
+        for t, dd in next_week_tasks:
+            num = t.get("display_num", "?")
+            title = t.get("title", "")
+            due = (t.get("due_at") or "")[:10]
+            lines.append(f"| #{num} | {title} | {due} | {dday_label(dd)} |")
+    else:
+        lines.append("*다음주 예정된 업무가 없습니다.*")
     lines.append("")
 
-    # ── 섹션 6: 요약 통계 ──
+    # ── 섹션 4: 요약 통계 ──
     lines.append("---")
     lines.append("")
     lines.append("## 📊 요약 통계")
     lines.append("")
-    lines.append(f"| 항목 | 건수 |")
+    lines.append("| 항목 | 건수 |")
     lines.append("|---|---|")
     lines.append(f"| 전체 업무 | {len(tasks)} |")
-    lines.append(f"| ✅ 완료 | {len(completed)} |")
-    lines.append(f"| 🔄 진행중 | {len(in_progress)} |")
+    lines.append(f"| ✅ 기준 주 완료 | {len(completed_this_week)} |")
     lines.append(f"| ⚠️ 지연 | {len(delayed)} |")
-    lines.append(f"| 🔴 오늘 마감 | {len(today_due)} |")
+    lines.append(f"| 📅 다음주 예정 | {len(next_week_tasks)} |")
+    lines.append(f"| 📋 기타 | {len(other)} |")
     lines.append("")
 
     md_content = "\n".join(lines)
@@ -208,10 +222,10 @@ def generate_report(payload: dict) -> dict:
         "md_content": md_content,
         "stats": {
             "total": len(tasks),
-            "completed": len(completed),
-            "in_progress": len(in_progress),
+            "completed_this_week": len(completed_this_week),
             "delayed": len(delayed),
-            "today_due": len(today_due),
+            "next_week": len(next_week_tasks),
+            "other": len(other),
         }
     }
 
