@@ -1804,7 +1804,9 @@ function requestWeeklyReport() {{
     cancelBtn.onclick = function() {{ closeModal(modal); }};
     actions.appendChild(cancelBtn);
 
-    openModal(modal);
+    document.getElementById('modalOverlay').appendChild(modal);
+    document.getElementById('modalOverlay').classList.add('active');
+    modalStack.push({{ taskId: '__weekly__', el: modal }});
 }}
 
 function doRequestWeeklyReport(assignee, week_start, week_end, label) {{
