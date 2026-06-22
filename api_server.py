@@ -649,7 +649,7 @@ class APIHandler(BaseHTTPRequestHandler):
             report_script = os.path.join(os.path.dirname(__file__), "weekly_report.py")
             report_result = subprocess.run(
                 [sys.executable, report_script, "--file", payload_file],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, encoding="utf-8", timeout=30,
                 env={**os.environ.copy(), "PYTHONIOENCODING": "utf-8"}
             )
 
