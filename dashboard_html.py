@@ -1594,12 +1594,12 @@ function filterAssignee(name) {{
     // ── 주간리포트 버튼 표시/숨김 ──
     var weeklyBtn = document.getElementById('weeklyReportBtn');
     if (weeklyBtn) {{
-        if (name === 'ALL' || name === '긴급') {{
+        if (name === '긴급') {{
             weeklyBtn.classList.remove('active');
         }} else {{
             weeklyBtn.classList.add('active');
-            // 선택된 직원 이름 저장
-            weeklyBtn.setAttribute('data-assignee', name);
+            // 선택된 직원 이름 저장 (ALL이면 'All')
+            weeklyBtn.setAttribute('data-assignee', name === 'ALL' ? 'All' : name);
         }}
     }}
 
@@ -1739,7 +1739,7 @@ function requestWeeklyReport() {{
     // ── 모달 생성 ──
     var modal = createModalEl();
     modal.querySelector('.modal-title').textContent = '📊 주간리포트 기준 주 선택';
-    modal.querySelector('.modal-status').textContent = assignee + '님 리포트';
+    modal.querySelector('.modal-status').textContent = assignee === 'All' ? '📊 브랜업 전체 주간리포트' : assignee + '님 리포트';
 
     var body = modal.querySelector('.modal-body');
     // 불필요 필드 숨김
