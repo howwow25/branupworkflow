@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-주간리포트 생성기 — Hermes 에이전트 전용
-DB에서 직원의 이번주 업무 데이터를 받아 LLM 분석 → 마크다운 리포트 생성 → .md 파일 저장
+주간리포트 생성기 v2 — 프로젝트 중심 + 업무 평가
+
+변경사항 (report-add-02):
+- 프로젝트 중심 보고 (선택 직원이 참여한 프로젝트별 그룹화)
+- 프로젝트 미지정 업무 별도 섹션
+- 업무 평가 (정시 완료 / 지연 완료 / 마감 임박 / 정상 진행 / 지연)
 
 사용법:
   python3 weekly_report.py --json '{"assignee":"강경철",...}'
@@ -46,22 +50,89 @@ def dday_label(dd):
     return f"D-{dd}"
 
 
+def evaluate_task(t, ws_date, we_date):
+    """
+    업무 평가:
+    - 완료 업무: 정시 완료 / 지연 완료 / 기한 없음
+    - 진행중 업무: 정상 진행 / 마감 임박 / 지연
+    반환: (평가문구, 평가등급)
+    등급: excellent / good / warning / danger / neutral
+    """
+    status = t.get("status", "")
+    due_str = t.get("due_at", "")
+    closed_str = t.get("closed_at", "")
+
+    due_date = None
+    if due_str:
+        try:
+            due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+    closed_date = None
+    if closed_str:
+        try:
+            closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+    today = datetime.now(KST).date()
+
+    # ── 완료 업무 평가 ──
+    if status == "완료" and closed_date:
+        if due_date:
+            if closed_date <= due_date:
+                days_early = (due_date - closed_date).days
+                if days_early >= 3:
+                    return f"🎖 조기 완료 ({days_early}일 단축)", "excellent"
+                elif days_early >= 1:
+                    return f"✅ 정시 완료 ({days_early}일 단축)", "good"
+                else:
+                    return "✅ 정시 완료", "good"
+            else:
+                days_late = (closed_date - due_date).days
+                return f"⏰ 지연 완료 (D+{days_late})", "danger"
+        else:
+            return "✅ 완료 (기한 없음)", "neutral"
+
+    # ── 진행중 업무 평가 (미완료) ──
+    if status in ("진행중", ):
+        if due_date:
+            if due_date < today:
+                dd = (today - due_date).days
+                return f"🚨 지연 (D+{dd})", "danger"
+            elif due_date == today:
+                return "🔴 오늘 마감", "danger"
+            elif due_date <= today + timedelta(days=3):
+                dd = (due_date - today).days
+                return f"🟡 마감 임박 (D-{dd})", "warning"
+            else:
+                return "🟢 정상 진행", "good"
+        else:
+            return "🟢 진행중 (마감 미정)", "good"
+
+    # ── 보류 등 기타 ──
+    return "⏸ 보류", "neutral"
+
+
 def generate_report(payload: dict) -> dict:
     """
-    업무 데이터를 분석해 마크다운 리포트 생성
-    payload = {"assignee": "강경철", "week_start": "2026-06-15",
-               "week_end": "2026-06-21", "total": 10, "tasks": [...]}
-    
-    리포트 구성:
-    1. 기준 주 완료 업무 (기준 주에 완료된 업무)
-    2. 기준 주 지연 업무 (마감이 기준 주 이전이고 완료되지 않은 업무)
-    3. 다음주 예정 업무 (다음주에 마감인 진행중 업무)
-    4. 요약 통계
+    프로젝트 중심 주간리포트 생성
+
+    payload = {
+        "assignee": "강경철",
+        "week_start": "2026-06-15",
+        "week_end": "2026-06-21",
+        "total": 10,
+        "tasks": [...],       # 직원의 모든 업무 (보류 제외)
+        "projects": [...]     # 직원이 참여한 프로젝트 목록
+    }
     """
     assignee = payload.get("assignee", "미정")
     week_start = payload.get("week_start", "")
     week_end = payload.get("week_end", "")
     tasks = payload.get("tasks", [])
+    projects = payload.get("projects", [])
 
     # ── 날짜 파싱 ──
     try:
@@ -70,138 +141,311 @@ def generate_report(payload: dict) -> dict:
     except ValueError:
         ws_date = we_date = None
 
-    # 다음주 범위
-    nw_start = ws_date + timedelta(days=7) if ws_date else None
-    nw_end = we_date + timedelta(days=7) if we_date else None
+    today = datetime.now(KST).date()
+    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
 
-    # ── 업무 분류 ──
-    completed_this_week = []    # 기준 주에 완료된 업무
-    delayed = []                # 지연 (마감이 기준 주 이전, 미완료)
-    next_week_tasks = []        # 다음주 마감 (진행중)
-    other = []                  # 기타
+    # ── 프로젝트 인덱스 (id → project) ──
+    proj_map = {p["id"]: p for p in projects}
 
+    # ── 프로젝트별 업무 그룹화 ──
+    # {project_id: [tasks], None: [no-project tasks]}
+    proj_tasks = {}  # id → list
+    no_proj_tasks = []
     for t in tasks:
-        status = t.get("status", "")
-        due_str = t.get("due_at", "")
-        closed_str = t.get("closed_at", "")
-
-        # 완료일 파싱
-        closed_date = None
-        if closed_str:
-            try:
-                closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
-            except Exception:
-                pass
-
-        # 마감일 파싱
-        due_date = None
-        if due_str:
-            try:
-                due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
-            except Exception:
-                pass
-
-        # 1) 기준 주에 완료된 업무
-        if status == "완료" and closed_date and ws_date and we_date:
-            if ws_date <= closed_date <= we_date:
-                completed_this_week.append(t)
-                continue
-
-        # 2) 지연 업무: 마감이 기준 주 종료일 이전이고, 아직 완료되지 않음
-        if status != "완료" and due_date and we_date:
-            if due_date <= we_date:
-                dd = (datetime.now(KST).date() - due_date).days if due_date else 0
-                delayed.append((t, max(0, dd)))
-                continue
-
-        # 3) 다음주 마감 업무 (진행중)
-        if status != "완료" and due_date and nw_start and nw_end:
-            if nw_start <= due_date <= nw_end:
-                dd_val = (due_date - datetime.now(KST).date()).days
-                next_week_tasks.append((t, dd_val))
-                continue
-
-        other.append(t)
+        pid = t.get("project_id")
+        if pid and pid in proj_map:
+            proj_tasks.setdefault(pid, []).append(t)
+        else:
+            no_proj_tasks.append(t)
 
     # ── 마크다운 생성 ──
-    today = datetime.now(KST)
-    now_str = today.strftime("%Y-%m-%d %H:%M")
-
-    def fmt_date(d):
-        if not d:
-            return "미정"
-        return d.strftime("%m/%d")
-
     lines = []
     lines.append(f"# 📊 {assignee} 주간리포트")
     lines.append(f"**기준 주:** {week_start} ~ {week_end}  ")
     lines.append(f"**생성일:** {now_str}  ")
-    lines.append(f"**전체 업무:** {len(tasks)}건  ")
+    lines.append(f"**전체 업무:** {len(tasks)}건 | **프로젝트:** {len(proj_tasks)}개 | **미지정:** {len(no_proj_tasks)}건  ")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    # ── 섹션 1: 기준 주 완료 업무 ──
-    lines.append("## ✅ 기준 주 완료")
-    lines.append("")
-    if completed_this_week:
-        lines.append("| # | 제목 | 완료일 |")
-        lines.append("|---|---|---|")
-        for t in completed_this_week:
-            closed = (t.get("closed_at") or "")[:10]
-            num = t.get("display_num", "?")
-            title = t.get("title", "")
-            lines.append(f"| #{num} | {title} | {closed} |")
-    else:
-        lines.append("*기준 주에 완료된 업무가 없습니다.*")
-    lines.append("")
+    # ── 프로젝트별 섹션 ──
+    stats_summary = []  # 프로젝트별 통계 누적
+    all_evaluations = {"excellent": 0, "good": 0, "warning": 0, "danger": 0, "neutral": 0}
 
-    # ── 섹션 2: 지연 업무 ──
-    lines.append("## ⚠️ 지연 업무")
-    lines.append("")
-    if delayed:
-        lines.append("| # | 제목 | 마감 | 지연일 |")
-        lines.append("|---|---|---|---|")
-        for t, dd in delayed:
-            num = t.get("display_num", "?")
-            title = t.get("title", "")
-            due = (t.get("due_at") or "")[:10]
-            lines.append(f"| #{num} | {title} | {due} | D+{dd} |")
-    else:
-        lines.append("*지연된 업무가 없습니다.* 👍")
-    lines.append("")
+    for pid, ptasks in proj_tasks.items():
+        proj = proj_map[pid]
+        proj_title = proj.get("title", "이름없음")
+        proj_status = proj.get("status", "?")
+        proj_start = proj.get("start_date", "")[:10] if proj.get("start_date") else "?"
+        proj_end = proj.get("expected_end_date", "")[:10] if proj.get("expected_end_date") else "?"
+        proj_assignees = proj.get("assignees", "")
 
-    # ── 섹션 3: 다음주 예정 업무 ──
-    if nw_start and nw_end:
-        next_label = f"{nw_start} ~ {nw_end}"
-    else:
-        next_label = "다음주"
-    lines.append(f"## 📅 다음주 예정 ({next_label})")
-    lines.append("")
-    if next_week_tasks:
-        lines.append("| # | 제목 | 마감 | D-Day |")
-        lines.append("|---|---|---|---|")
-        for t, dd in next_week_tasks:
-            num = t.get("display_num", "?")
-            title = t.get("title", "")
-            due = (t.get("due_at") or "")[:10]
-            lines.append(f"| #{num} | {title} | {due} | {dday_label(dd)} |")
-    else:
-        lines.append("*다음주 예정된 업무가 없습니다.*")
-    lines.append("")
+        # ── 프로젝트 헤더 ──
+        lines.append(f"## 📁 {proj_title}")
+        lines.append(f"**상태:** {proj_status} | **기간:** {proj_start} ~ {proj_end}  ")
+        lines.append(f"**업무:** {len(ptasks)}건  ")
+        lines.append("")
 
-    # ── 섹션 4: 요약 통계 ──
-    lines.append("---")
-    lines.append("")
+        # ── 분류 ──
+        completed_this_week = []
+        delayed = []
+        in_progress = []
+
+        for t in ptasks:
+            status = t.get("status", "")
+            due_str = t.get("due_at", "")
+            closed_str = t.get("closed_at", "")
+
+            due_date = None
+            if due_str:
+                try:
+                    due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+
+            closed_date = None
+            if closed_str:
+                try:
+                    closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+
+            # 기준 주 완료
+            if status == "완료" and closed_date and ws_date and we_date:
+                if ws_date <= closed_date <= we_date:
+                    completed_this_week.append(t)
+                    continue
+
+            # 지연 업무 (마감 < 오늘, 미완료)
+            if status != "완료" and due_date and due_date < today:
+                dd = (today - due_date).days
+                delayed.append((t, dd))
+                continue
+
+            # 나머지 진행중
+            if status != "완료":
+                in_progress.append(t)
+                continue
+
+            # 완료됐지만 기준 주 밖
+            in_progress.append(t)
+
+        # ── 평가 수집 ──
+        for t in ptasks:
+            ev, grade = evaluate_task(t, ws_date, we_date)
+            all_evaluations[grade] = all_evaluations.get(grade, 0) + 1
+
+        # ── 섹션 1: 기준 주 완료 ──
+        lines.append("### ✅ 기준 주 완료")
+        lines.append("")
+        if completed_this_week:
+            lines.append("| # | 제목 | 완료일 | 평가 |")
+            lines.append("|---|---|---|---|")
+            for t in completed_this_week:
+                closed = (t.get("closed_at") or "")[:10]
+                num = t.get("display_num", "?")
+                title = t.get("title", "")
+                ev, _ = evaluate_task(t, ws_date, we_date)
+                lines.append(f"| #{num} | {title} | {closed} | {ev} |")
+        else:
+            lines.append("*기준 주에 완료된 업무가 없습니다.*")
+        lines.append("")
+
+        # ── 섹션 2: 지연 업무 ──
+        lines.append("### ⚠️ 지연 업무")
+        lines.append("")
+        if delayed:
+            lines.append("| # | 제목 | 마감 | 지연일 | 평가 |")
+            lines.append("|---|---|---|---|---|")
+            for t, dd in delayed:
+                num = t.get("display_num", "?")
+                title = t.get("title", "")
+                due = (t.get("due_at") or "")[:10]
+                ev, _ = evaluate_task(t, ws_date, we_date)
+                lines.append(f"| #{num} | {title} | {due} | D+{dd} | {ev} |")
+        else:
+            lines.append("*지연된 업무가 없습니다.* 👍")
+        lines.append("")
+
+        # ── 섹션 3: 진행중 업무 ──
+        lines.append("### 🔄 진행중")
+        lines.append("")
+        if in_progress:
+            lines.append("| # | 제목 | 마감 | D-Day | 평가 |")
+            lines.append("|---|---|---|---|---|")
+            for t in in_progress:
+                num = t.get("display_num", "?")
+                title = t.get("title", "")
+                due = (t.get("due_at") or "")[:10] if t.get("due_at") else ""
+                dd = dday(t.get("due_at"))
+                ev, _ = evaluate_task(t, ws_date, we_date)
+                lines.append(f"| #{num} | {title} | {due} | {dday_label(dd)} | {ev} |")
+        else:
+            lines.append("*진행중인 업무가 없습니다.*")
+        lines.append("")
+
+        # 프로젝트 통계
+        stats_summary.append({
+            "title": proj_title,
+            "total": len(ptasks),
+            "completed": len(completed_this_week),
+            "delayed": len(delayed),
+            "in_progress": len(in_progress),
+        })
+
+        lines.append("---")
+        lines.append("")
+
+    # ── 프로젝트 미지정 업무 섹션 ──
+    if no_proj_tasks:
+        lines.append("## 📋 프로젝트 미지정 업무")
+        lines.append("")
+        lines.append(f"**업무:** {len(no_proj_tasks)}건  ")
+        lines.append("")
+
+        # 분류
+        n_completed = []
+        n_delayed = []
+        n_in_progress = []
+
+        for t in no_proj_tasks:
+            status = t.get("status", "")
+            due_str = t.get("due_at", "")
+            closed_str = t.get("closed_at", "")
+
+            due_date = None
+            if due_str:
+                try:
+                    due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+
+            closed_date = None
+            if closed_str:
+                try:
+                    closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
+                except Exception:
+                    pass
+
+            if status == "완료" and closed_date and ws_date and we_date:
+                if ws_date <= closed_date <= we_date:
+                    n_completed.append(t)
+                    continue
+
+            if status != "완료" and due_date and due_date < today:
+                dd = (today - due_date).days
+                n_delayed.append((t, dd))
+                continue
+
+            if status != "완료":
+                n_in_progress.append(t)
+                continue
+            n_in_progress.append(t)
+
+        # 평가 수집
+        for t in no_proj_tasks:
+            ev, grade = evaluate_task(t, ws_date, we_date)
+            all_evaluations[grade] = all_evaluations.get(grade, 0) + 1
+
+        if n_completed:
+            lines.append("| # | 제목 | 완료일 | 평가 |")
+            lines.append("|---|---|---|---|")
+            for t in n_completed:
+                closed = (t.get("closed_at") or "")[:10]
+                num = t.get("display_num", "?")
+                title = t.get("title", "")
+                ev, _ = evaluate_task(t, ws_date, we_date)
+                lines.append(f"| #{num} | {title} | {closed} | {ev} |")
+            lines.append("")
+
+        if n_delayed:
+            lines.append("| # | 제목 | 마감 | 지연일 | 평가 |")
+            lines.append("|---|---|---|---|---|")
+            for t, dd in n_delayed:
+                num = t.get("display_num", "?")
+                title = t.get("title", "")
+                due = (t.get("due_at") or "")[:10]
+                ev, _ = evaluate_task(t, ws_date, we_date)
+                lines.append(f"| #{num} | {title} | {due} | D+{dd} | {ev} |")
+            lines.append("")
+
+        if n_in_progress:
+            lines.append("| # | 제목 | 마감 | D-Day | 평가 |")
+            lines.append("|---|---|---|---|---|")
+            for t in n_in_progress:
+                num = t.get("display_num", "?")
+                title = t.get("title", "")
+                due = (t.get("due_at") or "")[:10] if t.get("due_at") else ""
+                dd = dday(t.get("due_at"))
+                ev, _ = evaluate_task(t, ws_date, we_date)
+                lines.append(f"| #{num} | {title} | {due} | {dday_label(dd)} | {ev} |")
+            lines.append("")
+
+        stats_summary.append({
+            "title": "📋 미지정",
+            "total": len(no_proj_tasks),
+            "completed": len(n_completed),
+            "delayed": len(n_delayed),
+            "in_progress": len(n_in_progress),
+        })
+
+        lines.append("---")
+        lines.append("")
+
+    # ── 전체 요약 통계 (프로젝트별) ──
     lines.append("## 📊 요약 통계")
     lines.append("")
-    lines.append("| 항목 | 건수 |")
-    lines.append("|---|---|")
-    lines.append(f"| 전체 업무 | {len(tasks)} |")
-    lines.append(f"| ✅ 기준 주 완료 | {len(completed_this_week)} |")
-    lines.append(f"| ⚠️ 지연 | {len(delayed)} |")
-    lines.append(f"| 📅 다음주 예정 | {len(next_week_tasks)} |")
-    lines.append(f"| 📋 기타 | {len(other)} |")
+    lines.append("| 프로젝트 | 전체 | 완료 | 지연 | 진행중 |")
+    lines.append("|---|---|---|---|---|")
+    total_comp = 0
+    total_del = 0
+    total_prog = 0
+    for s in stats_summary:
+        title = s["title"]
+        lines.append(f"| {title} | {s['total']} | {s['completed']} | {s['delayed']} | {s['in_progress']} |")
+        total_comp += s['completed']
+        total_del += s['delayed']
+        total_prog += s['in_progress']
+    # 합계 행
+    lines.append(f"| **합계** | **{len(tasks)}** | **{total_comp}** | **{total_del}** | **{total_prog}** |")
+    lines.append("")
+
+    # ── 종합 평가 ──
+    lines.append("## 📝 종합 평가")
+    lines.append("")
+    total_eval = sum(all_evaluations.values())
+    if total_eval > 0:
+        lines.append("| 등급 | 건수 | 비율 |")
+        lines.append("|---|---|---|")
+        grade_labels = {"excellent": "🎖 조기 완료", "good": "🟢 정상", "warning": "🟡 주의", "danger": "🚨 위험", "neutral": "⏸ 중립"}
+        for grade in ("excellent", "good", "warning", "danger", "neutral"):
+            if all_evaluations.get(grade, 0) > 0:
+                cnt = all_evaluations[grade]
+                pct = f"{cnt / total_eval * 100:.0f}%"
+                lines.append(f"| {grade_labels[grade]} | {cnt} | {pct} |")
+
+        # 종합 한 줄 평가
+        danger_cnt = all_evaluations.get("danger", 0)
+        warning_cnt = all_evaluations.get("warning", 0)
+        good_cnt = all_evaluations.get("good", 0)
+        excellent_cnt = all_evaluations.get("excellent", 0)
+        total_matters = danger_cnt + warning_cnt + good_cnt + excellent_cnt
+
+        if total_matters == 0:
+            overall = "⭐ 평가할 업무가 없습니다."
+        else:
+            score = (excellent_cnt * 3 + good_cnt * 2 + warning_cnt * 1 + danger_cnt * -1) / max(total_matters, 1)
+            if score >= 2.0:
+                overall = f"🌟 훌륭합니다! 전반적으로 일정 관리가 잘 이루어졌습니다."
+            elif score >= 1.0:
+                overall = f"👍 전반적으로 양호합니다. 일부 주의가 필요한 업무가 있습니다."
+            elif score >= 0.0:
+                overall = f"⚠️ 주의가 필요합니다. 지연된 업무가 있습니다."
+            else:
+                overall = f"🚨 개선이 시급합니다. 다수의 지연 업무가 있습니다."
+
+        lines.append("")
+        lines.append(f"> {overall}")
     lines.append("")
 
     md_content = "\n".join(lines)
@@ -222,16 +466,17 @@ def generate_report(payload: dict) -> dict:
         "md_content": md_content,
         "stats": {
             "total": len(tasks),
-            "completed_this_week": len(completed_this_week),
-            "delayed": len(delayed),
-            "next_week": len(next_week_tasks),
-            "other": len(other),
+            "projects": len(proj_tasks),
+            "no_project": len(no_proj_tasks),
+            "completed_this_week": total_comp,
+            "delayed": total_del,
+            "in_progress": total_prog,
         }
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="주간리포트 생성기")
+    parser = argparse.ArgumentParser(description="주간리포트 생성기 v2")
     parser.add_argument("--json", type=str, help="JSON 페이로드 문자열")
     parser.add_argument("--file", type=str, help="JSON 페이로드 파일 경로")
     parser.add_argument("--stdin", action="store_true", help="stdin에서 JSON 읽기")
@@ -275,7 +520,7 @@ def main():
             "md_content": md_content,
             "report_path": str(filepath),
             "filename": filename,
-            "stats": {"total": 0, "completed_this_week": 0, "delayed": 0, "next_week": 0, "other": 0}
+            "stats": {"total": 0, "projects": 0, "no_project": 0, "completed_this_week": 0, "delayed": 0, "in_progress": 0}
         }))
         return
 

@@ -618,13 +618,21 @@ class APIHandler(BaseHTTPRequestHandler):
                 t["_in_week"] = False
             tasks.append(t)
 
+        # ── 직원이 참여한 프로젝트 목록 조회 ──
+        proj_rows = conn.execute(
+            "SELECT * FROM projects WHERE assignees LIKE ? ORDER BY start_date ASC",
+            (f"%{assignee}%",)
+        ).fetchall()
+        projects = [dict(r) for r in proj_rows]
+
         # ── JSON 페이로드 구성 ──
         payload = {
             "assignee": assignee,
             "week_start": monday.isoformat(),
             "week_end": sunday.isoformat(),
             "total": len(tasks),
-            "tasks": tasks
+            "tasks": tasks,
+            "projects": projects
         }
 
         # ── Hermes로 리포트 전송 (로컬에서 weekly_report.py 실행 후 결과만 전송) ──
