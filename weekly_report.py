@@ -134,6 +134,9 @@ def generate_report(payload: dict) -> dict:
     tasks = payload.get("tasks", [])
     projects = payload.get("projects", [])
 
+    if assignee in ("All", "전체"):
+        return generate_all_report(payload)
+
     # ── 날짜 파싱 ──
     try:
         ws_date = datetime.strptime(week_start, "%Y-%m-%d").date() if week_start else None
@@ -468,6 +471,311 @@ def generate_report(payload: dict) -> dict:
             "total": len(tasks),
             "projects": len(proj_tasks),
             "no_project": len(no_proj_tasks),
+            "completed_this_week": total_comp,
+            "delayed": total_del,
+            "in_progress": total_prog,
+        }
+    }
+
+
+def generate_all_report(payload: dict) -> dict:
+    """
+    전체(All) 주간리포트 — 경영진 보고용
+    
+    payload = {
+        "assignee": "All",
+        "week_start": "2026-06-15",
+        "week_end": "2026-06-21",
+        "total": 60,
+        "tasks": [...],
+        "projects": [...],
+        "members": ["강경철", "전경표", ...]
+    }
+    """
+    assignee = payload.get("assignee", "All")
+    week_start = payload.get("week_start", "")
+    week_end = payload.get("week_end", "")
+    tasks = payload.get("tasks", [])
+    projects = payload.get("projects", [])
+    members = payload.get("members", [])
+
+    try:
+        ws_date = datetime.strptime(week_start, "%Y-%m-%d").date() if week_start else None
+        we_date = datetime.strptime(week_end, "%Y-%m-%d").date() if week_end else None
+    except ValueError:
+        ws_date = we_date = None
+
+    today = datetime.now(KST).date()
+    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+
+    proj_map = {p["id"]: p for p in projects}
+
+    # ── 프로젝트별 + 직원별 그룹화 ──
+    # proj_tasks[pid] = {assignee: [tasks]}
+    proj_tasks = {}
+    no_proj_tasks = []
+    for t in tasks:
+        pid = t.get("project_id")
+        a = t.get("assignee", "미정")
+        if pid and pid in proj_map:
+            proj_tasks.setdefault(pid, {}).setdefault(a, []).append(t)
+        else:
+            no_proj_tasks.append(t)
+
+    # ── 직원별 전체 통계 ──
+    member_stats = {m: {"total": 0, "completed": 0, "delayed": 0,
+                         "in_progress": 0, "evaluations": {"excellent": 0, "good": 0, "warning": 0, "danger": 0, "neutral": 0}}
+                    for m in members}
+    
+    # 분류 + 평가 수집
+    all_delayed = []  # 전체 지연 업무 (하이라이트용)
+    total_comp = 0
+    total_del = 0
+    total_prog = 0
+
+    for t in tasks:
+        status = t.get("status", "")
+        due_str = t.get("due_at", "")
+        a = t.get("assignee", "미정")
+        
+        due_date = None
+        if due_str:
+            try:
+                due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+        
+        closed_date = None
+        closed_str = t.get("closed_at", "")
+        if closed_str:
+            try:
+                closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+
+        # 직원 통계
+        m = member_stats.get(a)
+        if not m:
+            m = {"total": 0, "completed": 0, "delayed": 0,
+                 "in_progress": 0, "evaluations": {"excellent": 0, "good": 0, "warning": 0, "danger": 0, "neutral": 0}}
+            member_stats[a] = m
+        m["total"] += 1
+
+        if status == "완료" and closed_date and ws_date and we_date and ws_date <= closed_date <= we_date:
+            m["completed"] += 1
+            total_comp += 1
+        elif status != "완료" and due_date and due_date < today:
+            m["delayed"] += 1
+            total_del += 1
+            all_delayed.append((t, (today - due_date).days))
+        elif status != "완료":
+            m["in_progress"] += 1
+            total_prog += 1
+        else:
+            m["in_progress"] += 1
+            total_prog += 1
+
+        # 평가 수집
+        ev, grade = evaluate_task(t, ws_date, we_date)
+        m["evaluations"][grade] = m["evaluations"].get(grade, 0) + 1
+
+    # ── 마크다운 생성 ──
+    lines = []
+    lines.append("# 📊 브랜업 주간리포트 (전체)")
+    lines.append(f"**기준 주:** {week_start} ~ {week_end}  ")
+    lines.append(f"**생성일:** {now_str}  ")
+    lines.append(f"**전체:** {len(tasks)}건 | **직원:** {len(members)}명 | **프로젝트:** {len(proj_tasks)}개  ")
+    lines.append(f"**✅ 완료:** {total_comp} | **🚨 지연:** {total_del} | **🔄 진행중:** {total_prog}  ")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # ── 섹션 1: 🚨 긴급 — 지연/위험 업무 ──
+    lines.append("## 🚨 긴급: 지연·위험 업무")
+    lines.append("")
+    if all_delayed:
+        lines.append("| # | 제목 | 담당 | 마감 | 지연일 | 평가 |")
+        lines.append("|---|---|---|---|---|---|")
+        for t, dd in all_delayed:
+            num = t.get("display_num", "?")
+            title = t.get("title", "")
+            a = t.get("assignee", "?")
+            due = (t.get("due_at") or "")[:10]
+            ev, _ = evaluate_task(t, ws_date, we_date)
+            lines.append(f"| #{num} | {title} | {a} | {due} | D+{dd} | {ev} |")
+        lines.append("")
+        lines.append(f"> ⚠️ 총 **{len(all_delayed)}건**의 지연 업무가 있습니다. 즉시 조치가 필요합니다.")
+    else:
+        lines.append("*🎉 지연된 업무가 없습니다!*")
+    lines.append("")
+
+    # ── 섹션 2: 📁 프로젝트별 현황 ──
+    lines.append("## 📁 프로젝트별 현황")
+    lines.append("")
+    if proj_tasks:
+        for pid, assignee_tasks in proj_tasks.items():
+            proj = proj_map[pid]
+            proj_title = proj.get("title", "이름없음")
+            proj_status = proj.get("status", "?")
+            proj_start = proj.get("start_date", "")[:10] if proj.get("start_date") else "?"
+            proj_end = proj.get("expected_end_date", "")[:10] if proj.get("expected_end_date") else "?"
+
+            # 프로젝트 통계
+            p_total = sum(len(v) for v in assignee_tasks.values())
+            p_delayed = 0
+            for a_tasks in assignee_tasks.values():
+                for t in a_tasks:
+                    if t.get("status") != "완료":
+                        due = t.get("due_at", "")
+                        if due:
+                            try:
+                                d = datetime.strptime(due[:10], "%Y-%m-%d").date()
+                                if d < today:
+                                    p_delayed += 1
+                            except Exception:
+                                pass
+
+            lines.append(f"### 📁 {proj_title}")
+            lines.append(f"**상태:** {proj_status} | **기간:** {proj_start} ~ {proj_end}  ")
+            lines.append(f"**업무:** {p_total}건 | **참여:** {len(assignee_tasks)}명  ")
+            if p_delayed > 0:
+                lines.append(f"**⚠️ 지연:** {p_delayed}건  ")
+            lines.append("")
+
+            lines.append("| 직원 | 전체 | 지연 | 진행중 |")
+            lines.append("|---|---|---|---|")
+            for a_name, a_tasks in sorted(assignee_tasks.items()):
+                a_delayed = 0
+                for t in a_tasks:
+                    if t.get("status") != "완료":
+                        due = t.get("due_at", "")
+                        if due:
+                            try:
+                                d = datetime.strptime(due[:10], "%Y-%m-%d").date()
+                                if d < today:
+                                    a_delayed += 1
+                            except Exception:
+                                pass
+                a_prog = len(a_tasks) - a_delayed
+                a_del_str = f"🚨 {a_delayed}" if a_delayed > 0 else "0"
+                lines.append(f"| {a_name} | {len(a_tasks)} | {a_del_str} | {a_prog} |")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    # ── 섹션 3: 👥 직원별 성과 평가 ──
+    lines.append("## 👥 직원별 성과 평가")
+    lines.append("")
+    lines.append("| 직원 | 전체 | 완료 | 지연 | 진행중 | 평가 등급 |")
+    lines.append("|---|---|---|---|---|---|")
+
+    member_order = sorted(member_stats.items(), key=lambda x: x[1]["evaluations"].get("danger", 0), reverse=True)
+    for m_name, m_stat in member_order:
+        if m_stat["total"] == 0:
+            continue
+        evals = m_stat["evaluations"]
+        danger = evals.get("danger", 0)
+        warning = evals.get("warning", 0)
+        good = evals.get("good", 0)
+        excellent = evals.get("excellent", 0)
+
+        del_str = f"🚨 {m_stat['delayed']}" if m_stat['delayed'] > 0 else str(m_stat['delayed'])
+
+        # 직원 평가 등급
+        total_ev = excellent + good + warning + danger
+        if total_ev == 0:
+            grade_str = "⏸ 평가불가"
+        else:
+            score = (excellent * 3 + good * 2 + warning * 1 + danger * -1) / max(total_ev, 1)
+            if score >= 2.5:
+                grade_str = "🌟 최우수"
+            elif score >= 1.5:
+                grade_str = "👍 우수"
+            elif score >= 0.5:
+                grade_str = "⚠️ 주의"
+            else:
+                grade_str = "🚨 위험"
+
+        lines.append(f"| **{m_name}** | {m_stat['total']} | {m_stat['completed']} | {del_str} | {m_stat['in_progress']} | {grade_str} |")
+    lines.append("")
+
+    # ── 섹션 4: 📊 종합 평가 ──
+    lines.append("## 📊 종합 평가")
+    lines.append("")
+
+    # 전체 평가 집계
+    all_eval = {"excellent": 0, "good": 0, "warning": 0, "danger": 0, "neutral": 0}
+    for m_name, m_stat in member_stats.items():
+        for k, v in m_stat["evaluations"].items():
+            all_eval[k] = all_eval.get(k, 0) + v
+
+    total_eval = sum(all_eval.values())
+    if total_eval > 0:
+        lines.append("| 등급 | 건수 | 비율 |")
+        lines.append("|---|---|---|")
+        grade_labels = {"excellent": "🎖 조기 완료", "good": "🟢 정상", "warning": "🟡 주의", "danger": "🚨 위험", "neutral": "⏸ 중립"}
+        for grade in ("excellent", "good", "warning", "danger", "neutral"):
+            if all_eval.get(grade, 0) > 0:
+                cnt = all_eval[grade]
+                pct = f"{cnt / total_eval * 100:.0f}%"
+                lines.append(f"| {grade_labels[grade]} | {cnt} | {pct} |")
+
+        danger_cnt = all_eval.get("danger", 0)
+        warning_cnt = all_eval.get("warning", 0)
+        good_cnt = all_eval.get("good", 0)
+        excellent_cnt = all_eval.get("excellent", 0)
+        total_matters = danger_cnt + warning_cnt + good_cnt + excellent_cnt
+
+        if total_matters == 0:
+            overall = "⭐ 평가할 업무가 없습니다."
+        else:
+            score = (excellent_cnt * 3 + good_cnt * 2 + warning_cnt * 1 + danger_cnt * -1) / max(total_matters, 1)
+            if score >= 2.0:
+                overall = "🌟 훌륭합니다! 전반적으로 프로젝트 관리가 잘 이루어지고 있습니다."
+            elif score >= 1.0:
+                overall = "👍 전반적으로 양호합니다. 일부 주의가 필요한 업무가 있습니다."
+            elif score >= 0.0:
+                overall = "⚠️ 주의가 필요합니다. 지연된 업무에 대한 집중 관리가 요구됩니다."
+            else:
+                overall = "🚨 개선이 시급합니다. 다수의 지연 업무가 있으며 경영진의 즉각적인 관심이 필요합니다."
+
+        lines.append("")
+        lines.append(f"> {overall}")
+        lines.append("")
+
+        # 주간 TOP 이슈
+        lines.append("### 📌 이번 주 핵심 이슈")
+        lines.append("")
+        if all_delayed:
+            lines.append(f"- 🚨 지연 업무 **{len(all_delayed)}건** — 조속한 대응 필요")
+        if danger_cnt > 0:
+            lines.append(f"- ⚠️ 평가 '위험' 등급 업무 **{danger_cnt}건**")
+        if total_comp > 0:
+            lines.append(f"- ✅ 기준 주 완료 업무 **{total_comp}건** — 성과 확인")
+        if not all_delayed and danger_cnt == 0:
+            lines.append("- 🎉 모든 업무가 정상 진행 중입니다!")
+
+    lines.append("")
+
+    md_content = "\n".join(lines)
+
+    week_label = week_start.replace("-", "") if week_start else "weekly"
+    filename = f"전체_{week_label}.md"
+    filepath = REPORT_DIR / filename
+    filepath.write_text(md_content, encoding="utf-8")
+
+    return {
+        "ok": True,
+        "assignee": "전체",
+        "week_start": week_start,
+        "week_end": week_end,
+        "report_path": str(filepath),
+        "filename": filename,
+        "md_content": md_content,
+        "stats": {
+            "total": len(tasks),
+            "members": len(members),
+            "projects": len(proj_tasks),
             "completed_this_week": total_comp,
             "delayed": total_del,
             "in_progress": total_prog,

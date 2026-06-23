@@ -582,17 +582,44 @@ class APIHandler(BaseHTTPRequestHandler):
             monday = today - timedelta(days=today.weekday())
             sunday = monday + timedelta(days=6)
 
-        # ── 해당 직원의 모든 업무 조회 (진행중+완료) ──
+        # ── 업무 조회 (All이면 전체, 아니면 해당 직원) ──
         conn = get_conn()
-        rows = conn.execute(
-            """SELECT display_num, title, status, summary, due_at, assignee,
-                      priority, created_at, closed_at, project_id, feedback, related_tasks
-               FROM tasks
-               WHERE assignee LIKE ?
-                 AND status NOT IN ('보류')
-               ORDER BY due_at ASC""",
-            (f"%{assignee}%",)
-        ).fetchall()
+        is_all = assignee in ("All", "전체")
+
+        if is_all:
+            rows = conn.execute(
+                """SELECT display_num, title, status, summary, due_at, assignee,
+                          priority, created_at, closed_at, project_id, feedback, related_tasks
+                   FROM tasks
+                   WHERE status NOT IN ('보류')
+                   ORDER BY due_at ASC"""
+            ).fetchall()
+            # 모든 프로젝트 조회
+            proj_rows = conn.execute(
+                "SELECT * FROM projects ORDER BY start_date ASC"
+            ).fetchall()
+            # 직원 목록 (assignee DISTINCT)
+            member_rows = conn.execute(
+                "SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL AND assignee != '' AND status NOT IN ('보류')"
+            ).fetchall()
+            members = [r["assignee"] for r in member_rows]
+        else:
+            rows = conn.execute(
+                """SELECT display_num, title, status, summary, due_at, assignee,
+                          priority, created_at, closed_at, project_id, feedback, related_tasks
+                   FROM tasks
+                   WHERE assignee LIKE ?
+                     AND status NOT IN ('보류')
+                   ORDER BY due_at ASC""",
+                (f"%{assignee}%",)
+            ).fetchall()
+            proj_rows = conn.execute(
+                "SELECT * FROM projects WHERE assignees LIKE ? ORDER BY start_date ASC",
+                (f"%{assignee}%",)
+            ).fetchall()
+            members = None
+
+        projects = [dict(r) for r in proj_rows]
 
         tasks = []
         for r in rows:
@@ -618,12 +645,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 t["_in_week"] = False
             tasks.append(t)
 
-        # ── 직원이 참여한 프로젝트 목록 조회 ──
-        proj_rows = conn.execute(
-            "SELECT * FROM projects WHERE assignees LIKE ? ORDER BY start_date ASC",
-            (f"%{assignee}%",)
-        ).fetchall()
-        projects = [dict(r) for r in proj_rows]
+        # ── 직원이 참여한 프로젝트 목록 조회 (이미 위에서 처리됨) ──
 
         # ── JSON 페이로드 구성 ──
         payload = {
@@ -634,6 +656,8 @@ class APIHandler(BaseHTTPRequestHandler):
             "tasks": tasks,
             "projects": projects
         }
+        if is_all and members:
+            payload["members"] = members
 
         # ── Hermes로 리포트 전송 (로컬에서 weekly_report.py 실행 후 결과만 전송) ──
         import subprocess
@@ -689,9 +713,9 @@ class APIHandler(BaseHTTPRequestHandler):
                         name = key[len("BRANUP_TG_"):]
                         tg_map[name] = val
 
-                # 전송 대상 목록: 그룹챗 + 개인 DM
+                # 전송 대상 목록: 그룹챗 + (All이 아니면 개인 DM)
                 targets = [(group_chat_id, "그룹챗")]
-                if assignee in tg_map:
+                if not is_all and assignee in tg_map:
                     targets.append((tg_map[assignee], f"{assignee}님 DM"))
 
                 def send_to(chat_id, label):
@@ -748,7 +772,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         resp = {
             "ok": True,
-            "message": f"📊 {assignee}님 주간리포트 생성 완료!"
+            "message": f"📊 {'브랜업 전체' if is_all else assignee + '님'} 주간리포트 생성 완료!"
         }
         if report and report.get("filename"):
             resp["filename"] = report["filename"]
