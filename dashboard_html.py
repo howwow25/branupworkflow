@@ -2848,6 +2848,8 @@ function patchProjectStatus(pid, status, modalEl, okMsg) {{
     .then(function(r) {{ return r.json(); }})
     .then(function(res) {{
         if (res.error) {{ showToast('오류: ' + res.error, true); return; }}
+        // 완료처리 후 새로고침해도 본인(이상원/이향석) 필터 선택이 유지되도록 보존
+        try {{ sessionStorage.setItem('branup_filter', editor); }} catch(e) {{}}
         showToast(okMsg);
         closeModal(modalEl);
         setTimeout(function() {{ forceRefresh(); }}, 500);
