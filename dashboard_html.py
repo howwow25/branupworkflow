@@ -643,9 +643,9 @@ def render():
     completed_projects_html = ""
     if completed_projects:
         cp_rows = "".join(
-            f'<div class="proj-done-row" onclick="openProjectModal(\'{esc(p.get("id",""))}\')">'
-            f'<span class="pd-title">{esc(p.get("title",""))}</span>'
-            f'<span class="pd-date">{esc((p.get("expected_end_date") or "")[:10])}</span></div>'
+            f'<button class="filter-btn proj-done" onclick="openProjectModal(\'{esc(p.get("id",""))}\')" '
+            f'title="{esc(p.get("title",""))} · 완료">'
+            f'{esc(p.get("title","")[:10])}{"…" if len(p.get("title","")) > 10 else ""}</button>'
             for p in completed_projects)
         completed_projects_html = (
             '<details class="completed-projects"><summary>✅ 완료된 프로젝트 '
@@ -1433,16 +1433,10 @@ body {{
     background: #2a2d3a; color: #8b949e; border-radius: 10px;
     padding: 1px 8px; font-size: 11px; margin-left: 4px;
 }}
-.proj-done-list {{ padding: 4px 0 8px; }}
-.proj-done-row {{
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 8px 10px; border-radius: 6px; cursor: pointer;
-    border-bottom: 1px solid #1c1f2a;
-}}
-.proj-done-row:last-child {{ border-bottom: none; }}
-.proj-done-row:hover {{ background: #1c1f2a; }}
-.proj-done-row .pd-title {{ color: #c9d1d9; font-size: 13px; }}
-.proj-done-row .pd-date {{ color: #6e7681; font-size: 11px; }}
+.proj-done-list {{ display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 10px; }}
+/* 완료된 프로젝트 칩 — 프로젝트 리스트 칩과 동일한 라운드/외곽선, 색만 회색(완료/보관) */
+.filter-btn.proj-done {{ border-color: #8b949e; color: #8b949e; }}
+.filter-btn.proj-done:hover {{ border-color: #8b949e; background: rgba(139,148,158,0.12); }}
 </style>
 </head>
 <body>
