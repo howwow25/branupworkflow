@@ -153,6 +153,11 @@ class APIHandler(BaseHTTPRequestHandler):
                 body = html.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                # 대시보드 HTML 은 절대 캐시하지 않음 — 캐시되면 완료처리 등 상태 변경이
+                # 반영 안 된 옛 페이지가 보이고, ?_=타임스탬프 URL 과 결과가 달라짐
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
                 self._cors_headers()
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()

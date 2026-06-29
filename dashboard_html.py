@@ -579,6 +579,8 @@ def render():
     completed = get_completed_tasks()
     c_weeks, c_months = group_completed(completed)
     projects = get_projects()
+    active_projects = [p for p in projects if p.get("status") != "완료"]
+    completed_projects = [p for p in projects if p.get("status") == "완료"]
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
@@ -624,18 +626,31 @@ def render():
     ]
 
     # ── 간트차트 ──
-    gantt_html = render_gantt(projects, tasks)
+    gantt_html = render_gantt(active_projects, tasks)
     task_gantt_html = generate_task_gantt(tasks, completed, projects)
 
     # ── 프로젝트 필터 칩 ──
     proj_filter_html = '<button class="filter-btn proj active" onclick="filterByProject(null)">📊 전체</button>'
     proj_options = ''
-    for p in projects:
+    for p in active_projects:
         title = esc(p.get("title", ""))
         pid = p.get("id", "")
         task_count = sum(1 for t in tasks if t.get("project_id") == pid)
         proj_filter_html += f'<button class="filter-btn proj" onclick="filterByProject(\'{pid}\')" title="{title} · 업무 {task_count}건">{title[:10]}{"…" if len(title)>10 else ""} <span class="proj-cnt">{task_count}</span></button>'
         proj_options += f'<option value="{pid}">{esc(title)} ({task_count}건)</option>'
+
+    # ── 완료된 프로젝트 (접이식 섹션) ──
+    completed_projects_html = ""
+    if completed_projects:
+        cp_rows = "".join(
+            f'<div class="proj-done-row" onclick="openProjectModal(\'{esc(p.get("id",""))}\')">'
+            f'<span class="pd-title">{esc(p.get("title",""))}</span>'
+            f'<span class="pd-date">{esc((p.get("expected_end_date") or "")[:10])}</span></div>'
+            for p in completed_projects)
+        completed_projects_html = (
+            '<details class="completed-projects"><summary>✅ 완료된 프로젝트 '
+            f'<span class="count">{len(completed_projects)}</span></summary>'
+            f'<div class="proj-done-list">{cp_rows}</div></details>')
 
     col_html = ""
     for title, key, items in columns:
@@ -1404,6 +1419,30 @@ body {{
     background: #3a1a1a; color: #f85149; border-color: #f85149;
 }}
 .project-modal .btn-danger:hover {{ background: #4a1f1f; }}
+.completed-projects {{
+    margin: 8px 0 16px; border: 1px solid #2a2d3a; border-radius: 8px;
+    background: #11141c; padding: 4px 12px;
+}}
+.completed-projects summary {{
+    cursor: pointer; padding: 8px 4px; font-size: 13px; font-weight: 600;
+    color: #8b949e; list-style: none; user-select: none;
+}}
+.completed-projects summary::-webkit-details-marker {{ display: none; }}
+.completed-projects summary:hover {{ color: #e1e4e8; }}
+.completed-projects .count {{
+    background: #2a2d3a; color: #8b949e; border-radius: 10px;
+    padding: 1px 8px; font-size: 11px; margin-left: 4px;
+}}
+.proj-done-list {{ padding: 4px 0 8px; }}
+.proj-done-row {{
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer;
+    border-bottom: 1px solid #1c1f2a;
+}}
+.proj-done-row:last-child {{ border-bottom: none; }}
+.proj-done-row:hover {{ background: #1c1f2a; }}
+.proj-done-row .pd-title {{ color: #c9d1d9; font-size: 13px; }}
+.proj-done-row .pd-date {{ color: #6e7681; font-size: 11px; }}
 </style>
 </head>
 <body>
@@ -1442,6 +1481,7 @@ body {{
 <div id="kanbanView">
 {gantt_html}
 <div class="filters" id="projFilters">{proj_filter_html}</div>
+{completed_projects_html}
 <div class="board">
 {col_html}
 </div>
@@ -2680,6 +2720,8 @@ function openProjectModal(projectId) {{
         (isEdit ? '<div style="margin-top:12px"><button onclick="addProjectTaskFromModal(this)" style="padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%">➕ 하위 업무 추가</button></div>' : '') +
         '<div class="btn-row">' +
         '<button class="btn-primary" onclick="saveProjectFromModal(this)">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
+        (isEdit && status !== '완료' ? '<button class="btn-complete" onclick="completeProjectFromModal(this)">✅ 완료처리</button>' : '') +
+        (isEdit && status === '완료' ? '<button class="btn-uncomplete" onclick="uncompleteProjectFromModal(this)">↩ 완료취소</button>' : '') +
         (isEdit ? '<button class="btn-danger" onclick="deleteProjectFromModal(this)">🗑 삭제</button>' : '') +
         '<button class="btn-cancel" style="background:#1c1f2a;color:#8b949e" onclick="closeModal(this.closest(&apos;.modal&apos;))">취소</button>' +
         '</div></div>';
@@ -2777,6 +2819,43 @@ function addProjectTaskFromModal(btn) {{
     if (!projectId) {{ showToast('프로젝트 ID 없음', true); return; }}
     addProjectTask(projectId, modalEl);
 }}
+
+// ── 프로젝트 완료처리 / 완료취소 ──
+function completeProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var pid = modalEl.getAttribute('data-project-id');
+    if (!pid || !confirm('이 프로젝트를 완료 처리하시겠습니까?')) return;
+    patchProjectStatus(pid, '완료', modalEl, '완료 처리되었습니다!');
+}}
+
+function uncompleteProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var pid = modalEl.getAttribute('data-project-id');
+    if (!pid || !confirm('완료를 취소하고 진행중으로 되돌리시겠습니까?')) return;
+    patchProjectStatus(pid, '진행', modalEl, '완료가 취소되었습니다!');
+}}
+
+function patchProjectStatus(pid, status, modalEl, okMsg) {{
+    var editor = ((document.querySelector('.filter-btn:not(.proj):not(.urgent).active') || {{}}).textContent || '').trim();
+    if (editor !== '이상원' && editor !== '이향석') {{
+        showToast('완료처리는 이상원 또는 이향석만 가능합니다. 상단 필터에서 본인 이름을 선택 후 다시 시도하세요.', true);
+        return;
+    }}
+    fetch(API + '/projects/' + pid, {{
+        method: 'PATCH', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ status: status, _editor: editor.trim() }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(res) {{
+        if (res.error) {{ showToast('오류: ' + res.error, true); return; }}
+        // 완료처리 후 새로고침해도 본인(이상원/이향석) 필터 선택이 유지되도록 보존
+        try {{ sessionStorage.setItem('branup_filter', editor); }} catch(e) {{}}
+        showToast(okMsg);
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
 </script>
 </body>
 </html>"""
@@ -2789,5 +2868,11 @@ if __name__ == "__main__":
     # 웹 서빙용 index.html도 함께 생성
     index_path = Path(DATA_DIR).parent / "index.html"
     index_path.write_text(html, encoding="utf-8")
-    print(f"✅ HTML 대시보드 생성 완료: {OUTPUT_PATH}")
-    print(f"   웹 서빙: {index_path}")
+    # 콘솔 인코딩(cp949 등)이 이모지를 못 찍어도 종료코드가 0이 되도록 보호
+    # (update.ps1/update-test.ps1 이 $LASTEXITCODE 로 빌드 성공을 판정하므로 중요)
+    try:
+        print(f"✅ HTML 대시보드 생성 완료: {OUTPUT_PATH}")
+        print(f"   웹 서빙: {index_path}")
+    except UnicodeEncodeError:
+        print("HTML dashboard generated:", OUTPUT_PATH)
+        print("  web serving:", index_path)
