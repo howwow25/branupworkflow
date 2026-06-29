@@ -16,7 +16,7 @@ Write-Host '[1/4] Git pull...' -ForegroundColor Cyan
 git fetch origin
 if ($LASTEXITCODE -ne 0) { throw 'git fetch failed' }
 
-git reset --hard origin/project-add-2
+git reset --hard origin/project-add-03
 if ($LASTEXITCODE -ne 0) { throw 'git reset failed' }
 
 Write-Host '[2/4] Test DB 확인...' -ForegroundColor Cyan
