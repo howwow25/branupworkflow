@@ -2836,7 +2836,11 @@ function uncompleteProjectFromModal(btn) {{
 }}
 
 function patchProjectStatus(pid, status, modalEl, okMsg) {{
-    var editor = (document.querySelector('.filter-btn:not(.proj):not(.urgent).active') || {{}}).textContent || '';
+    var editor = ((document.querySelector('.filter-btn:not(.proj):not(.urgent).active') || {{}}).textContent || '').trim();
+    if (editor !== '이상원' && editor !== '이향석') {{
+        showToast('완료처리는 이상원 또는 이향석만 가능합니다. 상단 필터에서 본인 이름을 선택 후 다시 시도하세요.', true);
+        return;
+    }}
     fetch(API + '/projects/' + pid, {{
         method: 'PATCH', headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify({{ status: status, _editor: editor.trim() }})
@@ -2862,5 +2866,11 @@ if __name__ == "__main__":
     # 웹 서빙용 index.html도 함께 생성
     index_path = Path(DATA_DIR).parent / "index.html"
     index_path.write_text(html, encoding="utf-8")
-    print(f"✅ HTML 대시보드 생성 완료: {OUTPUT_PATH}")
-    print(f"   웹 서빙: {index_path}")
+    # 콘솔 인코딩(cp949 등)이 이모지를 못 찍어도 종료코드가 0이 되도록 보호
+    # (update.ps1/update-test.ps1 이 $LASTEXITCODE 로 빌드 성공을 판정하므로 중요)
+    try:
+        print(f"✅ HTML 대시보드 생성 완료: {OUTPUT_PATH}")
+        print(f"   웹 서빙: {index_path}")
+    except UnicodeEncodeError:
+        print("HTML dashboard generated:", OUTPUT_PATH)
+        print("  web serving:", index_path)
