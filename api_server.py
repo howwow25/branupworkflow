@@ -447,7 +447,6 @@ class APIHandler(BaseHTTPRequestHandler):
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             return {}
-        import cgi, io
         # boundary 추출
         boundary = None
         for part in content_type.split(";"):

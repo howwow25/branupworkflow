@@ -18,8 +18,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import os as _os_dash
 if _os_dash.environ.get("BRANUP_API_URL"):
     from branup_api import get_active_tasks, get_completed_tasks, get_projects
+    def get_task_file_counts():
+        return {}
 else:
-    from db import get_active_tasks, get_completed_tasks, get_projects
+    from db import get_active_tasks, get_completed_tasks, get_projects, get_task_file_counts
 
 
 def dday(due_str):
@@ -66,7 +68,7 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def render_card(t, dd, task_lookup=None, project_lookup=None):
+def render_card(t, dd, task_lookup=None, project_lookup=None, file_counts=None):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     due = t.get("due_at", "")
@@ -106,8 +108,10 @@ def render_card(t, dd, task_lookup=None, project_lookup=None):
         if chips:
             related_html = '<div class="rel-chips">' + "".join(chips) + '</div>'
 
+    file_html = '<span class="attach-icon" title="첨부파일 있음">📎</span>' if (file_counts and file_counts.get(task_id)) else ""
+
     return f"""<div class="card" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-{css}">#{num}</span>{prio_html}{related_html}{project_html}
+    <span class="dday badge-{css}">#{num}</span>{prio_html}{file_html}{related_html}{project_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="dday badge-{css}">{label}</span>
@@ -158,7 +162,7 @@ def group_completed(tasks):
     return weeks, months
 
 
-def render_completed_card(t, closed_date, label, task_lookup=None, project_lookup=None):
+def render_completed_card(t, closed_date, label, task_lookup=None, project_lookup=None, file_counts=None):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     closed_str = closed_date.strftime("%m/%d")
@@ -195,8 +199,10 @@ def render_completed_card(t, closed_date, label, task_lookup=None, project_looku
         if chips:
             related_html = '<div class="rel-chips">' + "".join(chips) + '</div>'
 
+    file_html = '<span class="attach-icon" title="첨부파일 있음">📎</span>' if (file_counts and file_counts.get(task_id)) else ""
+
     return f"""<div class="card done" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-done">#{num}</span>{prio_html}{related_html}{project_html}
+    <span class="dday badge-done">#{num}</span>{prio_html}{file_html}{related_html}{project_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="assignee">👤 {assignee}</span>
@@ -581,6 +587,7 @@ def render():
     projects = get_projects()
     active_projects = [p for p in projects if p.get("status") != "완료"]
     completed_projects = [p for p in projects if p.get("status") == "완료"]
+    file_counts = get_task_file_counts()
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
@@ -656,7 +663,7 @@ def render():
     for title, key, items in columns:
         cards_parts = []
         for t, dd in sorted(items, key=lambda x: x[1] or 999):
-            cards_parts.append(render_card(t, dd, task_lookup, project_lookup))
+            cards_parts.append(render_card(t, dd, task_lookup, project_lookup, file_counts))
         cards = "".join(cards_parts)
         if not cards:
             cards = '<div class="empty">없음</div>'
@@ -681,7 +688,7 @@ def render():
             completed_html += '<div class="section-title">📅 주 단위</div><div class="board">'
             for w in range(1, 5):
                 items = c_weeks.get(w, [])
-                cards = "".join(render_completed_card(t, cd, week_labels[w], task_lookup, project_lookup) for t, cd in items)
+                cards = "".join(render_completed_card(t, cd, week_labels[w], task_lookup, project_lookup, file_counts) for t, cd in items)
                 if not cards:
                     cards = '<div class="empty">없음</div>'
                 completed_html += f"""<div class="column" data-col="week-{w}">
@@ -696,7 +703,7 @@ def render():
             completed_html += '<div class="section-title">📆 월 단위</div><div class="board">'
             for m in range(1, 5):
                 items = c_months.get(m, [])
-                cards = "".join(render_completed_card(t, cd, month_labels[m], task_lookup, project_lookup) for t, cd in items)
+                cards = "".join(render_completed_card(t, cd, month_labels[m], task_lookup, project_lookup, file_counts) for t, cd in items)
                 if not cards:
                     cards = '<div class="empty">없음</div>'
                 completed_html += f"""<div class="column" data-col="month-{m}">
@@ -730,6 +737,15 @@ body {{
     border-bottom: 1px solid #2a2d3a;
 }}
 .header h1 {{ font-size: 24px; font-weight: 700; }}
+.search-box {{ display: inline-flex; gap: 6px; align-items: center; }}
+.search-input {{ background: #0f1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 9px 18px; font-size: 20px; width: 330px; outline: none; }}
+.search-input:focus {{ border-color: #58a6ff; }}
+.search-input::placeholder {{ color: #6e7681; }}
+.search-btn, .search-clear {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 22px; padding: 8px 14px; border-radius: 6px; line-height: 1; }}
+.search-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
+.search-clear:hover {{ background: #21262d; border-color: #da3633; color: #f85149; }}
+.card.search-hidden {{ display: none; }}
+.attach-icon {{ font-size: 12px; margin-left: 3px; vertical-align: middle; }}
 .header .sub {{ color: #8b949e; font-size: 13px; margin-top: 4px; }}
 .header .refresh-btn {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 18px; padding: 2px 8px; border-radius: 6px; margin-left: 10px; vertical-align: middle; }}
 .header .refresh-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
@@ -773,7 +789,6 @@ body {{
 .stat.done .num {{ color: #3fb950; }}
 .weekly-report-btn {{
     display: none;
-    margin-left: auto;
     padding: 8px 16px;
     background: #238636; color: #fff;
     border: none; border-radius: 8px;
@@ -1444,7 +1459,7 @@ body {{
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
 </div>
-<div class="filters">{filter_btns}</div>
+<div class="filters">{filter_btns}<button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button><span class="search-box"><input type="text" id="searchInput" class="search-input" placeholder="업무 검색..." onkeydown="if(event.key==='Enter')runSearch()" oninput="if(!this.value)clearSearch()"><button class="search-btn" onclick="runSearch()" title="검색">🔍</button><button class="search-clear" onclick="clearSearch()" title="검색 해제" style="display:none">✕</button></span></div>
 <div class="stats">
     <div class="stat danger" id="stat-delayed">
         <div class="num">{delayed_count}</div>
@@ -1466,7 +1481,6 @@ body {{
         <div class="num">{done_count}</div>
         <div class="label">완료</div>
     </div>
-    <button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button>
 </div>
 <div class="view-toggle">
     <button class="view-toggle-btn active" id="btnKanban" onclick="switchToView('kanban')">📋 칸반</button>
@@ -1575,8 +1589,42 @@ function forceRefresh() {{
     window.location.href = url.toString();
 }}
 
+// ── 검색 ── (현재 필터 위에서 카드 텍스트 일치 여부로 .search-hidden 토글)
+function runSearch() {{
+    var inp = document.getElementById('searchInput');
+    var q = ((inp && inp.value) || '').trim().toLowerCase();
+    var clearBtn = document.querySelector('.search-clear');
+    if (!q) {{ clearSearch(); return; }}
+    // 작업(저장/완료/삭제) 후 새로고침해도 검색이 유지되도록 검색어 보존
+    sessionStorage.setItem('branup_search', (inp.value || '').trim());
+    var matched = 0;
+    document.querySelectorAll('.card').forEach(function(card) {{
+        if (card.textContent.toLowerCase().indexOf(q) !== -1) {{
+            card.classList.remove('search-hidden');
+            matched++;
+        }} else {{
+            card.classList.add('search-hidden');
+        }}
+    }});
+    if (clearBtn) clearBtn.style.display = '';
+    updateCounts();
+    if (matched === 0) showToast('검색 결과가 없습니다: ' + q, true);
+}}
+
+function clearSearch() {{
+    var inp = document.getElementById('searchInput');
+    if (inp) inp.value = '';
+    sessionStorage.removeItem('branup_search');
+    document.querySelectorAll('.card.search-hidden').forEach(function(card) {{
+        card.classList.remove('search-hidden');
+    }});
+    var clearBtn = document.querySelector('.search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    updateCounts();
+}}
+
 function countVisible(col) {{
-    return col.querySelectorAll('.card:not(.hidden)').length;
+    return col.querySelectorAll('.card:not(.hidden):not(.search-hidden)').length;
 }}
 
 function updateCounts() {{
@@ -1598,8 +1646,8 @@ function updateCounts() {{
         }}
     }});
 
-    var activeTotal = document.querySelectorAll('.card:not(.done):not(.hidden)').length;
-    var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden)').length;
+    var activeTotal = document.querySelectorAll('.card:not(.done):not(.hidden):not(.search-hidden)').length;
+    var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden):not(.search-hidden)').length;
 
     var elActive = document.getElementById('stat-active');
     if (elActive) elActive.querySelector('.num').textContent = activeTotal;
@@ -2668,6 +2716,14 @@ function quickRegister() {{
         }});
         updateCounts();
     }}
+}})();
+
+// ── 검색어 복원 (필터 복원 후, 그 위에 검색 적용) ──
+(function() {{
+    var sq = sessionStorage.getItem('branup_search');
+    if (!sq) return;
+    var inp = document.getElementById('searchInput');
+    if (inp) {{ inp.value = sq; runSearch(); }}
 }})();
 
 // ── 프로젝트 모달 ──
