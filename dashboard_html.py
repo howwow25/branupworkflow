@@ -18,8 +18,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import os as _os_dash
 if _os_dash.environ.get("BRANUP_API_URL"):
     from branup_api import get_active_tasks, get_completed_tasks, get_projects
+    def get_task_file_counts():
+        return {}
 else:
-    from db import get_active_tasks, get_completed_tasks, get_projects
+    from db import get_active_tasks, get_completed_tasks, get_projects, get_task_file_counts
 
 
 def dday(due_str):
@@ -66,7 +68,7 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def render_card(t, dd, task_lookup=None, project_lookup=None):
+def render_card(t, dd, task_lookup=None, project_lookup=None, file_counts=None):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     due = t.get("due_at", "")
@@ -106,8 +108,10 @@ def render_card(t, dd, task_lookup=None, project_lookup=None):
         if chips:
             related_html = '<div class="rel-chips">' + "".join(chips) + '</div>'
 
+    file_html = '<span class="attach-icon" title="첨부파일 있음">📎</span>' if (file_counts and file_counts.get(task_id)) else ""
+
     return f"""<div class="card" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-{css}">#{num}</span>{prio_html}{related_html}{project_html}
+    <span class="dday badge-{css}">#{num}</span>{prio_html}{file_html}{related_html}{project_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="dday badge-{css}">{label}</span>
@@ -158,7 +162,7 @@ def group_completed(tasks):
     return weeks, months
 
 
-def render_completed_card(t, closed_date, label, task_lookup=None, project_lookup=None):
+def render_completed_card(t, closed_date, label, task_lookup=None, project_lookup=None, file_counts=None):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     closed_str = closed_date.strftime("%m/%d")
@@ -195,8 +199,10 @@ def render_completed_card(t, closed_date, label, task_lookup=None, project_looku
         if chips:
             related_html = '<div class="rel-chips">' + "".join(chips) + '</div>'
 
+    file_html = '<span class="attach-icon" title="첨부파일 있음">📎</span>' if (file_counts and file_counts.get(task_id)) else ""
+
     return f"""<div class="card done" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
-    <span class="dday badge-done">#{num}</span>{prio_html}{related_html}{project_html}
+    <span class="dday badge-done">#{num}</span>{prio_html}{file_html}{related_html}{project_html}
     <div class="title">{title}</div>
     <div class="meta">
         <span class="assignee">👤 {assignee}</span>
@@ -581,6 +587,7 @@ def render():
     projects = get_projects()
     active_projects = [p for p in projects if p.get("status") != "완료"]
     completed_projects = [p for p in projects if p.get("status") == "완료"]
+    file_counts = get_task_file_counts()
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
@@ -656,7 +663,7 @@ def render():
     for title, key, items in columns:
         cards_parts = []
         for t, dd in sorted(items, key=lambda x: x[1] or 999):
-            cards_parts.append(render_card(t, dd, task_lookup, project_lookup))
+            cards_parts.append(render_card(t, dd, task_lookup, project_lookup, file_counts))
         cards = "".join(cards_parts)
         if not cards:
             cards = '<div class="empty">없음</div>'
@@ -681,7 +688,7 @@ def render():
             completed_html += '<div class="section-title">📅 주 단위</div><div class="board">'
             for w in range(1, 5):
                 items = c_weeks.get(w, [])
-                cards = "".join(render_completed_card(t, cd, week_labels[w], task_lookup, project_lookup) for t, cd in items)
+                cards = "".join(render_completed_card(t, cd, week_labels[w], task_lookup, project_lookup, file_counts) for t, cd in items)
                 if not cards:
                     cards = '<div class="empty">없음</div>'
                 completed_html += f"""<div class="column" data-col="week-{w}">
@@ -696,7 +703,7 @@ def render():
             completed_html += '<div class="section-title">📆 월 단위</div><div class="board">'
             for m in range(1, 5):
                 items = c_months.get(m, [])
-                cards = "".join(render_completed_card(t, cd, month_labels[m], task_lookup, project_lookup) for t, cd in items)
+                cards = "".join(render_completed_card(t, cd, month_labels[m], task_lookup, project_lookup, file_counts) for t, cd in items)
                 if not cards:
                     cards = '<div class="empty">없음</div>'
                 completed_html += f"""<div class="column" data-col="month-{m}">
@@ -738,6 +745,7 @@ body {{
 .search-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
 .search-clear:hover {{ background: #21262d; border-color: #da3633; color: #f85149; }}
 .card.search-hidden {{ display: none; }}
+.attach-icon {{ font-size: 12px; margin-left: 3px; vertical-align: middle; }}
 .header .sub {{ color: #8b949e; font-size: 13px; margin-top: 4px; }}
 .header .refresh-btn {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 18px; padding: 2px 8px; border-radius: 6px; margin-left: 10px; vertical-align: middle; }}
 .header .refresh-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}

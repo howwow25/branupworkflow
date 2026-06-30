@@ -452,6 +452,13 @@ def get_files_by_project(project_id: str) -> List[Dict]:
         "SELECT * FROM files WHERE project_id=? ORDER BY created_at ASC", (project_id,))]
 
 
+def get_task_file_counts() -> Dict[str, int]:
+    """업무별 첨부파일 개수 {task_id: count} (한 번의 쿼리로 집계)"""
+    conn = get_conn()
+    return {r["task_id"]: r["c"] for r in conn.execute(
+        "SELECT task_id, COUNT(*) AS c FROM files WHERE task_id IS NOT NULL GROUP BY task_id")}
+
+
 def get_file_by_id(file_id: str) -> Optional[Dict]:
     conn = get_conn()
     row = conn.execute("SELECT * FROM files WHERE id=?", (file_id,)).fetchone()
