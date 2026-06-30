@@ -15,7 +15,7 @@ import os
 import sys
 import re
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, unquote, quote
 
 DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
@@ -199,7 +199,6 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/reports/<filename> → 리포트 md 파일 다운로드
         m = re.match(r'^/api/reports/([^/]+\.md)$', path)
         if m:
-            from urllib.parse import quote
             filename = unquote(m.group(1))
             filepath = Path(DATA_DIR) / "reports" / filename
             if filepath.exists():
@@ -279,15 +278,25 @@ class APIHandler(BaseHTTPRequestHandler):
             if not filepath.exists():
                 self._send_json({"error": "file missing"}, 404)
                 return
-            content = filepath.read_bytes()
+            fname = file_rec.get("original_name") or "download"
             self.send_response(200)
             self.send_header("Content-Type", file_rec.get("mime_type", "application/octet-stream"))
             self.send_header("Content-Disposition",
-                f"attachment; filename*=UTF-8''{quote(file_rec['original_name'], safe='')}")
+                f"attachment; filename*=UTF-8''{quote(fname, safe='')}")
             self._cors_headers()
-            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Content-Length", str(filepath.stat().st_size))
             self.end_headers()
-            self.wfile.write(content)
+            # 큰 파일을 한 번에 메모리로 올리지 않고 청크 스트리밍 — 프록시 타임아웃 방지.
+            # 클라이언트/프록시가 중간에 끊으면 조용히 종료(스택트레이스로 워커가 죽지 않게).
+            try:
+                with open(filepath, "rb") as fobj:
+                    while True:
+                        chunk = fobj.read(64 * 1024)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
             return
 
         task_id, _ = self._extract_task_id()
@@ -1258,7 +1267,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = HTTPServer(("0.0.0.0", PORT), APIHandler)
+    # ThreadingHTTPServer: 요청마다 별도 스레드 → 파일 다운로드 등 느린 요청이
+    # 다른 요청을 막아 Apache 프록시가 타임아웃(Error reading from remote server)나는 것 방지
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), APIHandler)
     print(f"🔌 브랜업 API 서버 시작: http://0.0.0.0:{PORT}")
     print(f"   대시보드: http://localhost:{PORT}")
     print(f"   엔드포인트: /api/tasks/* | /api/agent")
