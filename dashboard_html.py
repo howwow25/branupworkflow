@@ -1587,6 +1587,8 @@ function runSearch() {{
     var q = ((inp && inp.value) || '').trim().toLowerCase();
     var clearBtn = document.querySelector('.search-clear');
     if (!q) {{ clearSearch(); return; }}
+    // 작업(저장/완료/삭제) 후 새로고침해도 검색이 유지되도록 검색어 보존
+    sessionStorage.setItem('branup_search', (inp.value || '').trim());
     var matched = 0;
     document.querySelectorAll('.card').forEach(function(card) {{
         if (card.textContent.toLowerCase().indexOf(q) !== -1) {{
@@ -1604,6 +1606,7 @@ function runSearch() {{
 function clearSearch() {{
     var inp = document.getElementById('searchInput');
     if (inp) inp.value = '';
+    sessionStorage.removeItem('branup_search');
     document.querySelectorAll('.card.search-hidden').forEach(function(card) {{
         card.classList.remove('search-hidden');
     }});
@@ -2705,6 +2708,14 @@ function quickRegister() {{
         }});
         updateCounts();
     }}
+}})();
+
+// ── 검색어 복원 (필터 복원 후, 그 위에 검색 적용) ──
+(function() {{
+    var sq = sessionStorage.getItem('branup_search');
+    if (!sq) return;
+    var inp = document.getElementById('searchInput');
+    if (inp) {{ inp.value = sq; runSearch(); }}
 }})();
 
 // ── 프로젝트 모달 ──
