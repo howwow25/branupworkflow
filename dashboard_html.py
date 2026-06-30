@@ -728,8 +728,17 @@ body {{
     background: linear-gradient(135deg, #1a1c2e 0%, #16181d 100%);
     padding: 24px 32px;
     border-bottom: 1px solid #2a2d3a;
+    position: relative;
 }}
 .header h1 {{ font-size: 24px; font-weight: 700; }}
+.header .search-box {{ position: absolute; top: 24px; right: 32px; display: flex; gap: 6px; align-items: center; }}
+.search-input {{ background: #0f1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 6px 12px; font-size: 13px; width: 220px; outline: none; }}
+.search-input:focus {{ border-color: #58a6ff; }}
+.search-input::placeholder {{ color: #6e7681; }}
+.search-btn, .search-clear {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 15px; padding: 5px 9px; border-radius: 6px; line-height: 1; }}
+.search-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
+.search-clear:hover {{ background: #21262d; border-color: #da3633; color: #f85149; }}
+.card.search-hidden {{ display: none; }}
 .header .sub {{ color: #8b949e; font-size: 13px; margin-top: 4px; }}
 .header .refresh-btn {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 18px; padding: 2px 8px; border-radius: 6px; margin-left: 10px; vertical-align: middle; }}
 .header .refresh-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
@@ -1441,6 +1450,11 @@ body {{
 </head>
 <body>
 <div class="header">
+    <div class="search-box">
+        <input type="text" id="searchInput" class="search-input" placeholder="업무 검색..." onkeydown="if(event.key==='Enter')runSearch()" oninput="if(!this.value)clearSearch()">
+        <button class="search-btn" onclick="runSearch()" title="검색">🔍</button>
+        <button class="search-clear" onclick="clearSearch()" title="검색 해제" style="display:none">✕</button>
+    </div>
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
 </div>
@@ -1575,8 +1589,39 @@ function forceRefresh() {{
     window.location.href = url.toString();
 }}
 
+// ── 검색 ── (현재 필터 위에서 카드 텍스트 일치 여부로 .search-hidden 토글)
+function runSearch() {{
+    var inp = document.getElementById('searchInput');
+    var q = ((inp && inp.value) || '').trim().toLowerCase();
+    var clearBtn = document.querySelector('.search-clear');
+    if (!q) {{ clearSearch(); return; }}
+    var matched = 0;
+    document.querySelectorAll('.card').forEach(function(card) {{
+        if (card.textContent.toLowerCase().indexOf(q) !== -1) {{
+            card.classList.remove('search-hidden');
+            matched++;
+        }} else {{
+            card.classList.add('search-hidden');
+        }}
+    }});
+    if (clearBtn) clearBtn.style.display = '';
+    updateCounts();
+    if (matched === 0) showToast('검색 결과가 없습니다: ' + q, true);
+}}
+
+function clearSearch() {{
+    var inp = document.getElementById('searchInput');
+    if (inp) inp.value = '';
+    document.querySelectorAll('.card.search-hidden').forEach(function(card) {{
+        card.classList.remove('search-hidden');
+    }});
+    var clearBtn = document.querySelector('.search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    updateCounts();
+}}
+
 function countVisible(col) {{
-    return col.querySelectorAll('.card:not(.hidden)').length;
+    return col.querySelectorAll('.card:not(.hidden):not(.search-hidden)').length;
 }}
 
 function updateCounts() {{
@@ -1598,8 +1643,8 @@ function updateCounts() {{
         }}
     }});
 
-    var activeTotal = document.querySelectorAll('.card:not(.done):not(.hidden)').length;
-    var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden)').length;
+    var activeTotal = document.querySelectorAll('.card:not(.done):not(.hidden):not(.search-hidden)').length;
+    var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden):not(.search-hidden)').length;
 
     var elActive = document.getElementById('stat-active');
     if (elActive) elActive.querySelector('.num').textContent = activeTotal;
