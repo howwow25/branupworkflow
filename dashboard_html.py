@@ -728,14 +728,13 @@ body {{
     background: linear-gradient(135deg, #1a1c2e 0%, #16181d 100%);
     padding: 24px 32px;
     border-bottom: 1px solid #2a2d3a;
-    position: relative;
 }}
 .header h1 {{ font-size: 24px; font-weight: 700; }}
-.header .search-box {{ position: absolute; top: 24px; right: 32px; display: flex; gap: 6px; align-items: center; }}
-.search-input {{ background: #0f1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 6px 12px; font-size: 13px; width: 220px; outline: none; }}
+.search-box {{ display: inline-flex; gap: 6px; align-items: center; }}
+.search-input {{ background: #0f1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 9px 18px; font-size: 20px; width: 330px; outline: none; }}
 .search-input:focus {{ border-color: #58a6ff; }}
 .search-input::placeholder {{ color: #6e7681; }}
-.search-btn, .search-clear {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 15px; padding: 5px 9px; border-radius: 6px; line-height: 1; }}
+.search-btn, .search-clear {{ background: none; border: 1px solid #30363d; color: #c9d1d9; cursor: pointer; font-size: 22px; padding: 8px 14px; border-radius: 6px; line-height: 1; }}
 .search-btn:hover {{ background: #21262d; border-color: #58a6ff; color: #58a6ff; }}
 .search-clear:hover {{ background: #21262d; border-color: #da3633; color: #f85149; }}
 .card.search-hidden {{ display: none; }}
@@ -782,7 +781,6 @@ body {{
 .stat.done .num {{ color: #3fb950; }}
 .weekly-report-btn {{
     display: none;
-    margin-left: auto;
     padding: 8px 16px;
     background: #238636; color: #fff;
     border: none; border-radius: 8px;
@@ -1450,15 +1448,10 @@ body {{
 </head>
 <body>
 <div class="header">
-    <div class="search-box">
-        <input type="text" id="searchInput" class="search-input" placeholder="업무 검색..." onkeydown="if(event.key==='Enter')runSearch()" oninput="if(!this.value)clearSearch()">
-        <button class="search-btn" onclick="runSearch()" title="검색">🔍</button>
-        <button class="search-clear" onclick="clearSearch()" title="검색 해제" style="display:none">✕</button>
-    </div>
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
 </div>
-<div class="filters">{filter_btns}</div>
+<div class="filters">{filter_btns}<button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button><span class="search-box"><input type="text" id="searchInput" class="search-input" placeholder="업무 검색..." onkeydown="if(event.key==='Enter')runSearch()" oninput="if(!this.value)clearSearch()"><button class="search-btn" onclick="runSearch()" title="검색">🔍</button><button class="search-clear" onclick="clearSearch()" title="검색 해제" style="display:none">✕</button></span></div>
 <div class="stats">
     <div class="stat danger" id="stat-delayed">
         <div class="num">{delayed_count}</div>
@@ -1480,7 +1473,6 @@ body {{
         <div class="num">{done_count}</div>
         <div class="label">완료</div>
     </div>
-    <button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button>
 </div>
 <div class="view-toggle">
     <button class="view-toggle-btn active" id="btnKanban" onclick="switchToView('kanban')">📋 칸반</button>
