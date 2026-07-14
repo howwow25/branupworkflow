@@ -32,12 +32,30 @@ python dashboard_html.py
 if ($LASTEXITCODE -ne 0) { throw 'dashboard_html.py failed' }
 
 Write-Host "[3/4] Restarting API server (port $Port)..." -ForegroundColor Cyan
-# 포트를 점유한 기존 프로세스를 PID 기준으로 확실히 종료
-# (CommandLine 은 Windows에서 비어있을 수 있어 신뢰 불가 → 포트 소유 PID 직접 조회)
-$conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-if ($conns) {
-    $procIds = $conns | Select-Object -ExpandProperty OwningProcess -Unique
-    foreach ($procId in $procIds) {
+$apiScript = Join-Path $ScriptDir 'api_server.py'
+if (-not (Test-Path $apiScript)) { throw "api_server.py not found: $apiScript" }
+
+# ⚠️ 포트 기준 종료만으로는 부족하다.
+# 윈도우의 SO_REUSEADDR 은 이미 LISTEN 중인 포트를 가로채는 것까지 허용해서
+# api_server 프로세스가 같은 포트에 여러 개 공존할 수 있고, Get-NetTCPConnection 에는
+# 그중 '승자' 하나만 보인다. 승자만 죽이면 뒤에 숨어 있던 옛 프로세스가 되살아나
+# 새 코드를 배포해도 옛 API 가 응답한다 (실제로 2주 묵은 프로세스가 그렇게 살아남았다).
+# → 포트 소유자 + api_server.py 를 실행 중인 파이썬 프로세스를 '모두' 찾아 종료한다.
+$targets = @()
+$targets += Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess
+
+# 이 인스턴스의 api_server.py 프로세스 (테스트 인스턴스는 자기 폴더 절대경로로 뜨므로 제외됨)
+Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $cmd = $_.CommandLine
+        $cmd -and $cmd -match 'api_server\.py' -and
+        ($cmd -match [regex]::Escape($apiScript) -or $cmd -notmatch '[\\/][^\\/"]*api_server\.py')
+    } | ForEach-Object { $targets += $_.ProcessId }
+
+$targets = $targets | Sort-Object -Unique
+if ($targets) {
+    foreach ($procId in $targets) {
         try {
             Stop-Process -Id $procId -Force -ErrorAction Stop
             Write-Host "  Killed old API server (PID: $procId)"
@@ -47,14 +65,19 @@ if ($conns) {
     }
     Start-Sleep -Seconds 1
 } else {
-    Write-Host "  No existing server on port $Port"
+    Write-Host "  No existing API server process found"
+}
+
+# 포트가 실제로 비었는지 확인 (안 비었으면 못 죽인 프로세스가 있다는 뜻)
+$still = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+if ($still) {
+    $stillPids = ($still | Select-Object -ExpandProperty OwningProcess -Unique) -join ', '
+    throw "포트 $Port 가 여전히 점유 중입니다 (PID: $stillPids). 관리자 권한으로 재실행하거나 해당 프로세스를 직접 종료하세요."
 }
 
 # ⚠️ Start-Process 는 Set-Location 을 따라가지 않는다.
 # 상대경로('api_server.py')로 띄우면 엉뚱한 작업 디렉터리에서 파일을 못 찾아
 # 새 서버가 조용히 안 뜨고, 옛 프로세스만 남는다 → 절대경로 + -WorkingDirectory 필수.
-$apiScript = Join-Path $ScriptDir 'api_server.py'
-if (-not (Test-Path $apiScript)) { throw "api_server.py not found: $apiScript" }
 Start-Process python -ArgumentList $apiScript -WorkingDirectory $ScriptDir -WindowStyle Hidden
 Start-Sleep -Seconds 2
 
