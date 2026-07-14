@@ -35,16 +35,21 @@ def dday(due_str):
         return None
 
 
+# 지연 경과일이 이 값을 넘으면 '장기지연'으로 분류 (D+8 이상)
+LONG_DELAY_DAYS = 7
+
+
 def group_tasks(tasks):
-    groups = {"delayed": [], "today": [], "d3": [], "d7": [], "upcoming": [], "no_due": []}
+    groups = {"delayed": [], "long_delayed": [], "today": [], "d3": [], "d7": [], "upcoming": [], "no_due": []}
     for t in tasks:
         dd = dday(t.get("due_at"))
-        if dd is None:        groups["no_due"].append((t, None))
-        elif dd < 0:          groups["delayed"].append((t, dd))
-        elif dd == 0:         groups["today"].append((t, dd))
-        elif dd <= 3:         groups["d3"].append((t, dd))
-        elif dd <= 7:         groups["d7"].append((t, dd))
-        else:                 groups["upcoming"].append((t, dd))
+        if dd is None:                  groups["no_due"].append((t, None))
+        elif dd < -LONG_DELAY_DAYS:     groups["long_delayed"].append((t, dd))
+        elif dd < 0:                    groups["delayed"].append((t, dd))
+        elif dd == 0:                   groups["today"].append((t, dd))
+        elif dd <= 3:                   groups["d3"].append((t, dd))
+        elif dd <= 7:                   groups["d7"].append((t, dd))
+        else:                           groups["upcoming"].append((t, dd))
     return groups
 
 
@@ -591,6 +596,7 @@ def render():
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
+    long_delayed_count = len(groups["long_delayed"])
     today_count = len(groups["today"])
     nodue_count = len(groups["no_due"])
     done_count = len(completed)
@@ -711,6 +717,22 @@ def render():
     {cards}
 </div>"""
             completed_html += '</div>'
+
+    # ── 장기지연 (접이식 섹션, 완료된 업무 다음) ──
+    long_delayed_html = ""
+    if groups["long_delayed"]:
+        ld_items = sorted(groups["long_delayed"], key=lambda x: x[1])
+        ld_cards = "".join(render_card(t, dd, task_lookup, project_lookup, file_counts) for t, dd in ld_items)
+        long_delayed_html = f"""<details class="long-delayed-section">
+<summary>⏳ 장기지연 <span class="count" id="ld-count">{long_delayed_count}</span>
+<span class="ld-hint">마감 후 {LONG_DELAY_DAYS}일 초과</span></summary>
+<div class="board">
+<div class="column" data-col="long_delayed">
+    <div class="col-header">⏳ 장기지연 <span class="count">{long_delayed_count}</span></div>
+    {ld_cards}
+</div>
+</div>
+</details>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="ko">
@@ -1452,6 +1474,25 @@ body {{
 /* 완료된 프로젝트 칩 — 프로젝트 리스트 칩과 동일한 라운드/외곽선, 색만 회색(완료/보관) */
 .filter-btn.proj-done {{ border-color: #8b949e; color: #8b949e; }}
 .filter-btn.proj-done:hover {{ border-color: #8b949e; background: rgba(139,148,158,0.12); }}
+/* 장기지연 — 완료된 업무 다음에 오는 접이식 섹션 */
+.long-delayed-section {{
+    margin: 16px 32px 0; border: 1px solid #5a2a2a; border-radius: 8px;
+    background: #17121380;
+}}
+.long-delayed-section summary {{
+    cursor: pointer; padding: 12px 16px; font-size: 15px; font-weight: 700;
+    color: #d98b86; list-style: none; user-select: none;
+}}
+.long-delayed-section summary::-webkit-details-marker {{ display: none; }}
+.long-delayed-section summary:hover {{ color: #f85149; }}
+.long-delayed-section summary::before {{ content: '▶ '; font-size: 11px; }}
+.long-delayed-section[open] summary::before {{ content: '▼ '; }}
+.long-delayed-section .count {{
+    background: #5a2a2a; color: #f0b0ac; border-radius: 10px;
+    padding: 1px 8px; font-size: 11px; margin-left: 4px;
+}}
+.long-delayed-section .ld-hint {{ font-size: 11px; font-weight: 400; color: #8b949e; margin-left: 8px; }}
+.long-delayed-section .board {{ padding: 0 16px 16px; }}
 </style>
 </head>
 <body>
@@ -1464,6 +1505,10 @@ body {{
     <div class="stat danger" id="stat-delayed">
         <div class="num">{delayed_count}</div>
         <div class="label">지연</div>
+    </div>
+    <div class="stat danger" id="stat-longdelayed">
+        <div class="num">{long_delayed_count}</div>
+        <div class="label">장기지연</div>
     </div>
     <div class="stat" id="stat-today">
         <div class="num">{today_count}</div>
@@ -1494,6 +1539,7 @@ body {{
 {col_html}
 </div>
 {completed_html}
+{long_delayed_html}
 </div><!-- #kanbanView -->
 {task_gantt_html}
 
@@ -1608,6 +1654,13 @@ function runSearch() {{
     }});
     if (clearBtn) clearBtn.style.display = '';
     updateCounts();
+    // 검색 결과가 접혀 있는 장기지연 섹션에만 있으면 자동으로 펼쳐준다
+    var ldSec = document.querySelector('.long-delayed-section');
+    if (ldSec && !ldSec.open &&
+        ldSec.querySelectorAll('.card:not(.hidden):not(.search-hidden)').length > 0) {{
+        ldSec.open = true;
+        ldSec.setAttribute('data-auto-open', '1');
+    }}
     if (matched === 0) showToast('검색 결과가 없습니다: ' + q, true);
 }}
 
@@ -1618,6 +1671,12 @@ function clearSearch() {{
     document.querySelectorAll('.card.search-hidden').forEach(function(card) {{
         card.classList.remove('search-hidden');
     }});
+    // 검색 때문에 자동으로 펼쳤던 장기지연 섹션은 다시 접는다
+    var ldSec = document.querySelector('.long-delayed-section');
+    if (ldSec && ldSec.getAttribute('data-auto-open')) {{
+        ldSec.open = false;
+        ldSec.removeAttribute('data-auto-open');
+    }}
     var clearBtn = document.querySelector('.search-clear');
     if (clearBtn) clearBtn.style.display = 'none';
     updateCounts();
@@ -1630,6 +1689,7 @@ function countVisible(col) {{
 function updateCounts() {{
     var statMap = {{
         'delayed': 'stat-delayed',
+        'long_delayed': 'stat-longdelayed',
         'today': 'stat-today',
         'no_due': 'stat-nodue'
     }};
@@ -1643,6 +1703,11 @@ function updateCounts() {{
         if (statMap[key]) {{
             var el = document.getElementById(statMap[key]);
             if (el) el.querySelector('.num').textContent = cnt;
+        }}
+        // 장기지연 접이식 섹션의 요약(summary) 배지도 동기화
+        if (key === 'long_delayed') {{
+            var ldCount = document.getElementById('ld-count');
+            if (ldCount) ldCount.textContent = cnt;
         }}
     }});
 
