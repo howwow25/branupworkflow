@@ -658,7 +658,7 @@ def render():
         title = esc(p.get("title", ""))
         pid = p.get("id", "")
         task_count = sum(1 for t in tasks if t.get("project_id") == pid)
-        proj_filter_html += f'<button class="filter-btn proj" onclick="filterByProject(\'{pid}\')" title="{title} · 업무 {task_count}건">{title[:10]}{"…" if len(title)>10 else ""} <span class="proj-cnt">{task_count}</span></button>'
+        proj_filter_html += f'<button class="filter-btn proj" onclick="filterByProject(\'{pid}\')" ondblclick="openProjectModal(\'{pid}\')" title="{title} · 업무 {task_count}건 (클릭: 업무 필터 · 더블클릭: 상세)">{title[:10]}{"…" if len(title)>10 else ""} <span class="proj-cnt">{task_count}</span></button>'
         proj_options += f'<option value="{pid}">{esc(title)} ({task_count}건)</option>'
 
     # ── 완료된 프로젝트 (접이식 섹션) ──
