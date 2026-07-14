@@ -1294,10 +1294,24 @@ class APIHandler(BaseHTTPRequestHandler):
         pass
 
 
+class BranupServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer: 요청마다 별도 스레드 → 파일 다운로드 등 느린 요청이
+    다른 요청을 막아 Apache 프록시가 타임아웃(Error reading from remote server)나는 것 방지.
+
+    allow_reuse_address(SO_REUSEADDR)는 윈도우에서 의미가 다르다. 리눅스는 TIME_WAIT
+    소켓만 재사용하지만, 윈도우는 '이미 LISTEN 중인 포트를 가로채는 것'까지 허용한다.
+    그래서 옛 서버가 살아있어도 새 서버가 조용히 바인딩에 성공하고, 두 프로세스가 같은
+    포트에 공존한다. netstat/Get-NetTCPConnection 에는 승자 하나만 보이므로 포트 기준으로
+    종료해도 뒤에 숨은 옛 프로세스가 남아, 새 코드를 배포해도 옛 API가 응답하게 된다.
+    (실제로 운영에서 옛 프로세스가 2주간 살아남아 드랍존 API가 404를 냈다.)
+    윈도우에서는 꺼서 중복 기동이 'address already in use'로 즉시 드러나게 한다.
+    리눅스(deploy.sh)는 재시작 시 TIME_WAIT 때문에 바인딩이 막히지 않도록 기존 동작 유지.
+    """
+    allow_reuse_address = (os.name != "nt")
+
+
 def main():
-    # ThreadingHTTPServer: 요청마다 별도 스레드 → 파일 다운로드 등 느린 요청이
-    # 다른 요청을 막아 Apache 프록시가 타임아웃(Error reading from remote server)나는 것 방지
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), APIHandler)
+    server = BranupServer(("0.0.0.0", PORT), APIHandler)
     print(f"🔌 브랜업 API 서버 시작: http://0.0.0.0:{PORT}")
     print(f"   대시보드: http://localhost:{PORT}")
     print(f"   엔드포인트: /api/tasks/* | /api/agent")
