@@ -8,6 +8,8 @@
   PATCH  /api/tasks/<id>          → task 필드 업데이트 (JSON body)
   DELETE /api/tasks/<id>          → task 삭제
   POST   /api/tasks/<id>/complete → task 완료 처리
+  POST   /api/tasks/<id>/dropzone   → task 드랍존(연기) 처리, status='보류'
+  POST   /api/tasks/<id>/undropzone → task 드랍존 해제, status='진행중'
   POST   /api/agent               → 자연어 에이전트 명령어 처리
 """
 import json
@@ -426,6 +428,10 @@ class APIHandler(BaseHTTPRequestHandler):
             if task_id and action == "uncomplete":
                 self._handle_uncomplete(task_id)
                 return
+            # /api/tasks/<id>/dropzone · /undropzone (연기 처리 / 연기 취소)
+            if task_id and action in ("dropzone", "undropzone"):
+                self._handle_dropzone(task_id, action == "dropzone")
+                return
             self._send_json({"error": "not found"}, 404)
             return
 
@@ -776,6 +782,29 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json(resp)
 
     # ── 에이전트 명령어 처리 ──────────────────────────
+
+    def _handle_dropzone(self, task_id, to_dropzone):
+        """POST /api/tasks/<id>/dropzone     → 드랍존(연기)으로 이동, status='보류'
+           POST /api/tasks/<id>/undropzone   → 드랍존 해제, status='진행중' 복원"""
+        task = get_task_by_id(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+
+        if to_dropzone:
+            if task.get("status") == "완료":
+                self._send_json({"error": "완료된 업무는 드랍존으로 보낼 수 없습니다"}, 400)
+                return
+            update_task(task_id, status="보류")
+        else:
+            if task.get("status") != "보류":
+                self._send_json({"error": "드랍존 업무만 해제할 수 있습니다"}, 400)
+                return
+            update_task(task_id, status="진행중")
+
+        task = get_task_by_id(task_id)
+        self._refresh_dashboard()
+        self._send_json(task)
 
     def _handle_uncomplete(self, task_id):
         """POST /api/tasks/<id>/uncomplete → 완료 취소, 진행중으로 복원"""

@@ -20,8 +20,11 @@ if _os_dash.environ.get("BRANUP_API_URL"):
     from branup_api import get_active_tasks, get_completed_tasks, get_projects
     def get_task_file_counts():
         return {}
+    def get_dropzone_tasks():
+        return []
 else:
-    from db import get_active_tasks, get_completed_tasks, get_projects, get_task_file_counts
+    from db import (get_active_tasks, get_completed_tasks, get_projects,
+                    get_task_file_counts, get_dropzone_tasks)
 
 
 def dday(due_str):
@@ -73,7 +76,7 @@ def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def render_card(t, dd, task_lookup=None, project_lookup=None, file_counts=None):
+def render_card(t, dd, task_lookup=None, project_lookup=None, file_counts=None, extra_cls=""):
     title = esc(t.get("title", ""))
     assignee = esc(t.get("assignee") or "미정")
     due = t.get("due_at", "")
@@ -115,7 +118,8 @@ def render_card(t, dd, task_lookup=None, project_lookup=None, file_counts=None):
 
     file_html = '<span class="attach-icon" title="첨부파일 있음">📎</span>' if (file_counts and file_counts.get(task_id)) else ""
 
-    return f"""<div class="card" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
+    cls = f"card {extra_cls}".strip()
+    return f"""<div class="{cls}" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
     <span class="dday badge-{css}">#{num}</span>{prio_html}{file_html}{related_html}{project_html}
     <div class="title">{title}</div>
     <div class="meta">
@@ -593,13 +597,18 @@ def render():
     active_projects = [p for p in projects if p.get("status") != "완료"]
     completed_projects = [p for p in projects if p.get("status") == "완료"]
     file_counts = get_task_file_counts()
+    dropzone = get_dropzone_tasks()
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
     long_delayed_count = len(groups["long_delayed"])
     today_count = len(groups["today"])
     nodue_count = len(groups["no_due"])
+    d3_count = len(groups["d3"])
+    d7_count = len(groups["d7"])
+    upcoming_count = len(groups["upcoming"])
     done_count = len(completed)
+    dropzone_count = len(dropzone)
 
     all_assignees = set()
     for t in tasks:
@@ -613,7 +622,7 @@ def render():
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
-    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks","project_id"]} for t in tasks + completed}
+    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks","project_id"]} for t in tasks + completed + dropzone}
     tasks_json = json.dumps(all_tasks, ensure_ascii=False)
 
     # ── 프로젝트 데이터 JSON ──
@@ -621,7 +630,7 @@ def render():
 
     # ── display_num → task lookup (연관업무 색상 표시용) ──
     task_lookup = {}
-    for t in tasks + completed:
+    for t in tasks + completed + dropzone:
         dn = t.get("display_num")
         if dn:
             task_lookup[dn] = t
@@ -718,18 +727,38 @@ def render():
 </div>"""
             completed_html += '</div>'
 
+    if completed_html:
+        completed_html = f'<div id="completedSection">{completed_html}</div>'
+
     # ── 장기지연 (접이식 섹션, 완료된 업무 다음) ──
     long_delayed_html = ""
     if groups["long_delayed"]:
         ld_items = sorted(groups["long_delayed"], key=lambda x: x[1])
         ld_cards = "".join(render_card(t, dd, task_lookup, project_lookup, file_counts) for t, dd in ld_items)
-        long_delayed_html = f"""<details class="long-delayed-section">
+        long_delayed_html = f"""<details class="long-delayed-section" id="longDelayedSection">
 <summary>⏳ 장기지연 <span class="count" id="ld-count">{long_delayed_count}</span>
 <span class="ld-hint">마감 후 {LONG_DELAY_DAYS}일 초과</span></summary>
 <div class="board">
 <div class="column" data-col="long_delayed">
     <div class="col-header">⏳ 장기지연 <span class="count">{long_delayed_count}</span></div>
     {ld_cards}
+</div>
+</div>
+</details>"""
+
+    # ── 드랍존 (접이식 섹션, 장기지연 다음) — 연기/보류된 업무 ──
+    dropzone_html = ""
+    if dropzone:
+        dz_cards = "".join(
+            render_card(t, dday(t.get("due_at")), task_lookup, project_lookup, file_counts, extra_cls="dz")
+            for t in dropzone)
+        dropzone_html = f"""<details class="dropzone-section" id="dropzoneSection">
+<summary>📥 드랍존 <span class="count" id="dz-count">{dropzone_count}</span>
+<span class="dz-hint">연기된 업무 · 마감 집계에서 제외</span></summary>
+<div class="board">
+<div class="column" data-col="dropzone">
+    <div class="col-header">📥 드랍존 <span class="count">{dropzone_count}</span></div>
+    {dz_cards}
 </div>
 </div>
 </details>"""
@@ -809,6 +838,18 @@ body {{
 .stat.danger .num {{ color: #f85149; }}
 .stat.warn .num {{ color: #d2991d; }}
 .stat.done .num {{ color: #3fb950; }}
+.stat.drop .num {{ color: #a371f7; }}
+/* 통계 카드 클릭 = 해당 카테고리만 보기 */
+.stat {{ cursor: pointer; border: 1px solid transparent; transition: background .15s, border-color .15s; }}
+.stat:hover {{ background: #232735; border-color: #3a4050; }}
+.stat.cat-active {{ border-color: #58a6ff; background: #232b3a; }}
+.stat.cat-active .label {{ color: #58a6ff; font-weight: 700; }}
+.cat-clear-btn {{
+    align-self: center; margin-left: 4px;
+    background: none; border: 1px solid #30363d; color: #8b949e;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+}}
+.cat-clear-btn:hover {{ border-color: #58a6ff; color: #58a6ff; }}
 .weekly-report-btn {{
     display: none;
     padding: 8px 16px;
@@ -1493,6 +1534,33 @@ body {{
 }}
 .long-delayed-section .ld-hint {{ font-size: 11px; font-weight: 400; color: #8b949e; margin-left: 8px; }}
 .long-delayed-section .board {{ padding: 0 16px 16px; }}
+/* 드랍존 — 연기(보류)된 업무, 장기지연 다음에 오는 접이식 섹션 */
+.dropzone-section {{
+    margin: 16px 32px 0; border: 1px solid #4a3a6a; border-radius: 8px;
+    background: #16121f80;
+}}
+.dropzone-section summary {{
+    cursor: pointer; padding: 12px 16px; font-size: 15px; font-weight: 700;
+    color: #a371f7; list-style: none; user-select: none;
+}}
+.dropzone-section summary::-webkit-details-marker {{ display: none; }}
+.dropzone-section summary:hover {{ color: #c297ff; }}
+.dropzone-section summary::before {{ content: '▶ '; font-size: 11px; }}
+.dropzone-section[open] summary::before {{ content: '▼ '; }}
+.dropzone-section .count {{
+    background: #3a2a5a; color: #c297ff; border-radius: 10px;
+    padding: 1px 8px; font-size: 11px; margin-left: 4px;
+}}
+.dropzone-section .dz-hint {{ font-size: 11px; font-weight: 400; color: #8b949e; margin-left: 8px; }}
+.dropzone-section .board {{ padding: 0 16px 16px; }}
+.card.dz {{ opacity: .75; }}
+.card.dz:hover {{ opacity: 1; }}
+.btn-dropzone {{
+    padding: 10px 18px; background: #4a3a6a; color: #d7c3ff;
+    border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+}}
+.btn-dropzone:hover {{ background: #5c4880; }}
+.btn-dropzone.disabled {{ opacity: .4; cursor: not-allowed; }}
 </style>
 </head>
 <body>
@@ -1501,31 +1569,44 @@ body {{
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
 </div>
 <div class="filters">{filter_btns}<button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button><span class="search-box"><input type="text" id="searchInput" class="search-input" placeholder="업무 검색..." onkeydown="if(event.key==='Enter')runSearch()" oninput="if(!this.value)clearSearch()"><button class="search-btn" onclick="runSearch()" title="검색">🔍</button><button class="search-clear" onclick="clearSearch()" title="검색 해제" style="display:none">✕</button></span></div>
-<div class="stats">
-    <div class="stat danger" id="stat-delayed">
+<div class="stats" id="statsRow">
+    <div class="stat danger" id="stat-delayed" onclick="filterCategory('delayed')" title="지연 업무만 보기">
         <div class="num">{delayed_count}</div>
         <div class="label">지연</div>
     </div>
-    <div class="stat danger" id="stat-longdelayed">
-        <div class="num">{long_delayed_count}</div>
-        <div class="label">장기지연</div>
-    </div>
-    <div class="stat" id="stat-today">
-        <div class="num">{today_count}</div>
-        <div class="label">오늘 마감</div>
-    </div>
-    <div class="stat warn" id="stat-nodue">
+    <div class="stat warn" id="stat-nodue" onclick="filterCategory('no_due')" title="마감 미정 업무만 보기">
         <div class="num">{nodue_count}</div>
-        <div class="label">마감 미정</div>
+        <div class="label">미정</div>
     </div>
-    <div class="stat" id="stat-active">
-        <div class="num">{total}</div>
-        <div class="label">진행중</div>
+    <div class="stat" id="stat-today" onclick="filterCategory('today')" title="오늘 마감 업무만 보기">
+        <div class="num">{today_count}</div>
+        <div class="label">오늘마감</div>
     </div>
-    <div class="stat done" id="stat-done">
+    <div class="stat" id="stat-d3" onclick="filterCategory('d3')" title="D-3 업무만 보기">
+        <div class="num">{d3_count}</div>
+        <div class="label">D-3</div>
+    </div>
+    <div class="stat" id="stat-d7" onclick="filterCategory('d7')" title="D-7 업무만 보기">
+        <div class="num">{d7_count}</div>
+        <div class="label">D-7</div>
+    </div>
+    <div class="stat" id="stat-upcoming" onclick="filterCategory('upcoming')" title="여유 업무만 보기">
+        <div class="num">{upcoming_count}</div>
+        <div class="label">여유</div>
+    </div>
+    <div class="stat done" id="stat-done" onclick="filterCategory('done')" title="완료된 업무만 보기">
         <div class="num">{done_count}</div>
         <div class="label">완료</div>
     </div>
+    <div class="stat danger" id="stat-longdelayed" onclick="filterCategory('long_delayed')" title="장기지연 업무만 보기">
+        <div class="num">{long_delayed_count}</div>
+        <div class="label">장기지연</div>
+    </div>
+    <div class="stat drop" id="stat-dropzone" onclick="filterCategory('dropzone')" title="드랍존(연기) 업무만 보기">
+        <div class="num">{dropzone_count}</div>
+        <div class="label">드랍존</div>
+    </div>
+    <button class="cat-clear-btn" id="catClearBtn" onclick="filterCategory(null)" style="display:none">✕ 전체 보기</button>
 </div>
 <div class="view-toggle">
     <button class="view-toggle-btn active" id="btnKanban" onclick="switchToView('kanban')">📋 칸반</button>
@@ -1540,6 +1621,7 @@ body {{
 </div>
 {completed_html}
 {long_delayed_html}
+{dropzone_html}
 </div><!-- #kanbanView -->
 {task_gantt_html}
 
@@ -1611,7 +1693,7 @@ var modalMode = 'edit';  // 'edit' or 'create'
                 }}
                 // 모두 안 되면 비활성화
                 isStaticHost = true;
-                document.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete').forEach(function(btn) {{
+                document.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete, .btn-dropzone').forEach(function(btn) {{
                     btn.classList.add('disabled');
                 }});
             }});
@@ -1654,13 +1736,13 @@ function runSearch() {{
     }});
     if (clearBtn) clearBtn.style.display = '';
     updateCounts();
-    // 검색 결과가 접혀 있는 장기지연 섹션에만 있으면 자동으로 펼쳐준다
-    var ldSec = document.querySelector('.long-delayed-section');
-    if (ldSec && !ldSec.open &&
-        ldSec.querySelectorAll('.card:not(.hidden):not(.search-hidden)').length > 0) {{
-        ldSec.open = true;
-        ldSec.setAttribute('data-auto-open', '1');
-    }}
+    // 검색 결과가 접혀 있는 장기지연·드랍존 섹션에 있으면 자동으로 펼쳐준다
+    document.querySelectorAll('.long-delayed-section, .dropzone-section').forEach(function(sec) {{
+        if (!sec.open && sec.querySelectorAll('.card:not(.hidden):not(.search-hidden)').length > 0) {{
+            sec.open = true;
+            sec.setAttribute('data-auto-open', '1');
+        }}
+    }});
     if (matched === 0) showToast('검색 결과가 없습니다: ' + q, true);
 }}
 
@@ -1671,12 +1753,12 @@ function clearSearch() {{
     document.querySelectorAll('.card.search-hidden').forEach(function(card) {{
         card.classList.remove('search-hidden');
     }});
-    // 검색 때문에 자동으로 펼쳤던 장기지연 섹션은 다시 접는다
-    var ldSec = document.querySelector('.long-delayed-section');
-    if (ldSec && ldSec.getAttribute('data-auto-open')) {{
-        ldSec.open = false;
-        ldSec.removeAttribute('data-auto-open');
-    }}
+    // 검색 때문에 자동으로 펼쳤던 섹션은 다시 접는다 (카테고리 필터로 편 것은 유지)
+    document.querySelectorAll('[data-auto-open]').forEach(function(sec) {{
+        sec.removeAttribute('data-auto-open');
+        var key = (sec.id === 'dropzoneSection') ? 'dropzone' : 'long_delayed';
+        if (currentCategory !== key) sec.open = false;
+    }});
     var clearBtn = document.querySelector('.search-clear');
     if (clearBtn) clearBtn.style.display = 'none';
     updateCounts();
@@ -1687,12 +1769,19 @@ function countVisible(col) {{
 }}
 
 function updateCounts() {{
+    // 칸반 컬럼 key → 상단 통계 카드 id
     var statMap = {{
         'delayed': 'stat-delayed',
-        'long_delayed': 'stat-longdelayed',
+        'no_due': 'stat-nodue',
         'today': 'stat-today',
-        'no_due': 'stat-nodue'
+        'd3': 'stat-d3',
+        'd7': 'stat-d7',
+        'upcoming': 'stat-upcoming',
+        'long_delayed': 'stat-longdelayed',
+        'dropzone': 'stat-dropzone'
     }};
+    // 접이식 섹션 summary 배지
+    var summaryMap = {{ 'long_delayed': 'ld-count', 'dropzone': 'dz-count' }};
 
     document.querySelectorAll('.column[data-col]').forEach(function(col) {{
         var key = col.getAttribute('data-col');
@@ -1704,18 +1793,15 @@ function updateCounts() {{
             var el = document.getElementById(statMap[key]);
             if (el) el.querySelector('.num').textContent = cnt;
         }}
-        // 장기지연 접이식 섹션의 요약(summary) 배지도 동기화
-        if (key === 'long_delayed') {{
-            var ldCount = document.getElementById('ld-count');
-            if (ldCount) ldCount.textContent = cnt;
+        if (summaryMap[key]) {{
+            var sm = document.getElementById(summaryMap[key]);
+            if (sm) sm.textContent = cnt;
         }}
     }});
 
-    var activeTotal = document.querySelectorAll('.card:not(.done):not(.hidden):not(.search-hidden)').length;
+    // 진행중 합계: 완료(.done)·드랍존(.dz) 카드는 제외
+    var activeTotal = document.querySelectorAll('.card:not(.done):not(.dz):not(.hidden):not(.search-hidden)').length;
     var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden):not(.search-hidden)').length;
-
-    var elActive = document.getElementById('stat-active');
-    if (elActive) elActive.querySelector('.num').textContent = activeTotal;
 
     var elDone = document.getElementById('stat-done');
     if (elDone) elDone.querySelector('.num').textContent = doneTotal;
@@ -1724,6 +1810,62 @@ function updateCounts() {{
     if (hdrActive) hdrActive.textContent = activeTotal;
     var hdrDone = document.getElementById('hdr-done');
     if (hdrDone) hdrDone.textContent = doneTotal;
+}}
+
+// ── 카테고리 필터: 통계 카드 클릭 → 해당 항목 리스트만 표시 ──
+// 직원/프로젝트 필터(.hidden)·검색(.search-hidden)과 독립적으로 동작하며,
+// 카드가 아니라 "컬럼/섹션" 단위로 표시를 껐다 켠다 (통계 숫자는 그대로 유지).
+var COLUMN_CATS = ['delayed', 'no_due', 'today', 'd3', 'd7', 'upcoming'];
+var currentCategory = null;
+
+function filterCategory(cat) {{
+    // 같은 항목을 다시 클릭하면 해제 (직원 필터는 그대로 유지)
+    if (cat && cat === currentCategory) cat = null;
+    currentCategory = cat;
+
+    if (cat) sessionStorage.setItem('branup_category', cat);
+    else sessionStorage.removeItem('branup_category');
+
+    // 통계 카드 활성 표시
+    document.querySelectorAll('.stat').forEach(function(s) {{ s.classList.remove('cat-active'); }});
+    var statIds = {{
+        'delayed': 'stat-delayed', 'no_due': 'stat-nodue', 'today': 'stat-today',
+        'd3': 'stat-d3', 'd7': 'stat-d7', 'upcoming': 'stat-upcoming',
+        'done': 'stat-done', 'long_delayed': 'stat-longdelayed', 'dropzone': 'stat-dropzone'
+    }};
+    if (cat && statIds[cat]) {{
+        var st = document.getElementById(statIds[cat]);
+        if (st) st.classList.add('cat-active');
+    }}
+    var clearBtn = document.getElementById('catClearBtn');
+    if (clearBtn) clearBtn.style.display = cat ? '' : 'none';
+
+    // 칸반 보드: 해당 컬럼만 남기고 숨김. 컬럼형 카테고리가 아니면 보드 전체를 숨김
+    var mainBoard = document.querySelector('#kanbanView > .board');
+    var isColumnCat = cat && COLUMN_CATS.indexOf(cat) !== -1;
+    if (mainBoard) {{
+        mainBoard.style.display = (!cat || isColumnCat) ? '' : 'none';
+        mainBoard.querySelectorAll('.column[data-col]').forEach(function(col) {{
+            var key = col.getAttribute('data-col');
+            col.style.display = (!cat || key === cat) ? '' : 'none';
+        }});
+    }}
+
+    // 완료된 업무 / 장기지연 / 드랍존 섹션
+    var sections = [
+        ['done', document.getElementById('completedSection')],
+        ['long_delayed', document.getElementById('longDelayedSection')],
+        ['dropzone', document.getElementById('dropzoneSection')]
+    ];
+    sections.forEach(function(pair) {{
+        var key = pair[0], el = pair[1];
+        if (!el) return;
+        el.style.display = (!cat || key === cat) ? '' : 'none';
+        // 선택된 접이식 섹션은 자동으로 펼친다
+        if (el.tagName === 'DETAILS') el.open = (cat === key);
+    }});
+
+    updateCounts();
 }}
 
 function filterAssignee(name) {{
@@ -1943,6 +2085,7 @@ function requestWeeklyReport() {{
     var actions = modal.querySelector('.modal-actions');
     actions.querySelector('.btn-save').style.display = 'none';
     actions.querySelector('.btn-complete').style.display = 'none';
+    actions.querySelectorAll('.btn-dropzone').forEach(function(b) {{ b.style.display = 'none'; }});
     actions.querySelector('.btn-delete').style.display = 'none';
     // 취소 버튼 추가
     var cancelBtn = document.createElement('button');
@@ -2042,6 +2185,8 @@ function createModalEl() {{
         '<button class="btn-save modal-btn-save" onclick="saveTask(this)">💾 저장</button>' +
         '<button class="btn-save modal-btn-create" onclick="createTask()" style="display:none">➕ 추가</button>' +
         '<button class="btn-complete modal-btn-complete" onclick="completeTask(this)">✅ 완료 처리</button>' +
+        '<button class="btn-dropzone modal-btn-dropzone" onclick="dropzoneTask(this)">📥 드랍존</button>' +
+        '<button class="btn-dropzone modal-btn-undropzone" onclick="undropzoneTask(this)" style="display:none">↩ 드랍존취소</button>' +
         '<button class="btn-delete modal-btn-delete" onclick="deleteTask(this)">🗑 삭제</button>' +
         '<button class="btn-uncomplete modal-btn-uncomplete" onclick="uncompleteTask(this)" style="display:none">↩ 완료취소</button>' +
         '<button class="btn-cancel" onclick="closeModal(this.parentElement.parentElement.parentElement)">취소</button>' +
@@ -2082,10 +2227,17 @@ function populateModal(modalEl, task) {{
 
     var feedbackField = modalEl.querySelector('.feedback-field');
     feedbackField.style.display = (task.status === '완료') ? '' : 'none';
+    var isDone = (task.status === '완료');
+    var isDrop = (task.status === '보류');   // 보류 = 드랍존
     var btnComplete = modalEl.querySelector('.modal-btn-complete');
-    btnComplete.style.display = (task.status === '완료') ? 'none' : '';
+    btnComplete.style.display = isDone ? 'none' : '';
     var btnUncomplete = modalEl.querySelector('.modal-btn-uncomplete');
-    btnUncomplete.style.display = (task.status === '완료') ? '' : 'none';
+    btnUncomplete.style.display = isDone ? '' : 'none';
+    // 드랍존: 일반 업무면 "드랍존", 드랍존 업무면 "드랍존취소". 완료 업무엔 둘 다 숨김
+    var btnDrop = modalEl.querySelector('.modal-btn-dropzone');
+    btnDrop.style.display = (!isDone && !isDrop) ? '' : 'none';
+    var btnUndrop = modalEl.querySelector('.modal-btn-undropzone');
+    btnUndrop.style.display = isDrop ? '' : 'none';
 
     // 연관업무 렌더링
     renderRelatedButtonsInModal(modalEl, task.related_tasks || '');
@@ -2094,7 +2246,7 @@ function populateModal(modalEl, task) {{
     renderFiles(modalEl, task.id);
 
     if (isStaticHost) {{
-        modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete').forEach(function(btn) {{ btn.classList.add('disabled'); }});
+        modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete, .btn-dropzone').forEach(function(btn) {{ btn.classList.add('disabled'); }});
     }}
 }}
 
@@ -2167,6 +2319,8 @@ function openCreateModal() {{
     modalEl.querySelector('.feedback-field').style.display = 'none';
     modalEl.querySelector('.modal-btn-save').style.display = 'none';
     modalEl.querySelector('.modal-btn-complete').style.display = 'none';
+    modalEl.querySelector('.modal-btn-dropzone').style.display = 'none';
+    modalEl.querySelector('.modal-btn-undropzone').style.display = 'none';
     modalEl.querySelector('.modal-btn-delete').style.display = 'none';
     modalEl.querySelector('.modal-btn-create').style.display = '';
 
@@ -2289,6 +2443,33 @@ function completeTask(btnEl) {{
         showToast('완료 처리되었습니다!');
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }}).catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+function dropzoneTask(btnEl) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    if (!confirm('이 업무를 드랍존(연기)으로 보내시겠습니까?\\n마감 집계와 주간리포트에서 제외됩니다.')) return;
+    patchTaskDropzone(m.taskId, 'dropzone', '드랍존으로 보냈습니다!');
+}}
+
+function undropzoneTask(btnEl) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    if (!confirm('드랍존에서 꺼내 일반 업무로 되돌리시겠습니까?')) return;
+    patchTaskDropzone(m.taskId, 'undropzone', '드랍존에서 해제되었습니다!');
+}}
+
+function patchTaskDropzone(taskId, action, okMsg) {{
+    fetch(API + '/tasks/' + taskId + '/' + action, {{ method: 'POST' }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(task) {{
+        if (task.error) {{ showToast('오류: ' + task.error, true); return; }}
+        showToast(okMsg);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
 }}
 
 function uncompleteTask(btnEl) {{
@@ -2789,6 +2970,14 @@ function quickRegister() {{
     if (!sq) return;
     var inp = document.getElementById('searchInput');
     if (inp) {{ inp.value = sq; runSearch(); }}
+}})();
+
+// ── 카테고리 필터 복원 (저장/완료/드랍존 등 작업 후 새로고침돼도 유지) ──
+(function() {{
+    var cat = sessionStorage.getItem('branup_category');
+    if (!cat) return;
+    currentCategory = null;   // filterCategory 의 토글 로직에 걸리지 않도록 초기화
+    filterCategory(cat);
 }})();
 
 // ── 프로젝트 모달 ──
