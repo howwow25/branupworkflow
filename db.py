@@ -289,6 +289,13 @@ def get_completed_tasks() -> List[Dict]:
         "SELECT * FROM tasks WHERE status='완료' ORDER BY closed_at DESC")]
 
 
+def get_dropzone_tasks() -> List[Dict]:
+    """드랍존(연기/보류) 업무 목록. status='보류' 를 드랍존으로 사용한다."""
+    conn = get_conn()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM tasks WHERE status='보류' ORDER BY updated_at DESC")]
+
+
 # ── projects ────────────────────────────────────────────
 
 def create_project(room_id: str, title: str, description: str = "",
