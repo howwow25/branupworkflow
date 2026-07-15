@@ -421,6 +421,11 @@ class APIHandler(BaseHTTPRequestHandler):
             self._handle_file_upload(project_id=unquote(parts[2]))
             return
 
+        # /api/projects/<id>/dropzone · /undropzone (드랍존 처리 / 해제)
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "projects" and parts[3] in ("dropzone", "undropzone"):
+            self._handle_project_dropzone(unquote(parts[2]), parts[3] == "dropzone")
+            return
+
         # /api/tasks/<id>/complete
         task_id, action = self._extract_task_id()
         if not task_id or action != "complete":
@@ -805,6 +810,30 @@ class APIHandler(BaseHTTPRequestHandler):
         task = get_task_by_id(task_id)
         self._refresh_dashboard()
         self._send_json(task)
+
+    def _handle_project_dropzone(self, project_id, to_dropzone):
+        """POST /api/projects/<id>/dropzone     → 드랍존으로 이동, status='보류'
+           POST /api/projects/<id>/undropzone   → 드랍존 해제, status='진행' 복원
+           업무 드랍존과 동일하게 상태변경 권한 제한 없이 누구나 가능하다."""
+        project = get_project_by_id(project_id)
+        if not project:
+            self._send_json({"error": "project not found"}, 404)
+            return
+
+        if to_dropzone:
+            if project.get("status") == "완료":
+                self._send_json({"error": "완료된 프로젝트는 드랍존으로 보낼 수 없습니다"}, 400)
+                return
+            update_project(project_id, status="보류")
+        else:
+            if project.get("status") != "보류":
+                self._send_json({"error": "드랍존 프로젝트만 해제할 수 있습니다"}, 400)
+                return
+            update_project(project_id, status="진행")
+
+        project = get_project_by_id(project_id)
+        self._refresh_dashboard()
+        self._send_json(project)
 
     def _handle_uncomplete(self, task_id):
         """POST /api/tasks/<id>/uncomplete → 완료 취소, 진행중으로 복원"""
