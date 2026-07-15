@@ -1768,6 +1768,36 @@ function countVisible(col) {{
     return col.querySelectorAll('.card:not(.hidden):not(.search-hidden)').length;
 }}
 
+// 완료 업무 총계 (현재 직원/프로젝트/검색 필터 반영, TASKS_DATA 기준)
+// 완료 카드는 주/월 보드에 중복 렌더링되고 4개월 초과분은 아예 안 그려지므로
+// DOM 이 아니라 전체 데이터에서 세어야 총 완료 수(필터 반영)가 정확하다.
+function countCompleted() {{
+    var proj = currentProjectId || null;
+    var f = sessionStorage.getItem('branup_filter');
+    var q = (sessionStorage.getItem('branup_search') || '').trim().toLowerCase();
+    var n = 0;
+    for (var tid in TASKS_DATA) {{
+        var t = TASKS_DATA[tid];
+        if (!t || t.status !== '완료') continue;
+        if (proj) {{
+            if (t.project_id !== proj) continue;
+        }} else if (f && f !== 'ALL') {{
+            if (f === '긴급') {{
+                if ((t.priority || '') !== '긴급') continue;
+            }} else {{
+                var parts = (t.assignee || '').split(/,\\s*/);
+                if (parts.indexOf(f) === -1 && parts.indexOf('모두') === -1) continue;
+            }}
+        }}
+        if (q) {{
+            var hay = ((t.title||'') + ' ' + (t.summary||'') + ' ' + (t.feedback||'') + ' ' + (t.assignee||'') + ' ' + (t.display_num||'')).toLowerCase();
+            if (hay.indexOf(q) === -1) continue;
+        }}
+        n++;
+    }}
+    return n;
+}}
+
 function updateCounts() {{
     // 칸반 컬럼 key → 상단 통계 카드 id
     var statMap = {{
@@ -1801,7 +1831,7 @@ function updateCounts() {{
 
     // 진행중 합계: 완료(.done)·드랍존(.dz) 카드는 제외
     var activeTotal = document.querySelectorAll('.card:not(.done):not(.dz):not(.hidden):not(.search-hidden)').length;
-    var doneTotal = document.querySelectorAll('.column[data-col^="week-"] .card.done:not(.hidden):not(.search-hidden)').length;
+    var doneTotal = countCompleted();
 
     var elDone = document.getElementById('stat-done');
     if (elDone) elDone.querySelector('.num').textContent = doneTotal;
