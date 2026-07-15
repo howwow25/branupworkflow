@@ -7,9 +7,14 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
 # ── 환경변수 ────────────────────────────────────────────────
-# BRANUP_DATA_DIR 은 의도적으로 건드리지 않는다.
-# 이 머신에 이미 시스템/사용자 환경변수로 잡혀 있고, 여기서 덮어쓰면
-# 운영 DB 경로가 바뀌어 업무가 전부 사라진 것처럼 보인다.
+# BRANUP_DATA_DIR 을 이 스크립트 폴더의 data 로 '명시 고정'한다.
+#   운영 api_server 와 서빙되는 index.html 이 모두 <ScriptDir>\data\db\branup.db 를 기준으로 돈다.
+#   과거엔 "머신 환경변수에 이미 있으니 건드리지 말자"고 비워뒀으나, 확인 결과
+#   Machine/User 환경변수가 둘 다 비어 있었다. 그 상태에서 이 값이 없는 셸로 스크립트를
+#   돌리면 dashboard_html.py 가 기본 폴백(빈 DB)으로 페이지를 굽고 api_server 도 빈 DB 를
+#   읽어 "업무가 전부 사라진 것처럼" 보인다. → 셸 세션 유무와 무관하게 항상 고정한다.
+#   (테스트 인스턴스는 <ScriptDir>\..\test\data 로 분리되어 서로 침범하지 않는다.)
+$env:BRANUP_DATA_DIR = Join-Path $ScriptDir 'data'
 if (-not $env:BRANUP_API_PORT) { $env:BRANUP_API_PORT = '8800' }
 if (-not $env:BRANUP_API_BASE) { $env:BRANUP_API_BASE = '/branup/branup-watcher/api' }
 $Port = [int]$env:BRANUP_API_PORT
