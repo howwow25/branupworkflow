@@ -594,8 +594,9 @@ def render():
     completed = get_completed_tasks()
     c_weeks, c_months = group_completed(completed)
     projects = get_projects()
-    active_projects = [p for p in projects if p.get("status") != "완료"]
+    active_projects = [p for p in projects if p.get("status") not in ("완료", "보류")]
     completed_projects = [p for p in projects if p.get("status") == "완료"]
+    dropped_projects = [p for p in projects if p.get("status") == "보류"]
     file_counts = get_task_file_counts()
     dropzone = get_dropzone_tasks()
 
@@ -673,6 +674,19 @@ def render():
             '<details class="completed-projects"><summary>✅ 완료된 프로젝트 '
             f'<span class="count">{len(completed_projects)}</span></summary>'
             f'<div class="proj-done-list">{cp_rows}</div></details>')
+
+    # ── 드랍된 프로젝트 (접이식 섹션, 완료된 프로젝트 다음) ──
+    dropped_projects_html = ""
+    if dropped_projects:
+        dp_rows = "".join(
+            f'<button class="filter-btn proj-drop" onclick="openProjectModal(\'{esc(p.get("id",""))}\')" '
+            f'title="{esc(p.get("title",""))} · 드랍존">'
+            f'{esc(p.get("title","")[:10])}{"…" if len(p.get("title","")) > 10 else ""}</button>'
+            for p in dropped_projects)
+        dropped_projects_html = (
+            '<details class="dropped-projects"><summary>📥 드랍된 프로젝트 '
+            f'<span class="count">{len(dropped_projects)}</span></summary>'
+            f'<div class="proj-done-list">{dp_rows}</div></details>')
 
     col_html = ""
     for title, key, items in columns:
@@ -1515,6 +1529,23 @@ body {{
 /* 완료된 프로젝트 칩 — 프로젝트 리스트 칩과 동일한 라운드/외곽선, 색만 회색(완료/보관) */
 .filter-btn.proj-done {{ border-color: #8b949e; color: #8b949e; }}
 .filter-btn.proj-done:hover {{ border-color: #8b949e; background: rgba(139,148,158,0.12); }}
+/* 드랍된 프로젝트 — 완료된 프로젝트와 동일한 접이식, 드랍존 보라 계열 */
+.dropped-projects {{
+    margin: 8px 0 16px; border: 1px solid #2a2d3a; border-radius: 8px;
+    background: #11141c; padding: 4px 12px;
+}}
+.dropped-projects summary {{
+    cursor: pointer; padding: 8px 4px; font-size: 13px; font-weight: 600;
+    color: #8b949e; list-style: none; user-select: none;
+}}
+.dropped-projects summary::-webkit-details-marker {{ display: none; }}
+.dropped-projects summary:hover {{ color: #e1e4e8; }}
+.dropped-projects .count {{
+    background: #2a2d3a; color: #8b949e; border-radius: 10px;
+    padding: 1px 8px; font-size: 11px; margin-left: 4px;
+}}
+.filter-btn.proj-drop {{ border-color: #8957e5; color: #a371f7; }}
+.filter-btn.proj-drop:hover {{ border-color: #a371f7; background: rgba(163,113,247,0.12); }}
 /* 장기지연 — 완료된 업무 다음에 오는 접이식 섹션 */
 .long-delayed-section {{
     margin: 16px 32px 0; border: 1px solid #5a2a2a; border-radius: 8px;
@@ -1616,6 +1647,7 @@ body {{
 {gantt_html}
 <div class="filters" id="projFilters">{proj_filter_html}</div>
 {completed_projects_html}
+{dropped_projects_html}
 <div class="board">
 {col_html}
 </div>
@@ -3054,8 +3086,10 @@ function openProjectModal(projectId) {{
         (isEdit ? '<div style="margin-top:12px"><button onclick="addProjectTaskFromModal(this)" style="padding:8px 16px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;width:100%">➕ 하위 업무 추가</button></div>' : '') +
         '<div class="btn-row">' +
         '<button class="btn-primary" onclick="saveProjectFromModal(this)">💾 ' + (isEdit ? '저장' : '생성') + '</button>' +
-        (isEdit && status !== '완료' ? '<button class="btn-complete" onclick="completeProjectFromModal(this)">✅ 완료처리</button>' : '') +
+        (isEdit && status !== '완료' && status !== '보류' ? '<button class="btn-complete" onclick="completeProjectFromModal(this)">✅ 완료처리</button>' : '') +
         (isEdit && status === '완료' ? '<button class="btn-uncomplete" onclick="uncompleteProjectFromModal(this)">↩ 완료취소</button>' : '') +
+        (isEdit && status !== '완료' && status !== '보류' ? '<button class="btn-dropzone" onclick="dropzoneProjectFromModal(this)">📥 드랍존</button>' : '') +
+        (isEdit && status === '보류' ? '<button class="btn-dropzone" onclick="undropzoneProjectFromModal(this)">↩ 드랍존취소</button>' : '') +
         (isEdit ? '<button class="btn-danger" onclick="deleteProjectFromModal(this)">🗑 삭제</button>' : '') +
         '<button class="btn-cancel" style="background:#1c1f2a;color:#8b949e" onclick="closeModal(this.closest(&apos;.modal&apos;))">취소</button>' +
         '</div></div>';
@@ -3184,6 +3218,33 @@ function patchProjectStatus(pid, status, modalEl, okMsg) {{
         if (res.error) {{ showToast('오류: ' + res.error, true); return; }}
         // 완료처리 후 새로고침해도 본인(이상원/이향석) 필터 선택이 유지되도록 보존
         try {{ sessionStorage.setItem('branup_filter', editor); }} catch(e) {{}}
+        showToast(okMsg);
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+// ── 프로젝트 드랍존 / 드랍존취소 (업무 드랍존과 동일: 상태변경 권한 제한 없이 누구나) ──
+function dropzoneProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var pid = modalEl.getAttribute('data-project-id');
+    if (!pid || !confirm('이 프로젝트를 드랍존으로 보내시겠습니까?')) return;
+    patchProjectDropzone(pid, 'dropzone', modalEl, '드랍존으로 보냈습니다!');
+}}
+
+function undropzoneProjectFromModal(btn) {{
+    var modalEl = btn.closest('.modal');
+    var pid = modalEl.getAttribute('data-project-id');
+    if (!pid || !confirm('드랍존에서 해제하고 진행중으로 되돌리시겠습니까?')) return;
+    patchProjectDropzone(pid, 'undropzone', modalEl, '드랍존에서 해제되었습니다!');
+}}
+
+function patchProjectDropzone(pid, action, modalEl, okMsg) {{
+    fetch(API + '/projects/' + pid + '/' + action, {{ method: 'POST' }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(res) {{
+        if (res.error) {{ showToast('오류: ' + res.error, true); return; }}
         showToast(okMsg);
         closeModal(modalEl);
         setTimeout(function() {{ forceRefresh(); }}, 500);
