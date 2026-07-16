@@ -1033,6 +1033,8 @@ body {{
 .modal-field textarea {{
     resize: vertical; min-height: 80px;
 }}
+/* 업무 '내용' 입력칸: 기본 높이를 2배로 (내용 있으면 JS 로 자동 확장) */
+.modal-field textarea.edit-summary {{ min-height: 160px; }}
 /* ── 파일 첨부 ── */
 .file-dropzone {{
     border: 2px dashed #2a2d3a; border-radius: 8px;
@@ -1495,6 +1497,8 @@ body {{
 .project-modal input:focus, .project-modal textarea:focus, .project-modal select:focus {{
     outline: none; border-color: #58a6ff;
 }}
+/* 프로젝트 '설명' 입력칸: 기본 높이를 2배로 (내용 있으면 JS 로 자동 확장) */
+.project-modal .proj-desc {{ min-height: 140px; resize: vertical; }}
 .project-modal .btn-row {{
     display: flex; gap: 8px; margin-top: 12px;
 }}
@@ -2222,7 +2226,7 @@ function createModalEl() {{
         '{''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}' +
         '</select><div style="font-size:10px;color:#8b949e;margin-top:3px">Ctrl+클릭: 다중 선택 | 선택 없으면 미정</div></div>' +
         '<div class="modal-field"><label>마감일</label><input type="date" class="edit-due"></div>' +
-        '<div class="modal-field content-field"><label>📝 내용</label><textarea class="edit-summary" placeholder="업무 내용..." rows="4"></textarea></div>' +
+        '<div class="modal-field content-field"><label>📝 내용</label><textarea class="edit-summary" placeholder="업무 내용..." rows="4" oninput="autoGrowField(this)"></textarea></div>' +
         '<div class="modal-field feedback-field" style="display:none"><label>💬 피드백</label><textarea class="edit-feedback" placeholder="완료 후기, 결과, 특이사항 등..."></textarea></div>' +
         '<div class="modal-field"><label>우선순위</label><select class="edit-priority">' +
         '<option value="긴급">🔴 긴급</option><option value="높음">🟠 높음</option><option value="중간" selected>🟡 중간</option><option value="낮음">🟢 낮음</option>' +
@@ -2261,12 +2265,21 @@ function getModal() {{
     return modalStack[modalStack.length - 1];
 }}
 
+// 텍스트영역 자동 높이: 내용이 있으면 다 보이게(스크롤 없이) + 편집용 여유 20%.
+// 내용이 없으면 CSS 기본 높이(2배)로 되돌린다. 숨겨진 필드는 건너뛴다.
+function autoGrowField(ta) {{
+    if (!ta || ta.offsetParent === null) return;
+    ta.style.height = 'auto';
+    ta.style.height = (ta.value.trim() ? Math.ceil(ta.scrollHeight * 1.2) : ta.scrollHeight) + 'px';
+}}
+
 function populateModal(modalEl, task) {{
     modalEl.querySelector('.modal-title').textContent = '#' + task.display_num + ' 업무 상세';
     modalEl.querySelector('.edit-title').value = task.title || '';
     modalEl.querySelector('.edit-due').value = task.due_at ? task.due_at.slice(0,10) : '';
     modalEl.querySelector('.edit-summary').value = task.summary || task.title || '';
     modalEl.querySelector('.edit-feedback').value = task.feedback || '';
+    autoGrowField(modalEl.querySelector('.edit-summary'));
     modalEl.querySelector('.edit-priority').value = task.priority || '중간';
     modalEl.querySelector('.edit-project').value = task.project_id || '';
     modalEl.querySelector('.modal-meta').innerHTML =
@@ -2375,6 +2388,7 @@ function openCreateModal() {{
     modalEl.querySelector('.edit-due').value = new Date().toISOString().slice(0,10);
     modalEl.querySelector('.edit-summary').value = '';
     modalEl.querySelector('.edit-feedback').value = '';
+    autoGrowField(modalEl.querySelector('.edit-summary'));
     modalEl.querySelector('.edit-priority').value = '중간';
     modalEl.querySelector('.modal-meta').style.display = 'none';
     modalEl.querySelector('.content-field').style.display = '';
@@ -3069,7 +3083,7 @@ function openProjectModal(projectId) {{
         '</div>' +
         '<div class="modal-body">' +
         '<label>제목</label><input type="text" class="proj-title" value="' + title + '" placeholder="프로젝트명">' +
-        '<label>설명</label><textarea class="proj-desc" rows="3" placeholder="프로젝트 설명...">' + desc + '</textarea>' +
+        '<label>설명</label><textarea class="proj-desc" rows="3" placeholder="프로젝트 설명..." oninput="autoGrowField(this)">' + desc + '</textarea>' +
         '<label>상태</label><select class="proj-status">' + statusOpts + '</select>' +
         '<label>시작일</label><input type="date" class="proj-start" value="' + sd + '">' +
         '<label>예상 종료일</label><input type="date" class="proj-end" value="' + ed + '">' +
@@ -3100,6 +3114,7 @@ function openProjectModal(projectId) {{
     document.getElementById('modalOverlay').classList.add('active');
     modalStack.push({{ taskId: null, el: modalEl }});
 
+    autoGrowField(modalEl.querySelector('.proj-desc'));
     if (isEdit) {{
         renderProjectFiles(modalEl, projectId);
     }}
