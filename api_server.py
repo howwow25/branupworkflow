@@ -33,6 +33,7 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 add_file, get_files_by_task, get_files_by_project,
                 get_file_by_id, get_file_path, delete_file,
                 get_file_size_sum)
+from roster import ROSTER, MANAGERS
 
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
@@ -622,11 +623,18 @@ class APIHandler(BaseHTTPRequestHandler):
             proj_rows = conn.execute(
                 "SELECT * FROM projects ORDER BY start_date ASC"
             ).fetchall()
-            # 직원 목록 (assignee DISTINCT)
+            # 직원 목록 (고정 roster + 데이터에 남아있는 legacy 담당자)
+            # 다중 담당자는 쉼표로 저장되므로 분해해서 개인 단위로 집계한다
             member_rows = conn.execute(
                 "SELECT DISTINCT assignee FROM tasks WHERE assignee IS NOT NULL AND assignee != '' AND status NOT IN ('보류')"
             ).fetchall()
-            members = [r["assignee"] for r in member_rows]
+            extra = set()
+            for r in member_rows:
+                for a in r["assignee"].split(","):
+                    a = a.strip()
+                    if a and a not in ("모두", "미정") and a not in ROSTER:
+                        extra.add(a)
+            members = ROSTER + sorted(extra)
         else:
             rows = conn.execute(
                 """SELECT display_num, title, status, summary, due_at, assignee,
@@ -913,9 +921,9 @@ class APIHandler(BaseHTTPRequestHandler):
         restricted = {"status", "start_date", "expected_end_date"}
         editor = body.get("_editor", "")
         if any(k in restricted for k in body):
-            if editor and editor not in ("이상원", "이향석"):
+            if editor and editor not in MANAGERS:
                 self._send_json({
-                    "error": "상태와 일정은 이상원 또는 이향석만 수정할 수 있습니다",
+                    "error": f"상태와 일정은 {' 또는 '.join(MANAGERS)}만 수정할 수 있습니다",
                     "restricted_fields": list(restricted)
                 }, 403)
                 return

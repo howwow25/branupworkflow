@@ -15,6 +15,7 @@ API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
 API_BASE = os.environ.get("BRANUP_API_BASE", "")
 
 sys.path.insert(0, str(Path(__file__).parent))
+from roster import ROSTER, MANAGERS, ALL_HANDS
 import os as _os_dash
 if _os_dash.environ.get("BRANUP_API_URL"):
     from branup_api import get_active_tasks, get_completed_tasks, get_projects
@@ -611,7 +612,10 @@ def render():
     done_count = len(completed)
     dropzone_count = len(dropzone)
 
-    all_assignees = set()
+    # 고정 직원 명단(roster) + 데이터에 실제로 등장한 담당자 합집합
+    # → 업무가 아직 없는 직원도 필터바·담당자 드롭다운에 항상 노출된다
+    all_assignees = set(ROSTER)
+    all_assignees.add(ALL_HANDS)
     for t in tasks:
         for a in (t.get("assignee") or "미정").split(","):
             all_assignees.add(a.strip())
@@ -2404,7 +2408,7 @@ function openCreateModal() {{
     for (var i = 0; i < sel.options.length; i++) {{ sel.options[i].selected = false; }}
     var activeBtn = document.querySelector('.filter-btn:not(.proj).active');
     var filterName = activeBtn ? activeBtn.textContent.trim() : '';
-    var validAssignees = ['강경철', '노수민', '이상원', '이향석', '전경표', '모두'];
+    var validAssignees = {json.dumps(ROSTER + [ALL_HANDS], ensure_ascii=False)};
     if (validAssignees.indexOf(filterName) !== -1) {{
         for (var i = 0; i < sel.options.length; i++) {{
             if (sel.options[i].value === filterName) {{ sel.options[i].selected = true; break; }}
@@ -3220,8 +3224,9 @@ function uncompleteProjectFromModal(btn) {{
 
 function patchProjectStatus(pid, status, modalEl, okMsg) {{
     var editor = ((document.querySelector('.filter-btn:not(.proj):not(.urgent).active') || {{}}).textContent || '').trim();
-    if (editor !== '이상원' && editor !== '이향석') {{
-        showToast('완료처리는 이상원 또는 이향석만 가능합니다. 상단 필터에서 본인 이름을 선택 후 다시 시도하세요.', true);
+    var managers = {json.dumps(MANAGERS, ensure_ascii=False)};
+    if (managers.indexOf(editor) === -1) {{
+        showToast('완료처리는 ' + managers.join(' 또는 ') + '만 가능합니다. 상단 필터에서 본인 이름을 선택 후 다시 시도하세요.', true);
         return;
     }}
     fetch(API + '/projects/' + pid, {{
