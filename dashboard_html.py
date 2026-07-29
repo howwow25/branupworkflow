@@ -1039,6 +1039,28 @@ body {{
 }}
 /* 업무 '내용' 입력칸: 기본 높이를 2배로 (내용 있으면 JS 로 자동 확장) */
 .modal-field textarea.edit-summary {{ min-height: 160px; }}
+/* ── 날짜 입력 달력 아이콘 ──
+   다크 배경(#0f1117)에 브라우저 기본 달력 아이콘이 검정으로 그려져 안 보였다.
+   color-scheme: dark 로 드롭다운 달력 패널까지 다크로 맞추고,
+   아이콘은 밝은 SVG 로 직접 교체한다. (업무/프로젝트 신규·상세 팝업 공통) */
+input[type="date"] {{
+    color-scheme: dark;
+}}
+input[type="date"]::-webkit-calendar-picker-indicator {{
+    width: 17px; height: 17px;
+    margin-left: 4px;
+    cursor: pointer;
+    opacity: 1;
+    border-radius: 4px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 17px 17px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e1e4e8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>");
+}}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {{
+    background-color: #2a2d3a;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2358a6ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>");
+}}
 /* ── 파일 첨부 ── */
 .file-dropzone {{
     border: 2px dashed #2a2d3a; border-radius: 8px;
