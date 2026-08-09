@@ -115,6 +115,125 @@ def evaluate_task(t, ws_date, we_date):
     return "⏸ 보류", "neutral"
 
 
+# ── 섹션 분류 ────────────────────────────────────────
+# 리포트 표 하나에 대응하는 분류 키. 순서 = 리포트에 찍히는 순서.
+BUCKETS = ("completed", "prev_completed", "delayed",
+           "this_week", "next_week", "long_term")
+
+
+def _parse_date(s):
+    """'2026-08-10' 또는 '2026-08-10T09:00' 에서 date 만 뽑는다. 실패하면 None."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(str(s)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def week_bucket(t, ws_date, we_date, today):
+    """
+    업무 하나를 리포트 섹션 하나로 분류한다.
+
+    completed      기준 주에 완료        → ✅ 기준 주 완료
+    prev_completed 기준 주 밖에서 완료   → 표에서 제외 (요약 통계에만 집계)
+    delayed        미완료 · 마감 지남    → ⚠️ 지연 업무
+    this_week      미완료 · 기준 주 마감 → 🔄 이번주 진행중
+    next_week      미완료 · 그 다음 주   → 📅 다음주 예정
+    long_term      그 이후 + 마감 미정   → 🗓 장기 과제
+
+    '이번주/다음주'는 오늘이 아니라 사용자가 고른 **기준 주**를 축으로 삼는다.
+    지난 주를 기준으로 뽑아도 구간이 밀리지 않게 하기 위함이다.
+    """
+    status = t.get("status", "")
+    due_date = _parse_date(t.get("due_at"))
+    closed_date = _parse_date(t.get("closed_at"))
+
+    if status == "완료":
+        if closed_date and ws_date and we_date and ws_date <= closed_date <= we_date:
+            return "completed"
+        return "prev_completed"
+
+    if due_date and due_date < today:
+        return "delayed"
+    if not due_date:
+        return "long_term"          # 마감 미정도 장기 과제로 묶어 눈에 띄게 한다
+    if we_date is None:
+        # 기준 주 파싱 실패 시 오늘이 속한 주로 대체
+        we_date = today + timedelta(days=6 - today.weekday())
+    if due_date <= we_date:
+        return "this_week"
+    if due_date <= we_date + timedelta(days=7):
+        return "next_week"
+    return "long_term"
+
+
+def classify_tasks(tasks, ws_date, we_date, today):
+    """업무 목록을 섹션별로 나눈다. 각 리스트는 원본(마감 오름차순) 순서를 유지."""
+    out = {b: [] for b in BUCKETS}
+    for t in tasks:
+        out[week_bucket(t, ws_date, we_date, today)].append(t)
+    return out
+
+
+def bucket_counts(title, tasks, groups):
+    """요약 통계 표에 넣을 한 행."""
+    row = {"title": title, "total": len(tasks)}
+    row.update({b: len(groups[b]) for b in BUCKETS})
+    return row
+
+
+def render_task_sections(lines, groups, ws_date, we_date):
+    """분류된 업무를 5개 표로 출력한다. (prev_completed 는 의도적으로 표에서 제외)"""
+    def ev(t):
+        return evaluate_task(t, ws_date, we_date)[0]
+
+    def num(t):
+        return t.get("display_num", "?")
+
+    lines.append("### ✅ 기준 주 완료")
+    lines.append("")
+    if groups["completed"]:
+        lines.append("| # | 제목 | 완료일 | 평가 |")
+        lines.append("|---|---|---|---|")
+        for t in groups["completed"]:
+            closed = (t.get("closed_at") or "")[:10]
+            lines.append(f"| #{num(t)} | {t.get('title', '')} | {closed} | {ev(t)} |")
+    else:
+        lines.append("*기준 주에 완료된 업무가 없습니다.*")
+    lines.append("")
+
+    lines.append("### ⚠️ 지연 업무")
+    lines.append("")
+    if groups["delayed"]:
+        lines.append("| # | 제목 | 마감 | 지연일 | 평가 |")
+        lines.append("|---|---|---|---|---|")
+        for t in groups["delayed"]:
+            due = (t.get("due_at") or "")[:10]
+            dd = dday(t.get("due_at"))
+            lines.append(f"| #{num(t)} | {t.get('title', '')} | {due} | D+{abs(dd)} | {ev(t)} |")
+    else:
+        lines.append("*지연된 업무가 없습니다.* 👍")
+    lines.append("")
+
+    for key, heading, empty_note in (
+        ("this_week", "### 🔄 이번주 진행중", "*이번주 마감 예정 업무가 없습니다.*"),
+        ("next_week", "### 📅 다음주 예정",   "*다음주 마감 예정 업무가 없습니다.*"),
+        ("long_term", "### 🗓 장기 과제",     "*장기 과제가 없습니다.*"),
+    ):
+        lines.append(heading)
+        lines.append("")
+        if groups[key]:
+            lines.append("| # | 제목 | 마감 | D-Day | 평가 |")
+            lines.append("|---|---|---|---|---|")
+            for t in groups[key]:
+                due = (t.get("due_at") or "")[:10] if t.get("due_at") else ""
+                lines.append(f"| #{num(t)} | {t.get('title', '')} | {due} | {dday_label(dday(t.get('due_at')))} | {ev(t)} |")
+        else:
+            lines.append(empty_note)
+        lines.append("")
+
+
 def generate_report(payload: dict) -> dict:
     """
     프로젝트 중심 주간리포트 생성
@@ -167,6 +286,12 @@ def generate_report(payload: dict) -> dict:
     lines.append(f"**기준 주:** {week_start} ~ {week_end}  ")
     lines.append(f"**생성일:** {now_str}  ")
     lines.append(f"**전체 업무:** {len(tasks)}건 | **프로젝트:** {len(proj_tasks)}개 | **미지정:** {len(no_proj_tasks)}건  ")
+    # 한눈에 보는 배분 — 아래 프로젝트별 표를 다 읽지 않아도 이번주/다음주 부하가 보이게
+    _ov = classify_tasks(tasks, ws_date, we_date, today)
+    lines.append(
+        f"**🚨 지연:** {len(_ov['delayed'])} | **🔄 이번주:** {len(_ov['this_week'])} | "
+        f"**📅 다음주:** {len(_ov['next_week'])} | **🗓 장기:** {len(_ov['long_term'])}  "
+    )
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -190,111 +315,18 @@ def generate_report(payload: dict) -> dict:
         lines.append("")
 
         # ── 분류 ──
-        completed_this_week = []
-        delayed = []
-        in_progress = []
-
-        for t in ptasks:
-            status = t.get("status", "")
-            due_str = t.get("due_at", "")
-            closed_str = t.get("closed_at", "")
-
-            due_date = None
-            if due_str:
-                try:
-                    due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
-                except Exception:
-                    pass
-
-            closed_date = None
-            if closed_str:
-                try:
-                    closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
-                except Exception:
-                    pass
-
-            # 기준 주 완료
-            if status == "완료" and closed_date and ws_date and we_date:
-                if ws_date <= closed_date <= we_date:
-                    completed_this_week.append(t)
-                    continue
-
-            # 지연 업무 (마감 < 오늘, 미완료)
-            if status != "완료" and due_date and due_date < today:
-                dd = (today - due_date).days
-                delayed.append((t, dd))
-                continue
-
-            # 나머지 진행중
-            if status != "완료":
-                in_progress.append(t)
-                continue
-
-            # 완료됐지만 기준 주 밖
-            in_progress.append(t)
+        groups = classify_tasks(ptasks, ws_date, we_date, today)
 
         # ── 평가 수집 ──
         for t in ptasks:
             ev, grade = evaluate_task(t, ws_date, we_date)
             all_evaluations[grade] = all_evaluations.get(grade, 0) + 1
 
-        # ── 섹션 1: 기준 주 완료 ──
-        lines.append("### ✅ 기준 주 완료")
-        lines.append("")
-        if completed_this_week:
-            lines.append("| # | 제목 | 완료일 | 평가 |")
-            lines.append("|---|---|---|---|")
-            for t in completed_this_week:
-                closed = (t.get("closed_at") or "")[:10]
-                num = t.get("display_num", "?")
-                title = t.get("title", "")
-                ev, _ = evaluate_task(t, ws_date, we_date)
-                lines.append(f"| #{num} | {title} | {closed} | {ev} |")
-        else:
-            lines.append("*기준 주에 완료된 업무가 없습니다.*")
-        lines.append("")
-
-        # ── 섹션 2: 지연 업무 ──
-        lines.append("### ⚠️ 지연 업무")
-        lines.append("")
-        if delayed:
-            lines.append("| # | 제목 | 마감 | 지연일 | 평가 |")
-            lines.append("|---|---|---|---|---|")
-            for t, dd in delayed:
-                num = t.get("display_num", "?")
-                title = t.get("title", "")
-                due = (t.get("due_at") or "")[:10]
-                ev, _ = evaluate_task(t, ws_date, we_date)
-                lines.append(f"| #{num} | {title} | {due} | D+{dd} | {ev} |")
-        else:
-            lines.append("*지연된 업무가 없습니다.* 👍")
-        lines.append("")
-
-        # ── 섹션 3: 진행중 업무 ──
-        lines.append("### 🔄 진행중")
-        lines.append("")
-        if in_progress:
-            lines.append("| # | 제목 | 마감 | D-Day | 평가 |")
-            lines.append("|---|---|---|---|---|")
-            for t in in_progress:
-                num = t.get("display_num", "?")
-                title = t.get("title", "")
-                due = (t.get("due_at") or "")[:10] if t.get("due_at") else ""
-                dd = dday(t.get("due_at"))
-                ev, _ = evaluate_task(t, ws_date, we_date)
-                lines.append(f"| #{num} | {title} | {due} | {dday_label(dd)} | {ev} |")
-        else:
-            lines.append("*진행중인 업무가 없습니다.*")
-        lines.append("")
+        # ── 업무 표 (기준 주 완료 / 지연 / 이번주 / 다음주 / 장기) ──
+        render_task_sections(lines, groups, ws_date, we_date)
 
         # 프로젝트 통계
-        stats_summary.append({
-            "title": proj_title,
-            "total": len(ptasks),
-            "completed": len(completed_this_week),
-            "delayed": len(delayed),
-            "in_progress": len(in_progress),
-        })
+        stats_summary.append(bucket_counts(proj_title, ptasks, groups))
 
         lines.append("---")
         lines.append("")
@@ -307,110 +339,40 @@ def generate_report(payload: dict) -> dict:
         lines.append("")
 
         # 분류
-        n_completed = []
-        n_delayed = []
-        n_in_progress = []
-
-        for t in no_proj_tasks:
-            status = t.get("status", "")
-            due_str = t.get("due_at", "")
-            closed_str = t.get("closed_at", "")
-
-            due_date = None
-            if due_str:
-                try:
-                    due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
-                except Exception:
-                    pass
-
-            closed_date = None
-            if closed_str:
-                try:
-                    closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
-                except Exception:
-                    pass
-
-            if status == "완료" and closed_date and ws_date and we_date:
-                if ws_date <= closed_date <= we_date:
-                    n_completed.append(t)
-                    continue
-
-            if status != "완료" and due_date and due_date < today:
-                dd = (today - due_date).days
-                n_delayed.append((t, dd))
-                continue
-
-            if status != "완료":
-                n_in_progress.append(t)
-                continue
-            n_in_progress.append(t)
+        n_groups = classify_tasks(no_proj_tasks, ws_date, we_date, today)
 
         # 평가 수집
         for t in no_proj_tasks:
             ev, grade = evaluate_task(t, ws_date, we_date)
             all_evaluations[grade] = all_evaluations.get(grade, 0) + 1
 
-        if n_completed:
-            lines.append("| # | 제목 | 완료일 | 평가 |")
-            lines.append("|---|---|---|---|")
-            for t in n_completed:
-                closed = (t.get("closed_at") or "")[:10]
-                num = t.get("display_num", "?")
-                title = t.get("title", "")
-                ev, _ = evaluate_task(t, ws_date, we_date)
-                lines.append(f"| #{num} | {title} | {closed} | {ev} |")
-            lines.append("")
+        render_task_sections(lines, n_groups, ws_date, we_date)
 
-        if n_delayed:
-            lines.append("| # | 제목 | 마감 | 지연일 | 평가 |")
-            lines.append("|---|---|---|---|---|")
-            for t, dd in n_delayed:
-                num = t.get("display_num", "?")
-                title = t.get("title", "")
-                due = (t.get("due_at") or "")[:10]
-                ev, _ = evaluate_task(t, ws_date, we_date)
-                lines.append(f"| #{num} | {title} | {due} | D+{dd} | {ev} |")
-            lines.append("")
-
-        if n_in_progress:
-            lines.append("| # | 제목 | 마감 | D-Day | 평가 |")
-            lines.append("|---|---|---|---|---|")
-            for t in n_in_progress:
-                num = t.get("display_num", "?")
-                title = t.get("title", "")
-                due = (t.get("due_at") or "")[:10] if t.get("due_at") else ""
-                dd = dday(t.get("due_at"))
-                ev, _ = evaluate_task(t, ws_date, we_date)
-                lines.append(f"| #{num} | {title} | {due} | {dday_label(dd)} | {ev} |")
-            lines.append("")
-
-        stats_summary.append({
-            "title": "📋 미지정",
-            "total": len(no_proj_tasks),
-            "completed": len(n_completed),
-            "delayed": len(n_delayed),
-            "in_progress": len(n_in_progress),
-        })
+        stats_summary.append(bucket_counts("📋 미지정", no_proj_tasks, n_groups))
 
         lines.append("---")
         lines.append("")
 
     # ── 전체 요약 통계 (프로젝트별) ──
+    # '이전 완료'는 기준 주 밖에서 끝난 업무 — 표에는 안 나오고 여기서만 집계된다.
+    # 6개 열의 합 = 전체 열이 되도록 맞춰 두었다.
     lines.append("## 📊 요약 통계")
     lines.append("")
-    lines.append("| 프로젝트 | 전체 | 완료 | 지연 | 진행중 |")
-    lines.append("|---|---|---|---|---|")
-    total_comp = 0
-    total_del = 0
-    total_prog = 0
+    lines.append("| 프로젝트 | 전체 | 기준주 완료 | 이전 완료 | 지연 | 이번주 | 다음주 | 장기 |")
+    lines.append("|---|---|---|---|---|---|---|---|")
+    tot = {b: 0 for b in BUCKETS}
     for s in stats_summary:
-        title = s["title"]
-        lines.append(f"| {title} | {s['total']} | {s['completed']} | {s['delayed']} | {s['in_progress']} |")
-        total_comp += s['completed']
-        total_del += s['delayed']
-        total_prog += s['in_progress']
+        lines.append(
+            f"| {s['title']} | {s['total']} | {s['completed']} | {s['prev_completed']} | "
+            f"{s['delayed']} | {s['this_week']} | {s['next_week']} | {s['long_term']} |"
+        )
+        for b in BUCKETS:
+            tot[b] += s[b]
     # 합계 행
-    lines.append(f"| **합계** | **{len(tasks)}** | **{total_comp}** | **{total_del}** | **{total_prog}** |")
+    lines.append(
+        f"| **합계** | **{len(tasks)}** | **{tot['completed']}** | **{tot['prev_completed']}** | "
+        f"**{tot['delayed']}** | **{tot['this_week']}** | **{tot['next_week']}** | **{tot['long_term']}** |"
+    )
     lines.append("")
 
     # ── 종합 평가 ──
@@ -471,9 +433,14 @@ def generate_report(payload: dict) -> dict:
             "total": len(tasks),
             "projects": len(proj_tasks),
             "no_project": len(no_proj_tasks),
-            "completed_this_week": total_comp,
-            "delayed": total_del,
-            "in_progress": total_prog,
+            "completed_this_week": tot["completed"],
+            "prev_completed": tot["prev_completed"],
+            "delayed": tot["delayed"],
+            "this_week": tot["this_week"],
+            "next_week": tot["next_week"],
+            "long_term": tot["long_term"],
+            # 기존 키 호환 — 미완료 업무 총합
+            "in_progress": tot["this_week"] + tot["next_week"] + tot["long_term"],
         }
     }
 
@@ -523,54 +490,44 @@ def generate_all_report(payload: dict) -> dict:
             no_proj_tasks.append(t)
 
     # ── 직원별 전체 통계 ──
-    member_stats = {m: {"total": 0, "completed": 0, "delayed": 0,
-                         "in_progress": 0, "evaluations": {"excellent": 0, "good": 0, "warning": 0, "danger": 0, "neutral": 0}}
-                    for m in members}
-    
+    def _blank_member():
+        return {"total": 0, "completed": 0, "prev_completed": 0, "delayed": 0,
+                "in_progress": 0,
+                "evaluations": {"excellent": 0, "good": 0, "warning": 0, "danger": 0, "neutral": 0}}
+
+    member_stats = {m: _blank_member() for m in members}
+
     # 분류 + 평가 수집
     all_delayed = []  # 전체 지연 업무 (하이라이트용)
     total_comp = 0
+    total_prev = 0
     total_del = 0
     total_prog = 0
 
     for t in tasks:
-        status = t.get("status", "")
-        due_str = t.get("due_at", "")
         a = t.get("assignee", "미정")
-        
-        due_date = None
-        if due_str:
-            try:
-                due_date = datetime.strptime(due_str[:10], "%Y-%m-%d").date()
-            except Exception:
-                pass
-        
-        closed_date = None
-        closed_str = t.get("closed_at", "")
-        if closed_str:
-            try:
-                closed_date = datetime.strptime(closed_str[:10], "%Y-%m-%d").date()
-            except Exception:
-                pass
 
         # 직원 통계
         m = member_stats.get(a)
         if not m:
-            m = {"total": 0, "completed": 0, "delayed": 0,
-                 "in_progress": 0, "evaluations": {"excellent": 0, "good": 0, "warning": 0, "danger": 0, "neutral": 0}}
+            m = _blank_member()
             member_stats[a] = m
         m["total"] += 1
 
-        if status == "완료" and closed_date and ws_date and we_date and ws_date <= closed_date <= we_date:
+        # 개인 리포트와 같은 기준으로 분류한다
+        bucket = week_bucket(t, ws_date, we_date, today)
+        if bucket == "completed":
             m["completed"] += 1
             total_comp += 1
-        elif status != "완료" and due_date and due_date < today:
+        elif bucket == "prev_completed":
+            # 기준 주 밖에서 끝난 업무 — 진행중으로 세지 않는다
+            m["prev_completed"] += 1
+            total_prev += 1
+        elif bucket == "delayed":
             m["delayed"] += 1
             total_del += 1
+            due_date = _parse_date(t.get("due_at"))
             all_delayed.append((t, (today - due_date).days))
-        elif status != "완료":
-            m["in_progress"] += 1
-            total_prog += 1
         else:
             m["in_progress"] += 1
             total_prog += 1
@@ -585,7 +542,7 @@ def generate_all_report(payload: dict) -> dict:
     lines.append(f"**기준 주:** {week_start} ~ {week_end}  ")
     lines.append(f"**생성일:** {now_str}  ")
     lines.append(f"**전체:** {len(tasks)}건 | **직원:** {len(members)}명 | **프로젝트:** {len(proj_tasks)}개  ")
-    lines.append(f"**✅ 완료:** {total_comp} | **🚨 지연:** {total_del} | **🔄 진행중:** {total_prog}  ")
+    lines.append(f"**✅ 완료:** {total_comp} | **🚨 지연:** {total_del} | **🔄 진행중:** {total_prog} | **📦 이전 완료:** {total_prev}  ")
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -666,8 +623,8 @@ def generate_all_report(payload: dict) -> dict:
     # ── 섹션 3: 👥 직원별 성과 평가 ──
     lines.append("## 👥 직원별 성과 평가")
     lines.append("")
-    lines.append("| 직원 | 전체 | 완료 | 지연 | 진행중 | 평가 등급 |")
-    lines.append("|---|---|---|---|---|---|")
+    lines.append("| 직원 | 전체 | 완료 | 이전 완료 | 지연 | 진행중 | 평가 등급 |")
+    lines.append("|---|---|---|---|---|---|---|")
 
     member_order = sorted(member_stats.items(), key=lambda x: x[1]["evaluations"].get("danger", 0), reverse=True)
     for m_name, m_stat in member_order:
@@ -696,7 +653,7 @@ def generate_all_report(payload: dict) -> dict:
             else:
                 grade_str = "🚨 위험"
 
-        lines.append(f"| **{m_name}** | {m_stat['total']} | {m_stat['completed']} | {del_str} | {m_stat['in_progress']} | {grade_str} |")
+        lines.append(f"| **{m_name}** | {m_stat['total']} | {m_stat['completed']} | {m_stat.get('prev_completed', 0)} | {del_str} | {m_stat['in_progress']} | {grade_str} |")
     lines.append("")
 
     # ── 섹션 4: 📊 종합 평가 ──
