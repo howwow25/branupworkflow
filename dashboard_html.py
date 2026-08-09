@@ -2201,29 +2201,44 @@ function doRequestWeeklyReport(assignee, week_start, week_end, label) {{
           '&week_end=' + encodeURIComponent(week_end))
         .then(function(r) {{ return r.json(); }})
         .then(function(data) {{
-            if (data.ok) {{
-                showToast('📊 ' + label + ' 리포트 생성 완료!');
-                if (data.filename) {{
-                    // 자동 다운로드 (fetch + Blob 방식으로 HTTP 경고 우회)
-                    var url = API + '/reports/' + encodeURIComponent(data.filename);
-                    fetch(url)
-                        .then(function(r) {{ return r.blob(); }})
-                        .then(function(blob) {{
-                            var a = document.createElement('a');
-                            a.href = URL.createObjectURL(blob);
-                            a.download = data.filename;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(a.href);
-                        }});
-                }}
-            }} else {{
+            if (!data.ok) {{
                 showToast(data.error || '요청 실패', true);
+                return;
             }}
+            if (!data.filename) {{
+                showToast('리포트는 생성됐지만 파일명을 받지 못했습니다', true);
+                return;
+            }}
+            showToast('📊 ' + label + ' 리포트 생성 완료!');
+
+            // 자동 다운로드 (fetch + Blob 방식으로 HTTP 경고 우회)
+            var url = API + '/reports/' + encodeURIComponent(data.filename);
+            fetch(url)
+                .then(function(r) {{
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.blob();
+                }})
+                .then(function(blob) {{
+                    var objUrl = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = objUrl;
+                    a.download = data.filename;
+                    a.rel = 'noopener';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    // 클릭 직후 revoke 하면 브라우저가 저장을 시작하기 전에 blob 이
+                    // 사라져 다운로드가 조용히 취소되는 경우가 있다. 넉넉히 미룬다.
+                    setTimeout(function() {{ URL.revokeObjectURL(objUrl); }}, 60000);
+                }})
+                .catch(function(err) {{
+                    // 자동 다운로드가 막히거나 실패해도 수동으로 받을 길은 남긴다
+                    showToast('다운로드 실패(' + err.message + '). 새 탭으로 엽니다', true);
+                    window.open(url, '_blank');
+                }});
         }})
         .catch(function(err) {{
-            showToast('API 연결 실패', true);
+            showToast('API 연결 실패: ' + err.message, true);
         }})
         .finally(function() {{
             btn.textContent = '📊 주간리포트';

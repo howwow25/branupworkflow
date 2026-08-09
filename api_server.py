@@ -580,6 +580,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         API_BASE = os.environ.get("BRANUP_API_BASE", "")
         report = None
+        gen_error = None      # 리포트 생성 실패 사유 (클라이언트에 그대로 돌려준다)
 
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
@@ -760,6 +761,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 #     send_to(chat_id, label)
                 pass  # 텔레그램 전송 비활성화 — 브라우저에서 직접 다운로드
             else:
+                gen_error = report.get("error") or "weekly_report 가 ok=false 를 반환"
                 with open(log_file, "a", encoding="utf-8") as lf:
                     lf.write(f"[ERROR] report generation failed: {report}\n")
 
@@ -770,6 +772,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 pass
 
         except Exception as e:
+            gen_error = f"{type(e).__name__}: {e}"
             try:
                 with open(log_file, "a", encoding="utf-8") as lf:
                     lf.write(f"[ERROR] {e}\n")
@@ -786,13 +789,34 @@ class APIHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        resp = {
+        # ── 응답 ──
+        # 예전에는 생성이 실패해도 무조건 ok=True 를 돌려줘서, 화면에는 "생성 완료!"
+        # 토스트가 뜨는데 다운로드만 조용히 안 되는 상태가 됐다. 실패는 실패로 알린다.
+        filename = report.get("filename") if report else None
+        if not filename:
+            self._send_json({
+                "ok": False,
+                "error": f"리포트 생성 실패 ({gen_error or '원인 미상'}) — 서버 로그: {log_file}"
+            }, 500)
+            return
+
+        # 생성됐다고 했는데 실제 파일이 없으면 다운로드 단계에서 404 가 난다.
+        # weekly_report.py 와 api_server.py 의 DATA_DIR 이 어긋난 경우가 대표적이라
+        # 여기서 미리 잡아 어느 경로를 봤는지까지 알려준다.
+        expected = Path(DATA_DIR) / "reports" / filename
+        if not expected.exists():
+            self._send_json({
+                "ok": False,
+                "error": f"리포트는 생성됐으나 다운로드 경로에 파일이 없습니다: {expected} "
+                         f"(생성 위치: {report.get('report_path')})"
+            }, 500)
+            return
+
+        self._send_json({
             "ok": True,
-            "message": f"📊 {'브랜업 전체' if is_all else assignee + '님'} 주간리포트 생성 완료!"
-        }
-        if report and report.get("filename"):
-            resp["filename"] = report["filename"]
-        self._send_json(resp)
+            "message": f"📊 {'브랜업 전체' if is_all else assignee + '님'} 주간리포트 생성 완료!",
+            "filename": filename
+        })
 
     # ── 에이전트 명령어 처리 ──────────────────────────
 
