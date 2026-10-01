@@ -15,7 +15,7 @@ API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
 API_BASE = os.environ.get("BRANUP_API_BASE", "")
 
 sys.path.insert(0, str(Path(__file__).parent))
-from roster import ROSTER, MANAGERS, ALL_HANDS
+from roster import ROSTER, MANAGERS, ALL_HANDS, RESIGNED
 import os as _os_dash
 if _os_dash.environ.get("BRANUP_API_URL"):
     from branup_api import get_active_tasks, get_completed_tasks, get_projects
@@ -622,6 +622,7 @@ def render():
     for t in completed:
         for a in (t.get("assignee") or "미정").split(","):
             all_assignees.add(a.strip())
+    all_assignees -= set(RESIGNED)  # 퇴사자는 버튼에서 숨김 (과거 업무 이력은 유지)
     sorted_assignees = sorted(all_assignees, key=lambda x: (x == "미정", x == "모두", x))
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")

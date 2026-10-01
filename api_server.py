@@ -33,7 +33,7 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 add_file, get_files_by_task, get_files_by_project,
                 get_file_by_id, get_file_path, delete_file,
                 get_file_size_sum)
-from roster import ROSTER, MANAGERS
+from roster import ROSTER, MANAGERS, RESIGNED
 
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
@@ -633,7 +633,7 @@ class APIHandler(BaseHTTPRequestHandler):
             for r in member_rows:
                 for a in r["assignee"].split(","):
                     a = a.strip()
-                    if a and a not in ("모두", "미정") and a not in ROSTER:
+                    if a and a not in ("모두", "미정") and a not in ROSTER and a not in RESIGNED:
                         extra.add(a)
             members = ROSTER + sorted(extra)
         else:
