@@ -1005,6 +1005,13 @@ body {{
     line-height: 1;
 }}
 .modal-close:hover {{ color: #f85149; }}
+.modal-share {{
+    background: none; border: none; color: #8b949e;
+    font-size: 16px; cursor: pointer; padding: 0 8px;
+    line-height: 1; margin-left: auto;
+}}
+.modal-share:hover {{ color: #58a6ff; }}
+.modal-share.copied {{ color: #3fb950; }}
 .modal-body {{ padding: 0 24px 24px; }}
 .modal-field {{
     margin-bottom: 16px;
@@ -2259,6 +2266,7 @@ function createModalEl() {{
     div.innerHTML =
         '<div class="modal-header">' +
         '<h2 class="modal-title"></h2>' +
+        '<button class="modal-share" title="링크 복사" style="display:none" onclick="copyShareLink(this)">🔗</button>' +
         '<button class="modal-close" onclick="closeModal(this.parentElement.parentElement)">&times;</button>' +
         '</div>' +
         '<div class="modal-body">' +
@@ -2379,6 +2387,8 @@ function openModal(taskId) {{
 
     var local = TASKS_DATA[taskId];
     var modalEl = createModalEl();
+    modalEl.setAttribute('data-task-id', taskId);
+    modalEl.querySelector('.modal-share').style.display = '';
     document.getElementById('modalOverlay').appendChild(modalEl);
     document.getElementById('modalOverlay').classList.add('active');
     modalStack.push({{ taskId: taskId, el: modalEl }});
@@ -3121,6 +3131,7 @@ function openProjectModal(projectId) {{
     modalEl.innerHTML =
         '<div class="modal-header">' +
         '<h2 class="modal-title">' + (isEdit ? '프로젝트 상세' : '새 프로젝트') + '</h2>' +
+        (isEdit ? '<button class="modal-share" title="링크 복사" onclick="copyShareLink(this)">🔗</button>' : '') +
         '<button class="modal-close" onclick="closeModal(this.parentElement.parentElement)">&times;</button>' +
         '</div>' +
         '<div class="modal-body">' +
@@ -3309,6 +3320,121 @@ function patchProjectDropzone(pid, action, modalEl, okMsg) {{
     }})
     .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
 }}
+
+// ── 공유 링크 ──────────────────────────────────────────────
+// 상세 팝업의 🔗 를 누르면 "이 팝업을 바로 여는 주소"를 클립보드에 복사한다.
+// 주소는 하드코딩하지 않고 현재 페이지에서 만든다 → 운영/테스트/로컬 각자 맞는 링크가 나온다.
+function buildShareLink(kind, id) {{
+    return window.location.origin + window.location.pathname +
+           '?' + kind + '=' + encodeURIComponent(id);
+}}
+
+// 운영은 http:// 라서 보안 컨텍스트가 아니고, 그때 navigator.clipboard 는 아예 없다.
+// 그것만 쓰면 운영에서 조용히 실패하므로 textarea + execCommand 로 떨어진다.
+// 보안 컨텍스트라도 권한이 거부될 수 있으니, 실패하면 같은 폴백으로 한 번 더 받는다.
+function writeClipboard(text) {{
+    if (window.isSecureContext && window.navigator && navigator.clipboard) {{
+        return navigator.clipboard.writeText(text).catch(function() {{
+            return legacyCopy(text);
+        }});
+    }}
+    return legacyCopy(text);
+}}
+
+function legacyCopy(text) {{
+    return new Promise(function(resolve, reject) {{
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        var ok = false;
+        try {{ ok = document.execCommand('copy'); }} catch (e) {{ ok = false; }}
+        document.body.removeChild(ta);
+        if (ok) resolve(); else reject(new Error('execCommand copy 실패'));
+    }});
+}}
+
+function copyShareLink(btn) {{
+    var modalEl = btn.closest('.modal');
+    if (!modalEl) return;
+
+    var taskId = modalEl.getAttribute('data-task-id');
+    var projectId = modalEl.getAttribute('data-project-id');
+    var link, label;
+    if (taskId) {{
+        link = buildShareLink('task', taskId); label = '업무';
+    }} else if (projectId) {{
+        link = buildShareLink('project', projectId); label = '프로젝트';
+    }} else {{
+        return;
+    }}
+
+    writeClipboard(link).then(function() {{
+        btn.classList.add('copied');
+        btn.textContent = '✅';
+        showToast('🔗 ' + label + ' 링크를 복사했습니다');
+        setTimeout(function() {{
+            btn.classList.remove('copied');
+            btn.textContent = '🔗';
+        }}, 1500);
+    }}).catch(function() {{
+        window.prompt('자동 복사가 안 됩니다. 아래 주소를 복사하세요 (Ctrl+C)', link);
+    }});
+}}
+
+// ── 링크로 들어온 경우 해당 상세를 자동으로 연다 ──
+// 'constructor' 같은 프로토타입 키가 데이터인 척하지 않도록 직접 가진 키만 본다.
+function hasOwn(obj, key) {{
+    return Object.prototype.hasOwnProperty.call(obj, key);
+}}
+
+// 스냅샷에 없는 업무는 API로 확인한다. API 주소는 페이지 로드 직후 자동탐지로
+// 바뀔 수 있어서, 첫 시도가 실패하면 잠시 뒤 한 번만 더 해본다.
+function openTaskFromApi(taskId, canRetry) {{
+    function retryOrFail(msg) {{
+        if (canRetry) {{
+            setTimeout(function() {{ openTaskFromApi(taskId, false); }}, 1500);
+        }} else {{
+            showToast(msg, true);
+        }}
+    }}
+    fetch(API + '/tasks/' + encodeURIComponent(taskId))
+        .then(function(r) {{ return r.json(); }})
+        .then(function(task) {{
+            if (task && !task.error) openModal(taskId);
+            else retryOrFail('링크의 업무를 찾을 수 없습니다 (#' + taskId + ')');
+        }})
+        .catch(function() {{ retryOrFail('링크의 업무를 열지 못했습니다 (API 연결 실패)'); }});
+}}
+
+function openFromLink() {{
+    var params = new URLSearchParams(window.location.search);
+    var taskId = params.get('task');
+    var projectId = params.get('project');
+    if (!taskId && !projectId) return;
+
+    // 주소에서 지운다. forceRefresh() 가 현재 주소를 그대로 들고 다시 열기 때문에,
+    // 남겨두면 저장·완료할 때마다 이 팝업이 멋대로 다시 뜬다.
+    // 복사 링크는 주소가 아니라 origin+pathname 으로 만들므로 영향이 없다.
+    if (window.history && window.history.replaceState) {{
+        window.history.replaceState(null, '', window.location.pathname);
+    }}
+
+    if (taskId) {{
+        if (hasOwn(TASKS_DATA, taskId)) openModal(taskId);
+        else openTaskFromApi(taskId, true);
+        return;
+    }}
+
+    if (hasOwn(PROJECTS_DATA, projectId)) openProjectModal(projectId);
+    else showToast('링크의 프로젝트를 찾을 수 없습니다', true);
+}}
+window.addEventListener('load', openFromLink);
 </script>
 </body>
 </html>"""
