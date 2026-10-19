@@ -1035,7 +1035,9 @@ body {{
     border-radius: 6px; color: #c9b6f5;
 }}
 .recur-stop-btn {{
-    margin-top: 8px; padding: 5px 10px; font-size: 11px; font-weight: 600;
+    /* 체크박스 라벨이 inline-flex 라 기본값이면 같은 줄로 붙어 겹친다. */
+    display: block; margin-top: 10px; padding: 5px 10px;
+    font-size: 11px; font-weight: 600;
     background: #30363d; color: #e1e4e8; border: 1px solid #484f5a;
     border-radius: 6px; cursor: pointer;
 }}
@@ -1117,6 +1119,21 @@ body {{
     margin-bottom: 6px; text-transform: uppercase;
     letter-spacing: 0.5px;
 }}
+/* 체크박스 줄은 위 두 규칙(label display:block, input width:100%)에 그대로
+   걸린다 — 체크박스가 한 줄을 통째로 먹고 글자가 아래로 떨어졌다.
+   .recur-check 만으로는 특이성에서 져서 여기서 다시 쓴다. */
+.modal-field label.recur-check {{
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #e1e4e8; margin-bottom: 0;
+    text-transform: none; letter-spacing: normal;
+    white-space: nowrap; cursor: pointer; vertical-align: middle;
+}}
+.modal-field .recur-check input[type="checkbox"] {{
+    width: auto; min-width: 0; flex: 0 0 auto;
+    padding: 0; margin: 0;
+}}
+.modal-field .recur-row select {{ width: auto; padding: 6px 10px; }}
+.modal-field .recur-row input[type="number"] {{ width: 72px; padding: 6px 10px; }}
 .modal-field input, .modal-field textarea, .modal-field select {{
     width: 100%; padding: 10px 14px;
     background: #0f1117;
@@ -3006,12 +3023,50 @@ function deleteTask(btnEl) {{
     var modalEl = btnEl.closest('.modal');
     var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
     if (!m || !m.taskId) return;
+
+    // 반복 업무는 "이 하나" 와 "여기서부터 끝" 이 전혀 다른 일이다. 저장할
+    // 때처럼 범위를 묻는다 — 되돌릴 수 없으므로 숫자까지 보여 준다.
+    var orig = modalEl._origTask || {{}};
+    var s = orig.series_id ? SERIES_DATA[orig.series_id] : null;
+    if (s) {{
+        var seq = orig.series_seq || 0;
+        var later = 0;
+        for (var k in TASKS_DATA) {{
+            if (!hasOwn(TASKS_DATA, k)) continue;
+            var t = TASKS_DATA[k];
+            if (t.series_id === orig.series_id && (t.series_seq || 0) > seq
+                && t.status !== '완료') later++;
+        }}
+        var box = modalEl.querySelector('.scope-ask');
+        box.innerHTML = '🔁 반복 업무입니다. 어디까지 지울까요?<br>' +
+            '<small><b>이 업무만</b> — 대신 다음 회차 하나가 새로 생깁니다.<br>' +
+            '<b>이 업무와 이후 모두</b> — ' +
+            (later ? ('이후 ' + later + '개를 함께 지우고 ') : '') +
+            '반복을 멈춥니다. 완료한 회차는 남습니다.</small><br>' +
+            '<button class="scope-this" onclick="doDeleteTask(this,&#39;this&#39;)">이 업무만</button>' +
+            '<button class="scope-following" onclick="doDeleteTask(this,&#39;following&#39;)">이 업무와 이후 모두</button>' +
+            '<button class="scope-cancel" onclick="hideScopeAskFrom(this)">취소</button>';
+        box.style.display = '';
+        return;
+    }}
+
     if (!confirm('정말 삭제하시겠습니까?')) return;
-    fetch(API + '/tasks/' + m.taskId, {{ method: 'DELETE' }})
+    doDeleteTask(btnEl, 'this');
+}}
+
+function doDeleteTask(btnEl, scope) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    hideScopeAsk(modalEl);
+    var url = API + '/tasks/' + m.taskId + (scope === 'following' ? '?scope=following' : '');
+    fetch(url, {{ method: 'DELETE' }})
     .then(function(r) {{ return r.json(); }})
     .then(function(data) {{
-        if (data.error) {{ showToast('삭제 실패', true); return; }}
-        showToast('삭제 완료!');
+        if (data.error) {{ showToast('삭제 실패: ' + data.error, true); return; }}
+        showToast(data.stopped
+            ? ('🔁 ' + (data.removed || 1) + '개를 지우고 반복을 멈췄습니다')
+            : '삭제 완료!');
         closeModal(modalEl);
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }}).catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});

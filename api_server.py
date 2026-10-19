@@ -48,7 +48,7 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 get_file_size_sum,
                 create_series, get_series, get_series_tasks, stop_series,
                 apply_series_following, backfill_series, today_kst,
-                set_series_auto_rename)
+                set_series_auto_rename, delete_task_following)
 from recurrence import FREQS, WINDOW, first_open_seq, nth_due, relabel
 from roster import ROSTER, MANAGERS, RESIGNED
 
@@ -222,9 +222,14 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/api/tasks/list":
             # 반복업무 창을 여기서 채운다. 스케줄러가 없는 앱이라 "화면을 볼 때"
             # 가 유일하게 믿을 수 있는 시점이다 (docs/adr/0001).
-            backfill_series()
+            made = backfill_series()
             tasks = get_active_tasks()
             self._send_json(tasks)
+            # 새 회차가 생겼으면 정적 HTML 도 다시 굽는다. 안 그러면 새로고침
+            # 했을 때 **다음 변경이 있을 때까지 옛 화면**이 보인다.
+            # 응답을 보낸 뒤에 한다 — 사람을 기다리게 할 일이 아니다.
+            if made:
+                self._refresh_dashboard()
             return
 
         # /api/tasks/completed → 전체 완료 업무
@@ -429,11 +434,23 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "task not found"}, 404)
             return
 
+        # ?scope=following → 이 회차와 이후 회차를 지우고 반복을 멈춘다.
+        # 멈추지 않으면 보충이 곧바로 새 회차를 만들어, 지운 사람 눈에는
+        # 아무 일도 일어나지 않은 것처럼 보인다.
+        scope = (parse_qs(urlparse(self.path).query).get("scope", [""])[0] or "")
+        if scope == "following" and task.get("series_id"):
+            res = delete_task_following(task_id)
+            self._refresh_dashboard()
+            self._send_json({"deleted": True, "id": task_id,
+                             "removed": res.get("deleted", 0),
+                             "stopped": res.get("stopped", False)})
+            return
+
         conn = get_conn()
         conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         conn.commit()
         self._refresh_dashboard()
-        self._send_json({"deleted": True, "id": task_id})
+        self._send_json({"deleted": True, "id": task_id, "removed": 1})
 
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")

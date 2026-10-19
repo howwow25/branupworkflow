@@ -658,6 +658,38 @@ def apply_series_following(series_id: str, from_seq: int, fields: Dict) -> int:
 
 
 @_writer
+def delete_task_following(task_id: str) -> Dict:
+    """이 회차와 **이후 회차**를 지우고 반복을 멈춘다.
+
+    멈추지 않으면 창이 비었다고 보고 **곧바로 새 회차를 만든다** — 지운
+    사람 눈에는 아무 일도 일어나지 않은 것처럼 보인다.
+
+    완료한 이후 회차는 남긴다(했던 일은 기록이다). 다만 지금 보고 있는 이
+    업무는 완료든 아니든 지운다 — 사람이 그걸 지목했다.
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT series_id, series_seq FROM tasks WHERE id=?", (task_id,)).fetchone()
+    if not row:
+        return {"deleted": 0, "stopped": False}
+    if not row["series_id"]:
+        conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        conn.commit()
+        return {"deleted": 1, "stopped": False}
+
+    sid = row["series_id"]
+    seq = row["series_seq"] or 0
+    conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+    cur = conn.execute(
+        "DELETE FROM tasks WHERE series_id=? AND series_seq>? AND status<>'완료'",
+        (sid, seq))
+    n = 1 + (cur.rowcount or 0)
+    conn.commit()
+    update_series(sid, stopped_at=now_iso())
+    return {"deleted": n, "stopped": True, "series_id": sid}
+
+
+@_writer
 def set_series_auto_rename(series_id: str, on: bool) -> int:
     """이름 자동 변경을 켜거나 끈다. 이름을 고친 회차 수를 돌려준다.
 
