@@ -1,0 +1,13 @@
+# 파이썬 캐시 (pytest 를 들이면서 생긴다)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 운영 데이터. 저장소에 들어가면 서버의 업무를 덮어쓴다.
+data/
+db/
+files/
+
+# 도구가 만드는 폴더
+.claude/
+.gstack/

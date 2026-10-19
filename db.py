@@ -7,8 +7,10 @@ import json
 import os
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
+
+from recurrence import FREQS, first_open_seq, nth_due, plan_fill
 
 DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
     str(Path(__file__).parent.parent / "data"))
@@ -132,6 +134,46 @@ def _ensure_schema(conn):
     CREATE INDEX IF NOT EXISTS idx_files_task ON files(task_id);
     CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
     """)
+    # ── migration: 반복 시리즈 (docs/adr/0001-반복업무.md) ──
+    #
+    # 반복 설정을 tasks 에 칼럼으로 달지 않고 표를 따로 둔다. 시리즈는 업무가
+    # 아니라 **업무를 찍어내는 틀**이다. tasks 에 넣으면 같은 설정이 회차마다
+    # 복사되어, "이 업무와 이후 모두" 를 고칠 때 어느 행이 진짜 설정인지
+    # 알 수 없게 된다.
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS task_series (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL REFERENCES rooms(id),
+        freq TEXT NOT NULL,                       -- '주' | '월' | '년'
+        anchor_date TEXT NOT NULL,                -- 1회차 마감일 'YYYY-MM-DD'
+        total_count INTEGER,                      -- NULL = 마감없음
+        made_through INTEGER NOT NULL DEFAULT 0,  -- 지금까지 만든 최고 회차
+        stopped_at TEXT,                          -- NULL 이면 도는 중
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        assignee TEXT,
+        priority TEXT NOT NULL DEFAULT '중간',
+        project_id TEXT REFERENCES projects(id),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_series_open ON task_series(stopped_at);
+    """)
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN series_id TEXT REFERENCES task_series(id)")
+    except Exception:
+        pass  # already exists
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN series_seq INTEGER")
+    except Exception:
+        pass  # already exists
+    # 한 회차는 업무 하나다. 화면을 동시에 두 번 열면 보충이 같은 회차를 두 번
+    # 만들 수 있는데, 그걸 DB 가 막는다 (앱 쪽 잠금보다 확실하다).
+    try:
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_series_seq "
+                     "ON tasks(series_id, series_seq) WHERE series_id IS NOT NULL")
+    except Exception:
+        pass
     # assign display_num to tasks without one (ordered by created_at)
     nulls = conn.execute(
         "SELECT id FROM tasks WHERE display_num IS NULL ORDER BY created_at ASC"
@@ -226,7 +268,9 @@ def get_all_rooms() -> List[Dict]:
 
 def create_task(room_id: str, title: str, summary: str = "",
                 due_at: Optional[str] = None, assignee: Optional[str] = None,
-                priority: str = "중간", project_id: Optional[str] = None) -> Dict:
+                priority: str = "중간", project_id: Optional[str] = None,
+                series_id: Optional[str] = None,
+                series_seq: Optional[int] = None) -> Dict:
     conn = get_conn()
     tid = str(uuid4())
     ts = now_iso()
@@ -234,14 +278,16 @@ def create_task(room_id: str, title: str, summary: str = "",
         "SELECT COALESCE(MAX(display_num), 0) + 1 FROM tasks"
     ).fetchone()[0]
     conn.execute(
-        "INSERT INTO tasks (id,room_id,title,status,summary,due_at,assignee,priority,created_at,updated_at,display_num,project_id) "
-        "VALUES (?,?,?,'진행중',?,?,?,?,?,?,?,?)",
-        (tid, room_id, title, summary, due_at, assignee, priority, ts, ts, next_num, project_id))
+        "INSERT INTO tasks (id,room_id,title,status,summary,due_at,assignee,priority,created_at,updated_at,display_num,project_id,series_id,series_seq) "
+        "VALUES (?,?,?,'진행중',?,?,?,?,?,?,?,?,?,?)",
+        (tid, room_id, title, summary, due_at, assignee, priority, ts, ts, next_num,
+         project_id, series_id, series_seq))
     conn.commit()
     return {"id": tid, "room_id": room_id, "title": title, "status": "진행중",
             "summary": summary, "due_at": due_at, "assignee": assignee,
             "priority": priority, "created_at": ts, "updated_at": ts, "closed_at": None,
-            "display_num": next_num, "project_id": project_id}
+            "display_num": next_num, "project_id": project_id,
+            "series_id": series_id, "series_seq": series_seq}
 
 
 def update_task(task_id: str, **kwargs):
@@ -294,6 +340,201 @@ def get_dropzone_tasks() -> List[Dict]:
     conn = get_conn()
     return [dict(r) for r in conn.execute(
         "SELECT * FROM tasks WHERE status='보류' ORDER BY updated_at DESC")]
+
+
+# ── 반복 시리즈 ──────────────────────────────────────────
+#
+# 날짜 계산은 전부 `recurrence.py` 에 있다 (DB 를 모르는 순수 함수 + 시험).
+# 여기는 그 계산을 표에 옮기는 일만 한다.
+
+
+def today_kst() -> str:
+    """오늘 날짜 'YYYY-MM-DD'. 서버 시간대에 끌려다니지 않게 KST 로 고정한다."""
+    KST = timezone(timedelta(hours=9))
+    return datetime.now(KST).date().isoformat()
+
+
+SERIES_FIELDS = {"title", "summary", "assignee", "priority", "project_id",
+                 "total_count", "made_through", "stopped_at", "freq",
+                 "anchor_date"}
+
+
+def create_series(room_id: str, freq: str, anchor_date: str,
+                  total_count: Optional[int], title: str, summary: str = "",
+                  assignee: Optional[str] = None, priority: str = "중간",
+                  project_id: Optional[str] = None) -> Dict:
+    if freq not in FREQS:
+        raise ValueError(f"모르는 주기: {freq!r}")
+    if total_count is not None and total_count < 1:
+        raise ValueError(f"횟수는 1 이상입니다: {total_count}")
+    # 기준일이 날짜가 아니면 여기서 막는다. 뒤에서 조용히 틀리면 다음 회차가
+    # 영원히 안 생기고 사람은 이유를 모른다.
+    date.fromisoformat(anchor_date[:10])
+    conn = get_conn()
+    sid = str(uuid4())
+    ts = now_iso()
+    conn.execute(
+        "INSERT INTO task_series (id,room_id,freq,anchor_date,total_count,made_through,"
+        "title,summary,assignee,priority,project_id,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,0,?,?,?,?,?,?,?)",
+        (sid, room_id, freq, anchor_date[:10], total_count, title, summary,
+         assignee, priority, project_id, ts, ts))
+    conn.commit()
+    return get_series(sid)
+
+
+def get_series(series_id: str) -> Optional[Dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM task_series WHERE id=?", (series_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_open_series() -> List[Dict]:
+    """아직 도는 시리즈. 중단했거나 횟수를 다 쓴 것은 빠진다."""
+    conn = get_conn()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM task_series WHERE stopped_at IS NULL")]
+
+
+def get_all_series() -> List[Dict]:
+    """중단한 것까지 전부. 화면이 "3/10회" 를 적으려면 멈춘 시리즈도 필요하다."""
+    conn = get_conn()
+    return [dict(r) for r in conn.execute("SELECT * FROM task_series")]
+
+
+def update_series(series_id: str, **kwargs):
+    conn = get_conn()
+    sets, vals = ["updated_at=?"], [now_iso()]
+    for k, v in kwargs.items():
+        if k in SERIES_FIELDS:
+            sets.append(f"{k}=?")
+            vals.append(v)
+    vals.append(series_id)
+    conn.execute(f"UPDATE task_series SET {', '.join(sets)} WHERE id=?", vals)
+    conn.commit()
+
+
+def get_series_tasks(series_id: str) -> List[Dict]:
+    conn = get_conn()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM tasks WHERE series_id=? ORDER BY series_seq ASC", (series_id,))]
+
+
+def _open_in_window(rows: List[Dict], today: str) -> int:
+    """창에 들어 있는 회차 수 — 완료도 마감지남도 아닌 것.
+
+    **보류(드랍존)는 날짜와 무관하게 센다.** 연기한 업무의 자리를 메우려고
+    새 회차가 또 생기면 밀어낸 보람이 없다.
+    """
+    n = 0
+    for r in rows:
+        if r["status"] == "완료":
+            continue
+        if r["status"] == "보류":
+            n += 1
+            continue
+        due = (r.get("due_at") or "")[:10]
+        # 마감일을 비운 업무는 '미정' 이라 아직 끝난 것이 아니다.
+        if not due or due >= today:
+            n += 1
+    return n
+
+
+def backfill_series(today: Optional[str] = None) -> int:
+    """창이 빈 반복 시리즈를 채운다. 새로 만든 업무 수를 돌려준다.
+
+    스케줄러가 없는 앱이라 **화면을 볼 때마다** 이걸 부른다
+    (docs/adr/0001). 아무도 안 보는 동안 채울 이유가 없고, 보는 순간에는
+    이미 채워져 있다.
+
+    절대 예외를 올리지 않는다 — 반복 하나가 깨져서 업무 목록이 안 열리면
+    사람이 서비스 앞에서 멈춘다.
+    """
+    today = (today or today_kst())[:10]
+    try:
+        t = date.fromisoformat(today)
+    except Exception:
+        return 0
+    made = 0
+    try:
+        series = get_open_series()
+    except Exception:
+        return 0
+    for s in series:
+        try:
+            anchor = date.fromisoformat((s["anchor_date"] or "")[:10])
+            rows = get_series_tasks(s["id"])
+            seqs = plan_fill(anchor, s["freq"], s["total_count"], t,
+                             made_through=s["made_through"] or 0,
+                             open_count=_open_in_window(rows, today))
+            for seq in seqs:
+                due = nth_due(anchor, s["freq"], seq).isoformat()
+                try:
+                    create_task(
+                        s["room_id"], title=s["title"],
+                        summary=s["summary"] or s["title"], due_at=due,
+                        assignee=s["assignee"], priority=s["priority"],
+                        project_id=s["project_id"],
+                        series_id=s["id"], series_seq=seq)
+                except sqlite3.IntegrityError:
+                    continue      # 다른 요청이 같은 회차를 먼저 만들었다
+                made += 1
+            if seqs:
+                update_series(s["id"], made_through=max(seqs))
+            # 더 만들 회차가 남았는지 본다. 없으면 시리즈를 닫아 다음부터
+            # 다시 계산하지 않는다. (방치해서 횟수를 다 쓴 경우도 여기서 닫힌다)
+            if s["total_count"]:
+                through = max(seqs) if seqs else (s["made_through"] or 0)
+                nxt = max(through + 1, first_open_seq(anchor, s["freq"], t))
+                if nxt > s["total_count"]:
+                    update_series(s["id"], stopped_at=now_iso())
+        except Exception as e:                    # noqa: BLE001
+            print(f"[db] 반복 보충 실패 series={s.get('id')}: {e}", file=sys.stderr)
+            continue
+    return made
+
+
+def stop_series(series_id: str, delete_future: bool = False) -> Dict:
+    """반복을 멈춘다. 앞으로 만들 것만 멈추고, 이미 만든 것은 고른 대로.
+
+    지난 기록과 완료분은 건드리지 않는다 — 했던 일이 사라지면 기록이
+    아니게 된다. `delete_future` 는 **오늘보다 뒤**인 미완료 회차만 지운다.
+    """
+    today = today_kst()
+    removed = 0
+    if delete_future:
+        conn = get_conn()
+        cur = conn.execute(
+            "DELETE FROM tasks WHERE series_id=? AND status<>'완료' "
+            "AND due_at IS NOT NULL AND substr(due_at,1,10) > ?",
+            (series_id, today))
+        removed = cur.rowcount or 0
+        conn.commit()
+    update_series(series_id, stopped_at=now_iso())
+    s = get_series(series_id) or {}
+    s["removed"] = removed
+    return s
+
+
+def apply_series_following(series_id: str, from_seq: int, fields: Dict) -> int:
+    """시리즈 틀을 고치고 **이후 회차**에도 반영한다. 고친 업무 수.
+
+    이미 완료한 회차는 건드리지 않는다. 끝난 업무의 제목이 소급해서 바뀌면
+    그것은 기록이 아니다.
+    """
+    allowed = {"title", "summary", "assignee", "priority", "project_id"}
+    patch = {k: v for k, v in fields.items() if k in allowed}
+    if not patch:
+        return 0
+    update_series(series_id, **patch)
+    conn = get_conn()
+    sets = ", ".join(f"{k}=?" for k in patch)
+    vals = list(patch.values()) + [now_iso(), series_id, from_seq]
+    cur = conn.execute(
+        f"UPDATE tasks SET {sets}, updated_at=? "
+        "WHERE series_id=? AND series_seq>? AND status<>'완료'", vals)
+    conn.commit()
+    return cur.rowcount or 0
 
 
 # ── projects ────────────────────────────────────────────

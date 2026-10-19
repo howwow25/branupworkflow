@@ -10,7 +10,13 @@
   POST   /api/tasks/<id>/complete → task 완료 처리
   POST   /api/tasks/<id>/dropzone   → task 드랍존(연기) 처리, status='보류'
   POST   /api/tasks/<id>/undropzone → task 드랍존 해제, status='진행중'
+  POST   /api/tasks/<id>/series/stop → 반복 중단 ({"delete_future": bool})
   POST   /api/agent               → 자연어 에이전트 명령어 처리
+
+반복 업무(docs/adr/0001):
+  POST /api/tasks 에 `recurrence` 가 있으면 시리즈를 만들고 창을 채운다.
+  PATCH /api/tasks/<id> 에 `scope: "following"` 이면 이후 회차까지 고친다.
+  창 보충은 GET /api/tasks/list 가 부른다 — 이 앱엔 스케줄러가 없다.
 """
 import json
 import os
@@ -32,7 +38,10 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 update_project, delete_project, get_tasks_by_project,
                 add_file, get_files_by_task, get_files_by_project,
                 get_file_by_id, get_file_path, delete_file,
-                get_file_size_sum)
+                get_file_size_sum,
+                create_series, get_series, get_series_tasks, stop_series,
+                apply_series_following, backfill_series, today_kst)
+from recurrence import FREQS, WINDOW
 from roster import ROSTER, MANAGERS, RESIGNED
 
 
@@ -184,6 +193,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # /api/tasks/list → 전체 활성 업무
         if path == "/api/tasks/list":
+            # 반복업무 창을 여기서 채운다. 스케줄러가 없는 앱이라 "화면을 볼 때"
+            # 가 유일하게 믿을 수 있는 시점이다 (docs/adr/0001).
+            backfill_series()
             tasks = get_active_tasks()
             self._send_json(tasks)
             return
@@ -341,8 +353,20 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         update_task(task_id, **updates)
+
+        # scope='following' → 반복 시리즈의 틀과 **이후 회차**에도 반영한다.
+        # 마감일·피드백·연관업무는 회차마다 다른 것이라 번지지 않는다
+        # (apply_series_following 이 걸러낸다).
+        followed = 0
+        if body.get("scope") == "following" and task.get("series_id"):
+            followed = apply_series_following(
+                task["series_id"], task.get("series_seq") or 0, updates)
+
         task = get_task_by_id(task_id)
         self._refresh_dashboard()
+        if followed:
+            task = dict(task)
+            task["following_updated"] = followed
         self._send_json(task)
 
     def do_DELETE(self):
@@ -405,6 +429,12 @@ class APIHandler(BaseHTTPRequestHandler):
         # /api/rooms → room 생성/조회
         if len(parts) == 2 and parts[0] == "api" and parts[1] == "rooms":
             self._handle_rooms_create()
+            return
+
+        # /api/tasks/<id>/series/stop → 반복 중단
+        if (len(parts) == 5 and parts[0] == "api" and parts[1] == "tasks"
+                and parts[3] == "series" and parts[4] == "stop"):
+            self._handle_series_stop(unquote(parts[2]))
             return
 
         # /api/tasks/<id>/related → 연관업무 추가
@@ -884,7 +914,12 @@ class APIHandler(BaseHTTPRequestHandler):
         self._send_json(task)
 
     def _handle_create(self):
-        """POST /api/tasks → 새 업무 생성"""
+        """POST /api/tasks → 새 업무 생성.
+
+        `recurrence: {"freq": "주"|"월"|"년", "count": 숫자|null}` 이 있으면
+        업무 하나가 아니라 **반복 시리즈**를 만들고 창(최대 4개)을 채운다.
+        `count` 가 null 이면 마감없음이다.
+        """
         body = self._parse_body()
         title = body.get("title", "").strip()
         if not title:
@@ -895,17 +930,94 @@ class APIHandler(BaseHTTPRequestHandler):
         if not room:
             room = upsert_room("dashboard", "web", "대시보드")
 
-        task = create_task(
-            room["id"],
-            title=title,
-            summary=body.get("summary") or title,
-            due_at=body.get("due_at"),
-            assignee=body.get("assignee"),
-            priority=body.get("priority", "중간"),
-            project_id=body.get("project_id"),
-        )
+        rec = body.get("recurrence") or None
+        if not rec:
+            task = create_task(
+                room["id"],
+                title=title,
+                summary=body.get("summary") or title,
+                due_at=body.get("due_at"),
+                assignee=body.get("assignee"),
+                priority=body.get("priority", "중간"),
+                project_id=body.get("project_id"),
+            )
+            self._refresh_dashboard()
+            self._send_json(task)
+            return
+
+        # ── 반복 ────────────────────────────────────────
+        freq = (rec.get("freq") or "").strip()
+        if freq not in FREQS:
+            self._send_json(
+                {"error": f"반복 주기는 {' · '.join(FREQS)} 중 하나입니다"}, 400)
+            return
+
+        count = rec.get("count")
+        if count in ("", None):
+            count = None                      # 마감없음
+        else:
+            try:
+                count = int(count)
+            except (TypeError, ValueError):
+                self._send_json({"error": "반복 횟수가 숫자가 아닙니다"}, 400)
+                return
+            if count < 1:
+                self._send_json({"error": "반복 횟수는 1 이상입니다"}, 400)
+                return
+
+        # 기준 날짜가 없으면 다음 회차를 계산할 수가 없다. 오늘로 채운다.
+        anchor = (body.get("due_at") or "")[:10] or today_kst()
+        try:
+            series = create_series(
+                room["id"], freq=freq, anchor_date=anchor, total_count=count,
+                title=title, summary=body.get("summary") or title,
+                assignee=body.get("assignee"),
+                priority=body.get("priority", "중간"),
+                project_id=body.get("project_id"))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+
+        backfill_series()
+        rows = get_series_tasks(series["id"])
+        if not rows:
+            # 기준일이 과거이고 그 사이에 횟수를 다 써 버린 경우. 빈 시리즈를
+            # 남겨 두면 목록에 안 보이는 쓰레기가 된다.
+            conn = get_conn()
+            conn.execute("DELETE FROM task_series WHERE id=?", (series["id"],))
+            conn.commit()
+            self._send_json(
+                {"error": "만들 회차가 없습니다 — 마감일이 과거이고 횟수를 "
+                          "이미 다 썼습니다. 마감일이나 횟수를 확인하세요"}, 400)
+            return
+
+        first = dict(rows[0])
+        first["series"] = {
+            "id": series["id"], "freq": freq, "total_count": count,
+            "created": len(rows), "window": WINDOW,
+        }
         self._refresh_dashboard()
-        self._send_json(task)
+        self._send_json(first)
+
+    def _handle_series_stop(self, task_id):
+        """POST /api/tasks/<id>/series/stop → 반복을 멈춘다.
+
+        body `{"delete_future": true}` 면 **오늘보다 뒤**인 미완료 회차를
+        지운다. 지난 기록과 완료분은 건드리지 않는다.
+        """
+        task = get_task_by_id(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+        if not task.get("series_id"):
+            self._send_json({"error": "반복 업무가 아닙니다"}, 400)
+            return
+
+        body = self._parse_body()
+        s = stop_series(task["series_id"], bool(body.get("delete_future")))
+        self._refresh_dashboard()
+        self._send_json({"stopped": True, "series_id": task["series_id"],
+                         "removed": s.get("removed", 0)})
 
     # ── 프로젝트 핸들러 ────────────────────────────────
 

@@ -19,12 +19,12 @@ if (-not $env:BRANUP_API_PORT) { $env:BRANUP_API_PORT = '8800' }
 if (-not $env:BRANUP_API_BASE) { $env:BRANUP_API_BASE = '/branup/branup-watcher/api' }
 $Port = [int]$env:BRANUP_API_PORT
 
-Write-Host '[0/4] 적용되는 설정' -ForegroundColor Cyan
+Write-Host '[0/5] 적용되는 설정' -ForegroundColor Cyan
 Write-Host "  BRANUP_DATA_DIR = $(if ($env:BRANUP_DATA_DIR) { $env:BRANUP_DATA_DIR } else { '(미설정 → 기본값: <스크립트 상위>\data)' })"
 Write-Host "  BRANUP_API_PORT = $env:BRANUP_API_PORT"
 Write-Host "  BRANUP_API_BASE = $env:BRANUP_API_BASE"
 
-Write-Host '[1/4] Pulling latest from GitHub...' -ForegroundColor Cyan
+Write-Host '[1/5] Pulling latest from GitHub...' -ForegroundColor Cyan
 git fetch origin
 if ($LASTEXITCODE -ne 0) { throw 'git fetch failed' }
 
@@ -32,11 +32,24 @@ git reset --hard origin/main
 if ($LASTEXITCODE -ne 0) { throw 'git reset failed' }
 Write-Host "  now at: $(git log --oneline -1)"
 
-Write-Host '[2/4] Building dashboard HTML...' -ForegroundColor Cyan
+# 반복 업무의 날짜 계산(월말 당기기·윤년·방치 기간)은 눈으로 확인할 수 없다.
+# 깨진 채로 올라가면 1월 31일 업무가 2월에 사라지는 것을 2월에 알게 된다.
+# pytest 가 없는 서버에서는 배포를 막지 않고 경고만 한다 — 없는 개발 도구
+# 때문에 운영 배포가 멈추면 안 된다. 있는데 실패하면 멈춘다.
+Write-Host '[2/5] 시험 (반복 날짜 계산)...' -ForegroundColor Cyan
+python -c "import pytest" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host '  [건너뜀] pytest 가 없습니다. 설치: python -m pip install pytest' -ForegroundColor Yellow
+} else {
+    python -m pytest
+    if ($LASTEXITCODE -ne 0) { throw '시험 실패 — 배포를 멈춥니다. python -m pytest 로 확인하세요' }
+}
+
+Write-Host '[3/5] Building dashboard HTML...' -ForegroundColor Cyan
 python dashboard_html.py
 if ($LASTEXITCODE -ne 0) { throw 'dashboard_html.py failed' }
 
-Write-Host "[3/4] Restarting API server (port $Port)..." -ForegroundColor Cyan
+Write-Host "[4/5] Restarting API server (port $Port)..." -ForegroundColor Cyan
 $apiScript = Join-Path $ScriptDir 'api_server.py'
 if (-not (Test-Path $apiScript)) { throw "api_server.py not found: $apiScript" }
 
@@ -92,7 +105,7 @@ if (-not $check) {
 }
 Write-Host "  New API server started (port $Port)" -ForegroundColor Green
 
-Write-Host '[4/4] 배포 검증...' -ForegroundColor Cyan
+Write-Host '[5/5] 배포 검증...' -ForegroundColor Cyan
 # 살아있는 서버가 정말 최신 코드인지 확인한다.
 # 존재하지 않는 업무 ID로 드랍존을 호출 → 데이터는 바뀌지 않고 라우팅 유무만 판별된다.
 #   {"error":"task not found"} = 최신 코드 (엔드포인트 있음)

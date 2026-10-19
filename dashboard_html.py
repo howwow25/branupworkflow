@@ -23,9 +23,16 @@ if _os_dash.environ.get("BRANUP_API_URL"):
         return {}
     def get_dropzone_tasks():
         return []
+    # 원격 API 모드에는 DB 가 없다. 반복 보충은 DB 를 가진 쪽이 한다.
+    def backfill_series():
+        return 0
+    def get_all_series():
+        return []
 else:
     from db import (get_active_tasks, get_completed_tasks, get_projects,
-                    get_task_file_counts, get_dropzone_tasks)
+                    get_task_file_counts, get_dropzone_tasks,
+                    backfill_series, get_all_series)
+from recurrence import FREQ_LABEL, WINDOW, series_label
 
 
 def dday(due_str):
@@ -119,6 +126,12 @@ def render_card(t, dd, task_lookup=None, project_lookup=None, file_counts=None, 
 
     file_html = '<span class="attach-icon" title="첨부파일 있음">📎</span>' if (file_counts and file_counts.get(task_id)) else ""
 
+    # ── 반복 회차 ──
+    recur_html = ""
+    if t.get("_series_label"):
+        recur_html = (f'<span class="recur-chip" title="반복 업무">'
+                      f'🔁 {esc(t["_series_label"])}</span>')
+
     cls = f"card {extra_cls}".strip()
     return f"""<div class="{cls}" data-assignee="{assignee}" data-priority="{prio}" data-task-id="{task_id}" onclick="openModal('{task_id}')">
     <span class="dday badge-{css}">#{num}</span>{prio_html}{file_html}{related_html}{project_html}
@@ -127,6 +140,7 @@ def render_card(t, dd, task_lookup=None, project_lookup=None, file_counts=None, 
         <span class="dday badge-{css}">{label}</span>
         <span class="assignee">👤 {assignee}</span>
         <span class="due">📅 {due_str}</span>
+        {recur_html}
     </div>
 </div>"""
 
@@ -590,6 +604,10 @@ def generate_task_gantt(tasks, completed, projects=None):
 
 
 def render():
+    # 화면을 굽기 전에 반복업무 창을 채운다. 이 앱엔 스케줄러가 없어서
+    # "화면을 볼 때" 가 유일하게 믿을 수 있는 시점이다 (docs/adr/0001).
+    # API 서버를 거치지 않고 이 스크립트만 돌려도 창이 채워진다.
+    backfill_series()
     tasks = get_active_tasks()
     groups = group_tasks(tasks)
     completed = get_completed_tasks()
@@ -600,6 +618,17 @@ def render():
     dropped_projects = [p for p in projects if p.get("status") == "보류"]
     file_counts = get_task_file_counts()
     dropzone = get_dropzone_tasks()
+
+    # ── 반복 회차 꼬리표를 업무에 붙여 둔다 ──
+    # 카드가 "🔁 3/10회" 를 적으려면 시리즈의 총 횟수를 알아야 하는데, 그건
+    # task_series 에 있다. render_card 의 인자를 늘리는 대신 업무 dict 에
+    # 달아 둔다 (밑줄로 시작하므로 아래 JSON 키 목록에는 들어가지 않는다).
+    series_all = {s["id"]: s for s in get_all_series()}
+    for _t in tasks + completed + dropzone:
+        _sid = _t.get("series_id")
+        if _sid and _sid in series_all:
+            _t["_series_label"] = series_label(
+                _t.get("series_seq") or 1, series_all[_sid]["total_count"])
 
     total = len(tasks)
     delayed_count = len(groups["delayed"])
@@ -628,8 +657,15 @@ def render():
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
-    all_tasks = {t["id"]: {k: t[k] for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks","project_id"]} for t in tasks + completed + dropzone}
+    all_tasks = {t["id"]: {k: t.get(k) for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks","project_id","series_id","series_seq"]} for t in tasks + completed + dropzone}
     tasks_json = json.dumps(all_tasks, ensure_ascii=False)
+
+    # ── 반복 시리즈 JSON (멈춘 것까지. 모달이 "3/10회" 를 적어야 한다) ──
+    series_json = json.dumps(
+        {s["id"]: {"freq": s["freq"], "total_count": s["total_count"],
+                   "anchor_date": s["anchor_date"],
+                   "stopped_at": s["stopped_at"]}
+         for s in series_all.values()}, ensure_ascii=False)
 
     # ── 프로젝트 데이터 JSON ──
     projects_json = json.dumps({p["id"]: p for p in projects}, ensure_ascii=False)
@@ -956,6 +992,52 @@ body {{
     vertical-align: middle; max-width: 140px;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }}
+/* 반복 회차. 눈에 띄되 마감일(D-day)보다 조용해야 한다 — 급한 것은 날짜다. */
+.recur-chip {{
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    background: rgba(163,113,247,0.12); color: #a371f7;
+    border: 1px solid rgba(163,113,247,0.25);
+    vertical-align: middle; white-space: nowrap;
+}}
+/* 생성 모달의 반복 칸 */
+.recur-box {{
+    margin-top: 6px; padding: 8px 10px;
+    background: #0f1117; border: 1px solid #2a2d3a; border-radius: 6px;
+}}
+.recur-box.hidden {{ display: none; }}
+.recur-row {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
+.recur-row select, .recur-row input[type=number] {{
+    padding: 6px 10px; background: #161922; border: 1px solid #2a2d3a;
+    border-radius: 6px; color: #e1e4e8; font-size: 13px;
+}}
+.recur-row input[type=number] {{ width: 72px; }}
+.recur-row input:disabled {{ opacity: .4; }}
+.recur-check {{ display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }}
+.recur-hint {{ font-size: 11px; color: #8b949e; margin-top: 6px; line-height: 1.5; }}
+.recur-info {{
+    margin-top: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.6;
+    background: rgba(163,113,247,0.08); border: 1px solid rgba(163,113,247,0.2);
+    border-radius: 6px; color: #c9b6f5;
+}}
+.recur-stop-btn {{
+    margin-top: 8px; padding: 5px 10px; font-size: 11px; font-weight: 600;
+    background: #30363d; color: #e1e4e8; border: 1px solid #484f5a;
+    border-radius: 6px; cursor: pointer;
+}}
+.recur-stop-btn:hover {{ background: #3d444d; }}
+.scope-ask {{
+    margin-top: 8px; padding: 10px; border-radius: 6px;
+    background: rgba(210,153,29,0.1); border: 1px solid rgba(210,153,29,0.3);
+    font-size: 12px; line-height: 1.6; color: #e3b341;
+}}
+.scope-ask button {{
+    margin: 8px 6px 0 0; padding: 6px 12px; font-size: 12px; font-weight: 600;
+    border: none; border-radius: 6px; cursor: pointer;
+}}
+.scope-this {{ background: #1f6feb; color: #fff; }}
+.scope-following {{ background: #8957e5; color: #fff; }}
+.scope-cancel {{ background: #30363d; color: #e1e4e8; }}
 .dday {{
     display: inline-block; padding: 2px 8px;
     border-radius: 4px; font-size: 11px;
@@ -1728,6 +1810,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {{
 <script>
 var TASKS_DATA = {tasks_json};
 var PROJECTS_DATA = {projects_json};
+var SERIES_DATA = {series_json};
+var RECUR_WINDOW = {WINDOW};
 var API_BASE = '{API_BASE}';
 var API = API_BASE || ((window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api'));
 var currentTaskId = null;
@@ -2276,6 +2360,20 @@ function createModalEl() {{
         '{''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}' +
         '</select><div style="font-size:10px;color:#8b949e;margin-top:3px">Ctrl+클릭: 다중 선택 | 선택 없으면 미정</div></div>' +
         '<div class="modal-field"><label>마감일</label><input type="date" class="edit-due"></div>' +
+        '<div class="modal-field recur-field">' +
+        '<label class="recur-check"><input type="checkbox" class="edit-recur" onchange="toggleRecur(this)"> 🔁 반복</label>' +
+        '<div class="recur-box hidden">' +
+        '<div class="recur-row">' +
+        '<select class="edit-recur-freq"><option value="주">주마다</option><option value="월">월마다</option><option value="년">년마다</option></select>' +
+        '<input type="number" class="edit-recur-count" min="1" max="999" value="12"><span style="font-size:12px;color:#8b949e">회</span>' +
+        '<label class="recur-check"><input type="checkbox" class="edit-recur-forever" onchange="toggleForever(this)"> 마감없음</label>' +
+        '</div>' +
+        '<div class="recur-hint">위 <b>마감일</b>이 1회차입니다. 미래 업무는 <b>최대 ' + RECUR_WINDOW + '개</b>만 미리 만들고, 하나가 끝나거나 날짜가 지나면 하나가 더 생깁니다.</div>' +
+        '</div></div>' +
+        '<div class="modal-field recur-info-field" style="display:none">' +
+        '<div class="recur-info"></div>' +
+        '<button type="button" class="recur-stop-btn" onclick="stopSeries(this)">🔁 반복 중단</button>' +
+        '</div>' +
         '<div class="modal-field content-field"><label>📝 내용</label><textarea class="edit-summary" placeholder="업무 내용..." rows="4" oninput="autoGrowField(this)"></textarea></div>' +
         '<div class="modal-field feedback-field" style="display:none"><label>💬 피드백</label><textarea class="edit-feedback" placeholder="완료 후기, 결과, 특이사항 등..."></textarea></div>' +
         '<div class="modal-field"><label>우선순위</label><select class="edit-priority">' +
@@ -2297,6 +2395,7 @@ function createModalEl() {{
         '<div class="file-list"></div>' +
         '<div class="file-limit-info"></div>' +
         '</div>' +
+        '<div class="scope-ask" style="display:none"></div>' +
         '<div class="modal-actions">' +
         '<button class="btn-save modal-btn-save" onclick="saveTask(this)">💾 저장</button>' +
         '<button class="btn-save modal-btn-create" onclick="createTask()" style="display:none">➕ 추가</button>' +
@@ -2364,6 +2463,13 @@ function populateModal(modalEl, task) {{
     var btnUndrop = modalEl.querySelector('.modal-btn-undropzone');
     btnUndrop.style.display = isDrop ? '' : 'none';
 
+    // ── 반복 ──
+    // 저장 범위를 물을 때 '무엇이 바뀌었나' 를 알아야 하므로 원본을 붙여 둔다.
+    modalEl._origTask = task;
+    modalEl.querySelector('.recur-field').style.display = 'none';
+    hideScopeAsk(modalEl);
+    renderRecurInfo(modalEl, task);
+
     // 연관업무 렌더링
     renderRelatedButtonsInModal(modalEl, task.related_tasks || '');
 
@@ -2371,7 +2477,7 @@ function populateModal(modalEl, task) {{
     renderFiles(modalEl, task.id);
 
     if (isStaticHost) {{
-        modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete, .btn-dropzone').forEach(function(btn) {{ btn.classList.add('disabled'); }});
+        modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete, .btn-dropzone, .recur-stop-btn').forEach(function(btn) {{ btn.classList.add('disabled'); }});
     }}
 }}
 
@@ -2452,6 +2558,18 @@ function openCreateModal() {{
     modalEl.querySelector('.modal-btn-delete').style.display = 'none';
     modalEl.querySelector('.modal-btn-create').style.display = '';
 
+    // 반복 입력은 '새 업무' 에서만 받는다. 기존 업무는 상세 모달에서 설정을
+    // 읽기만 하고 멈출 수만 있다 (renderRecurInfo).
+    modalEl.querySelector('.recur-field').style.display = '';
+    modalEl.querySelector('.recur-info-field').style.display = 'none';
+    modalEl.querySelector('.edit-recur').checked = false;
+    modalEl.querySelector('.edit-recur-forever').checked = false;
+    modalEl.querySelector('.edit-recur-count').disabled = false;
+    modalEl.querySelector('.edit-recur-count').value = 12;
+    modalEl.querySelector('.edit-recur-freq').value = '주';
+    modalEl.querySelector('.recur-box').classList.add('hidden');
+    hideScopeAsk(modalEl);
+
     var sel = modalEl.querySelector('.edit-assignee');
     for (var i = 0; i < sel.options.length; i++) {{ sel.options[i].selected = false; }}
     var activeBtn = document.querySelector('.filter-btn:not(.proj).active');
@@ -2487,6 +2605,8 @@ function createTask() {{
     var modalEl = m.el;
     var title = modalEl.querySelector('.edit-title').value.trim();
     if (!title) {{ showToast('제목은 필수입니다', true); return; }}
+    var rec = getRecurrence(modalEl);
+    if (rec === 'bad') {{ showToast('반복 횟수는 1 이상이어야 합니다', true); return; }}
     var data = {{
         title: title,
         assignee: getAssigneeValue(modalEl),
@@ -2495,6 +2615,7 @@ function createTask() {{
         priority: modalEl.querySelector('.edit-priority').value,
         project_id: modalEl.querySelector('.edit-project').value || null
     }};
+    if (rec) data.recurrence = rec;
     fetch(API + '/tasks', {{
         method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(data)
@@ -2502,7 +2623,12 @@ function createTask() {{
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
         if (task.error) {{ showToast('등록 실패: ' + task.error, true); return; }}
+        if (task.series) {{
+            showToast('🔁 #' + task.display_num + ' 등록 완료! ' + task.series.freq +
+                      '마다 · 앞으로 ' + task.series.created + '개를 만들어 뒀습니다');
+        }} else {{
         showToast('✨ #' + task.display_num + ' 등록 완료!');
+        }}
         // 직원 필터 상태 저장
         var ab = document.querySelector('.filter-btn:not(.proj).active');
         if (ab) sessionStorage.setItem('branup_filter', ab.textContent.trim());
@@ -2512,10 +2638,117 @@ function createTask() {{
     .catch(function() {{ showToast('⚠️ API 서버 연결 실패', true); }});
 }}
 
-function saveTask(btnEl) {{
+// ── 반복 ────────────────────────────────────────────────
+// 날짜 계산은 서버(recurrence.py)만 한다. 여기서는 입력을 모으고 결과를
+// 보여 주기만 한다 — 양쪽이 따로 계산하면 화면과 저장된 값이 어긋난다.
+
+function toggleRecur(cb) {{
+    var modalEl = cb.closest('.modal');
+    modalEl.querySelector('.recur-box').classList.toggle('hidden', !cb.checked);
+    if (cb.checked) {{
+        // 기준 날짜가 없으면 다음 회차를 계산할 수가 없다. 오늘로 채운다.
+        var due = modalEl.querySelector('.edit-due');
+        if (!due.value) {{
+            due.value = new Date().toISOString().slice(0,10);
+            showToast('반복은 마감일이 기준입니다 — 오늘로 넣었습니다');
+        }}
+    }}
+}}
+
+function toggleForever(cb) {{
+    cb.closest('.recur-row').querySelector('.edit-recur-count').disabled = cb.checked;
+}}
+
+function getRecurrence(modalEl) {{
+    var cb = modalEl.querySelector('.edit-recur');
+    if (!cb || !cb.checked) return null;
+    if (modalEl.querySelector('.edit-recur-forever').checked) {{
+        return {{ freq: modalEl.querySelector('.edit-recur-freq').value, count: null }};
+    }}
+    var count = parseInt(modalEl.querySelector('.edit-recur-count').value, 10);
+    if (!count || count < 1) return 'bad';
+    return {{ freq: modalEl.querySelector('.edit-recur-freq').value, count: count }};
+}}
+
+function hideScopeAsk(modalEl) {{
+    var box = modalEl ? modalEl.querySelector('.scope-ask') : null;
+    if (box) {{ box.style.display = 'none'; box.innerHTML = ''; }}
+}}
+
+function hideScopeAskFrom(el) {{ hideScopeAsk(el.closest('.modal')); }}
+
+function renderRecurInfo(modalEl, task) {{
+    // 반복 설정은 읽기 전용으로 보여 준다. 주기를 중간에 바꾸면 이미 만든
+    // 회차를 어떻게 할지가 애매해진다 — 멈추고 새로 만드는 쪽이 분명하다.
+    var field = modalEl.querySelector('.recur-info-field');
+    var s = task.series_id ? SERIES_DATA[task.series_id] : null;
+    if (!s) {{ field.style.display = 'none'; return; }}
+    var total = s.total_count ? (s.total_count + '회') : '마감없음';
+    var txt = '🔁 <b>' + s.freq + '마다</b> · ' + total +
+              ' · 이 업무는 <b>' + (task.series_seq || 1) + '회차</b>';
+    if (s.stopped_at) txt += '<br><small>이 반복은 멈춰 있습니다 — 새 회차가 생기지 않습니다.</small>';
+    modalEl.querySelector('.recur-info').innerHTML = txt;
+    modalEl.querySelector('.recur-stop-btn').style.display = s.stopped_at ? 'none' : '';
+    field.style.display = '';
+}}
+
+function stopSeries(btnEl) {{
     var modalEl = btnEl.closest('.modal');
     var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
     if (!m || !m.taskId) return;
+    // 지울 개수를 먼저 보여 준다. 그냥 "미래 업무를 지울까요?" 라고만 물으면
+    // **지금 보고 있는 이 업무가 거기 들어간다는 것**을 모르고 누른다.
+    var orig = modalEl._origTask || {{}};
+    var today = new Date().toISOString().slice(0,10);
+    var future = [];
+    for (var k in TASKS_DATA) {{
+        if (!hasOwn(TASKS_DATA, k)) continue;
+        var t = TASKS_DATA[k];
+        if (t.series_id === orig.series_id && t.status !== '완료' &&
+            t.due_at && t.due_at.slice(0,10) > today) future.push(t);
+    }}
+    var mine = future.some(function(t) {{ return t.id === orig.id; }});
+    var box = modalEl.querySelector('.scope-ask');
+    box.innerHTML = '반복을 멈춥니다. 아직 오지 않은 업무 <b>' + future.length +
+        '개</b>는 어떻게 할까요?<br>' +
+        '<small>지난 업무와 완료한 업무는 그대로 남습니다.' +
+        (mine ? ' <b>지금 보고 있는 이 업무도 그 ' + future.length +
+                '개에 들어갑니다 — 지우면 함께 사라집니다.</b>' : '') +
+        '</small><br>' +
+        '<button class="scope-this" onclick="doStopSeries(this,false)">남겨 두기</button>' +
+        (future.length
+            ? '<button class="scope-following" onclick="doStopSeries(this,true)">' +
+              future.length + '개 지우기</button>'
+            : '') +
+        '<button class="scope-cancel" onclick="hideScopeAskFrom(this)">취소</button>';
+    box.style.display = '';
+}}
+
+function doStopSeries(btnEl, deleteFuture) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    hideScopeAsk(modalEl);
+    fetch(API + '/tasks/' + m.taskId + '/series/stop', {{
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ delete_future: !!deleteFuture }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(res) {{
+        if (res.error) {{ showToast('중단 실패: ' + res.error, true); return; }}
+        showToast(res.removed
+            ? ('🔁 반복을 멈추고 미래 업무 ' + res.removed + '개를 지웠습니다')
+            : '🔁 반복을 멈췄습니다');
+        closeModal(modalEl);
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
+}}
+
+// 시리즈의 '틀' 에 해당하는 값들. 이것들을 고쳤을 때만 범위를 묻는다.
+var TEMPLATE_FIELDS = ['title', 'summary', 'assignee', 'priority', 'project_id'];
+
+function collectTaskEdits(modalEl) {{
     var data = {{
         title: modalEl.querySelector('.edit-title').value.trim(),
         assignee: getAssigneeValue(modalEl),
@@ -2525,7 +2758,47 @@ function saveTask(btnEl) {{
         priority: modalEl.querySelector('.edit-priority').value,
         project_id: modalEl.querySelector('.edit-project').value || null
     }};
-    if (!data.title) {{ showToast('제목은 필수입니다', true); return; }}
+    if (!data.title) {{ showToast('제목은 필수입니다', true); return null; }}
+    return data;
+}}
+
+function saveTask(btnEl) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    var data = collectTaskEdits(modalEl);
+    if (!data) return;
+
+    // 마감일·피드백·연관업무는 회차마다 다른 것이라 묻지 않는다. 틀을 고쳤을
+    // 때만 묻는다 — 늘 물으면 사람은 읽지 않고 아무 버튼이나 누른다.
+    var orig = modalEl._origTask || {{}};
+    var changed = false;
+    for (var i = 0; i < TEMPLATE_FIELDS.length; i++) {{
+        var k = TEMPLATE_FIELDS[i];
+        if ((data[k] || '') !== (orig[k] || '')) {{ changed = true; break; }}
+    }}
+    var s = orig.series_id ? SERIES_DATA[orig.series_id] : null;
+    if (s && changed) {{
+        var box = modalEl.querySelector('.scope-ask');
+        box.innerHTML = '반복 업무입니다. 고친 내용을 어디까지 반영할까요?<br>' +
+            '<small>완료한 회차는 바뀌지 않습니다.</small><br>' +
+            '<button class="scope-this" onclick="doSaveTask(this,&#39;this&#39;)">이 업무만</button>' +
+            '<button class="scope-following" onclick="doSaveTask(this,&#39;following&#39;)">이 업무와 이후 모두</button>' +
+            '<button class="scope-cancel" onclick="hideScopeAskFrom(this)">취소</button>';
+        box.style.display = '';
+        return;
+    }}
+    doSaveTask(btnEl, 'this');
+}}
+
+function doSaveTask(btnEl, scope) {{
+    var modalEl = btnEl.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    hideScopeAsk(modalEl);
+    var data = collectTaskEdits(modalEl);
+    if (!data) return;
+    data.scope = scope || 'this';
     fetch(API + '/tasks/' + m.taskId, {{
         method: 'PATCH', headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(data)
@@ -2533,7 +2806,9 @@ function saveTask(btnEl) {{
     .then(function(r) {{ return r.json(); }})
     .then(function(task) {{
         if (task.error) {{ showToast('저장 실패: ' + task.error, true); return; }}
-        showToast('저장 완료!');
+        showToast(task.following_updated
+            ? ('저장 완료! 이후 ' + task.following_updated + '개에도 반영했습니다')
+            : '저장 완료!');
         setTimeout(function() {{ forceRefresh(); }}, 500);
     }})
     .catch(function() {{ showToast('⚠️ API 서버 연결 필요', true); }});
