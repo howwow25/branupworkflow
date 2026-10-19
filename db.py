@@ -2,15 +2,17 @@
 branup-watcher SQLite CRUD 유틸
 """
 from typing import Optional, List, Dict
+import functools
 import sqlite3
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
-from recurrence import FREQS, first_open_seq, nth_due, plan_fill
+from recurrence import FREQS, first_open_seq, nth_due, plan_fill, relabel
 
 DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
     str(Path(__file__).parent.parent / "data"))
@@ -22,17 +24,72 @@ def now_iso():
     return datetime.now(KST).isoformat()
 
 
+# ── 쓰기는 한 번에 하나씩 ────────────────────────────────
+#
+# SQLite 는 쓰기를 하나만 받는다. api_server 는 요청마다 스레드를 쓰므로,
+# 사람 둘이 동시에 업무를 만들면 두 스레드가 같은 잠금을 다툰다. 그때
+# "database is locked" 로 요청이 **응답 없이** 끊겼다 (연결이 죽어서 화면은
+# "API 서버 연결 실패" 만 띄웠다). 프로세스 안에서는 줄을 세운다. 프로세스
+# 밖(굽기)은 busy_timeout 이 기다려 준다.
+_WRITE_LOCK = threading.RLock()
+
+
+def _writer(fn):
+    """DB 에 쓰는 함수. 한 프로세스 안에서 직렬로 돈다."""
+    @functools.wraps(fn)
+    def inner(*a, **kw):
+        with _WRITE_LOCK:
+            return fn(*a, **kw)
+    return inner
+
+
+# 스키마는 프로세스마다 한 번만 확인한다.
+#
+# 전에는 `get_conn()` 마다 돌렸다. 그 안에는 CREATE TABLE·ALTER TABLE·UPDATE 가
+# 있어서 **읽기만 하려는 연결도 쓰기 잠금을 잡는다.** 업무를 만들 때마다
+# 굽기 프로세스가 하나씩 뜨므로, 연달아 만들면 프로세스 여러 개가 DDL 잠금을
+# 다투다 "database is locked" 로 요청이 죽었다 (12개 동시 생성에서 전부 실패).
+_SCHEMA_READY = False
+
+
 def get_conn():
+    global _SCHEMA_READY
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # ⚠️ busy_timeout 을 **맨 먼저** 건다. 쓰는 쪽이 둘 이상인데(api_server 와
+    # 그것이 띄우는 dashboard_html) 기본값은 잠겼으면 즉시 실패한다.
+    # journal_mode 를 먼저 두면 그 PRAGMA 자체가 기다리지 않고 터져서
+    # "database is locked" 가 연결을 만드는 단계에서 난다 (실제로 그랬다).
+    conn.execute("PRAGMA busy_timeout=15000")
+    try:
+        if (conn.execute("PRAGMA journal_mode").fetchone()[0] or "").lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass    # 이미 WAL 이거나 지금 누가 쓰는 중이다. 요청을 죽일 일은 아니다.
     conn.execute("PRAGMA foreign_keys=ON")
-    _ensure_schema(conn)
+    if not _SCHEMA_READY:
+        _ensure_schema(conn)
+        _SCHEMA_READY = True
     return conn
 
 
+# 스키마를 한 번 올리면 이 번호를 DB 에 적어 둔다. **칼럼이나 표를 더할 때마다
+# 1 올려야 한다** — 안 올리면 새 마이그레이션이 돌지 않는다.
+#
+# 이 번호가 필요한 이유: 굽기(dashboard_html)는 별도 프로세스이고, 이 함수가
+# 매번 CREATE/ALTER 를 돌리면 **읽기만 하려는 프로세스도 쓰기 잠금을 잡는다.**
+# 그래서 업무를 연달아 만들면 "database is locked" 로 요청이 죽었다.
+SCHEMA_VERSION = 3
+
+
 def _ensure_schema(conn):
+    # 이미 최신이면 아무것도 쓰지 않는다 (PRAGMA user_version 은 읽기다).
+    try:
+        if (conn.execute("PRAGMA user_version").fetchone()[0] or 0) >= SCHEMA_VERSION:
+            return
+    except Exception:
+        pass
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS rooms (
         id TEXT PRIMARY KEY,
@@ -159,6 +216,12 @@ def _ensure_schema(conn):
     );
     CREATE INDEX IF NOT EXISTS idx_series_open ON task_series(stopped_at);
     """)
+    # ── migration: 제목의 기간 표시를 회차마다 고친다 ──
+    # "[재무리뷰] 10월 3주" → 다음 회차는 "10월 4주". 손으로 고치던 일이다.
+    try:
+        conn.execute("ALTER TABLE task_series ADD COLUMN auto_rename INTEGER NOT NULL DEFAULT 0")
+    except Exception:
+        pass  # already exists
     try:
         conn.execute("ALTER TABLE tasks ADD COLUMN series_id TEXT REFERENCES task_series(id)")
     except Exception:
@@ -233,9 +296,17 @@ def _ensure_schema(conn):
     except Exception:
         pass
 
+    # 여기까지 왔으면 전부 적용됐다. 다음 연결은 이 함수에서 바로 돌아간다.
+    try:
+        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        conn.commit()
+    except Exception:
+        pass
+
 
 # ── rooms ──────────────────────────────────────────────
 
+@_writer
 def upsert_room(chat_id: str, chat_type: str, name: str) -> Dict:
     conn = get_conn()
     row = conn.execute("SELECT * FROM rooms WHERE chat_id=?", (chat_id,)).fetchone()
@@ -245,10 +316,20 @@ def upsert_room(chat_id: str, chat_type: str, name: str) -> Dict:
         return dict(row)
     rid = str(uuid4())
     ts = now_iso()
-    conn.execute(
-        "INSERT INTO rooms (id,chat_id,chat_type,name,registered_at) VALUES (?,?,?,?,?)",
-        (rid, chat_id, chat_type, name, ts))
-    conn.commit()
+    try:
+        conn.execute(
+            "INSERT INTO rooms (id,chat_id,chat_type,name,registered_at) VALUES (?,?,?,?,?)",
+            (rid, chat_id, chat_type, name, ts))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # chat_id 가 UNIQUE 다. 둘이 동시에 "없네" 를 보고 둘 다 넣으려 하면
+        # 뒤쪽이 여기로 온다 — 먼저 넣은 쪽의 값을 쓴다. 전에는 이 예외가
+        # 그대로 올라가 업무 등록이 실패했다.
+        row = conn.execute("SELECT * FROM rooms WHERE chat_id=?",
+                           (chat_id,)).fetchone()
+        if row:
+            return dict(row)
+        raise
     return {"id": rid, "chat_id": chat_id, "chat_type": chat_type,
             "name": name, "registered_at": ts}
 
@@ -266,6 +347,7 @@ def get_all_rooms() -> List[Dict]:
 
 # ── tasks ──────────────────────────────────────────────
 
+@_writer
 def create_task(room_id: str, title: str, summary: str = "",
                 due_at: Optional[str] = None, assignee: Optional[str] = None,
                 priority: str = "중간", project_id: Optional[str] = None,
@@ -290,6 +372,7 @@ def create_task(room_id: str, title: str, summary: str = "",
             "series_id": series_id, "series_seq": series_seq}
 
 
+@_writer
 def update_task(task_id: str, **kwargs):
     conn = get_conn()
     allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at", "feedback", "related_tasks", "project_id"}
@@ -356,13 +439,15 @@ def today_kst() -> str:
 
 SERIES_FIELDS = {"title", "summary", "assignee", "priority", "project_id",
                  "total_count", "made_through", "stopped_at", "freq",
-                 "anchor_date"}
+                 "anchor_date", "auto_rename"}
 
 
+@_writer
 def create_series(room_id: str, freq: str, anchor_date: str,
                   total_count: Optional[int], title: str, summary: str = "",
                   assignee: Optional[str] = None, priority: str = "중간",
-                  project_id: Optional[str] = None) -> Dict:
+                  project_id: Optional[str] = None,
+                  auto_rename: bool = False) -> Dict:
     if freq not in FREQS:
         raise ValueError(f"모르는 주기: {freq!r}")
     if total_count is not None and total_count < 1:
@@ -375,10 +460,10 @@ def create_series(room_id: str, freq: str, anchor_date: str,
     ts = now_iso()
     conn.execute(
         "INSERT INTO task_series (id,room_id,freq,anchor_date,total_count,made_through,"
-        "title,summary,assignee,priority,project_id,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,0,?,?,?,?,?,?,?)",
+        "title,summary,assignee,priority,project_id,auto_rename,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,0,?,?,?,?,?,?,?,?)",
         (sid, room_id, freq, anchor_date[:10], total_count, title, summary,
-         assignee, priority, project_id, ts, ts))
+         assignee, priority, project_id, 1 if auto_rename else 0, ts, ts))
     conn.commit()
     return get_series(sid)
 
@@ -402,6 +487,7 @@ def get_all_series() -> List[Dict]:
     return [dict(r) for r in conn.execute("SELECT * FROM task_series")]
 
 
+@_writer
 def update_series(series_id: str, **kwargs):
     conn = get_conn()
     sets, vals = ["updated_at=?"], [now_iso()]
@@ -440,6 +526,7 @@ def _open_in_window(rows: List[Dict], today: str) -> int:
     return n
 
 
+@_writer
 def backfill_series(today: Optional[str] = None) -> int:
     """창이 빈 반복 시리즈를 채운다. 새로 만든 업무 수를 돌려준다.
 
@@ -468,10 +555,17 @@ def backfill_series(today: Optional[str] = None) -> int:
                              made_through=s["made_through"] or 0,
                              open_count=_open_in_window(rows, today))
             for seq in seqs:
-                due = nth_due(anchor, s["freq"], seq).isoformat()
+                due_d = nth_due(anchor, s["freq"], seq)
+                due = due_d.isoformat()
+                # 제목의 기간 표시를 이 회차의 날짜로 고친다. 표시가 없으면
+                # relabel 이 None 을 주므로 그대로 쓴다 — 켜 두기만 하고
+                # 제목을 안 바꾼 시리즈가 조용히 깨지지 않는다.
+                title = s["title"]
+                if s["auto_rename"]:
+                    title = relabel(title, due_d) or title
                 try:
                     create_task(
-                        s["room_id"], title=s["title"],
+                        s["room_id"], title=title,
                         summary=s["summary"] or s["title"], due_at=due,
                         assignee=s["assignee"], priority=s["priority"],
                         project_id=s["project_id"],
@@ -494,6 +588,7 @@ def backfill_series(today: Optional[str] = None) -> int:
     return made
 
 
+@_writer
 def stop_series(series_id: str, delete_future: bool = False) -> Dict:
     """반복을 멈춘다. 앞으로 만들 것만 멈추고, 이미 만든 것은 고른 대로.
 
@@ -516,6 +611,7 @@ def stop_series(series_id: str, delete_future: bool = False) -> Dict:
     return s
 
 
+@_writer
 def apply_series_following(series_id: str, from_seq: int, fields: Dict) -> int:
     """시리즈 틀을 고치고 **이후 회차**에도 반영한다. 고친 업무 수.
 
@@ -527,14 +623,74 @@ def apply_series_following(series_id: str, from_seq: int, fields: Dict) -> int:
     if not patch:
         return 0
     update_series(series_id, **patch)
+    s = get_series(series_id) or {}
     conn = get_conn()
-    sets = ", ".join(f"{k}=?" for k in patch)
-    vals = list(patch.values()) + [now_iso(), series_id, from_seq]
-    cur = conn.execute(
-        f"UPDATE tasks SET {sets}, updated_at=? "
-        "WHERE series_id=? AND series_seq>? AND status<>'완료'", vals)
+
+    # 이름 자동 변경이 켜져 있으면 제목을 한 값으로 덮어쓸 수 없다. 덮어쓰면
+    # 이후 회차가 전부 "10월 3주" 가 되어, 고치려던 바로 그 상태로 돌아간다.
+    rename = bool(s.get("auto_rename")) and "title" in patch
+    bulk = {k: v for k, v in patch.items() if not (rename and k == "title")}
+    touched = set()
+    if bulk:
+        sets = ", ".join(f"{k}=?" for k in bulk)
+        vals = list(bulk.values()) + [now_iso(), series_id, from_seq]
+        conn.execute(
+            f"UPDATE tasks SET {sets}, updated_at=? "
+            "WHERE series_id=? AND series_seq>? AND status<>'완료'", vals)
+    rows = conn.execute(
+        "SELECT id, due_at FROM tasks "
+        "WHERE series_id=? AND series_seq>? AND status<>'완료'",
+        (series_id, from_seq)).fetchall()
+    for r in rows:
+        touched.add(r["id"])
+        if not rename:
+            continue
+        new_title = patch["title"]
+        try:
+            new_title = relabel(patch["title"],
+                                date.fromisoformat((r["due_at"] or "")[:10])) or new_title
+        except Exception:
+            pass
+        conn.execute("UPDATE tasks SET title=?, updated_at=? WHERE id=?",
+                     (new_title, now_iso(), r["id"]))
     conn.commit()
-    return cur.rowcount or 0
+    return len(touched)
+
+
+@_writer
+def set_series_auto_rename(series_id: str, on: bool) -> int:
+    """이름 자동 변경을 켜거나 끈다. 이름을 고친 회차 수를 돌려준다.
+
+    켤 때 **아직 오지 않은 미완료 회차의 이름을 지금 맞춰 준다.** 다음 회차가
+    생길 때까지 기다리게 하면, 켜 놓고도 화면이 그대로여서 사람은 켜지지 않은
+    줄 안다. 완료한 회차와 지나간 회차는 건드리지 않는다 — 기록이다.
+    """
+    s = get_series(series_id)
+    if not s:
+        return 0
+    update_series(series_id, auto_rename=1 if on else 0)
+    if not on:
+        return 0
+    today = today_kst()
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, title, due_at FROM tasks "
+        "WHERE series_id=? AND status<>'완료' "
+        "AND due_at IS NOT NULL AND substr(due_at,1,10) >= ?",
+        (series_id, today)).fetchall()
+    fixed = 0
+    for r in rows:
+        try:
+            new_title = relabel(s["title"],
+                                date.fromisoformat(r["due_at"][:10]))
+        except Exception:
+            continue
+        if new_title and new_title != r["title"]:
+            conn.execute("UPDATE tasks SET title=?, updated_at=? WHERE id=?",
+                         (new_title, now_iso(), r["id"]))
+            fixed += 1
+    conn.commit()
+    return fixed
 
 
 # ── projects ────────────────────────────────────────────
@@ -640,6 +796,7 @@ def update_ocr(msg_id: str, ocr_text: str):
 
 # ── task events ────────────────────────────────────────
 
+@_writer
 def add_event(task_id: str, event_type: str, payload: Optional[Dict] = None):
     conn = get_conn()
     conn.execute(

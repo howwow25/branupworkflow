@@ -11,20 +11,27 @@
   POST   /api/tasks/<id>/dropzone   → task 드랍존(연기) 처리, status='보류'
   POST   /api/tasks/<id>/undropzone → task 드랍존 해제, status='진행중'
   POST   /api/tasks/<id>/series/stop → 반복 중단 ({"delete_future": bool})
+  POST   /api/tasks/<id>/series/rename-mode → 이름 자동 변경 ({"on": bool})
+  GET    /api/series/preview      → 회차의 날짜·제목 미리보기
   POST   /api/agent               → 자연어 에이전트 명령어 처리
 
 반복 업무(docs/adr/0001):
   POST /api/tasks 에 `recurrence` 가 있으면 시리즈를 만들고 창을 채운다.
   PATCH /api/tasks/<id> 에 `scope: "following"` 이면 이후 회차까지 고친다.
   창 보충은 GET /api/tasks/list 가 부른다 — 이 앱엔 스케줄러가 없다.
+  `recurrence.auto_rename` 이면 제목의 기간 표시를 회차마다 고친다
+  ("10월 3주" → "10월 4주"). 그 정규식은 recurrence.py 에만 있다 —
+  화면은 /api/series/preview 로 물어본다.
 """
 import json
 import os
 import sys
 import re
+import threading
 from pathlib import Path
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, unquote, quote
+from datetime import date
+from urllib.parse import urlparse, unquote, quote, parse_qs
 
 DATA_DIR = os.environ.get("BRANUP_DATA_DIR",
     str(Path(__file__).parent.parent / "data"))
@@ -40,12 +47,17 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 get_file_by_id, get_file_path, delete_file,
                 get_file_size_sum,
                 create_series, get_series, get_series_tasks, stop_series,
-                apply_series_following, backfill_series, today_kst)
-from recurrence import FREQS, WINDOW
+                apply_series_following, backfill_series, today_kst,
+                set_series_auto_rename)
+from recurrence import FREQS, WINDOW, first_open_seq, nth_due, relabel
 from roster import ROSTER, MANAGERS, RESIGNED
 
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
+
+# 굽기 프로세스 겹침 방지 (_refresh_dashboard)
+_BAKE_LOCK = threading.Lock()
+_BAKING = []
 
 
 def parse_text(text):
@@ -118,18 +130,33 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _refresh_dashboard(self):
-        """DB 변경 후 대시보드 HTML 재생성 (dashboard_html.py가 index.html도 함께 생성)"""
+        """DB 변경 후 대시보드 HTML 재생성 (dashboard_html.py가 index.html도 함께 생성)
+
+        변경 하나에 프로세스 하나를 띄운다. 연달아 바뀌면 프로세스가 그만큼
+        쌓여 같은 DB 를 함께 읽느라 서로를 느리게 만든다 — 이미 굽고 있으면
+        건너뛴다. 어차피 나중에 굽는 쪽이 최신 DB 를 읽는다.
+        """
+        with _BAKE_LOCK:
+            alive = [p for p in _BAKING if p.poll() is None]
+            _BAKING[:] = alive
+            if alive:
+                return
         try:
             import subprocess
             scripts_dir = Path(__file__).parent
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 [sys.executable, str(scripts_dir / "dashboard_html.py")],
                 env={**os.environ, "BRANUP_DATA_DIR": DATA_DIR,
                      "BRANUP_API_PORT": str(PORT),
-                     "BRANUP_API_BASE": os.environ.get("BRANUP_API_BASE", "")},
+                     "BRANUP_API_BASE": os.environ.get("BRANUP_API_BASE", ""),
+                     # 굽기는 읽기만 한다. 반복 보충은 이 서버가 한다 —
+                     # 두 프로세스가 같은 DB 에 쓰면 잠금으로 부딪친다.
+                     "BRANUP_SKIP_BACKFILL": "1"},
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            with _BAKE_LOCK:
+                _BAKING.append(proc)
         except Exception:
             pass
 
@@ -204,6 +231,11 @@ class APIHandler(BaseHTTPRequestHandler):
         if path == "/api/tasks/completed":
             tasks = get_completed_tasks()
             self._send_json(tasks)
+            return
+
+        # /api/series/preview → 반복 회차의 날짜·제목 미리보기
+        if path == "/api/series/preview":
+            self._handle_series_preview(parse_qs(urlparse(self.path).query))
             return
 
         # /api/weekly-report?assignee=강경철 → 주간리포트 요청
@@ -435,6 +467,12 @@ class APIHandler(BaseHTTPRequestHandler):
         if (len(parts) == 5 and parts[0] == "api" and parts[1] == "tasks"
                 and parts[3] == "series" and parts[4] == "stop"):
             self._handle_series_stop(unquote(parts[2]))
+            return
+
+        # /api/tasks/<id>/series/rename-mode → 이름 자동 변경 켜기/끄기
+        if (len(parts) == 5 and parts[0] == "api" and parts[1] == "tasks"
+                and parts[3] == "series" and parts[4] == "rename-mode"):
+            self._handle_series_rename_mode(unquote(parts[2]))
             return
 
         # /api/tasks/<id>/related → 연관업무 추가
@@ -967,13 +1005,45 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # 기준 날짜가 없으면 다음 회차를 계산할 수가 없다. 오늘로 채운다.
         anchor = (body.get("due_at") or "")[:10] or today_kst()
+
+        # 이름 자동 변경을 켰는데 제목에 고칠 기간 표시가 없으면 **지금** 막는다.
+        # 조용히 넘기면 사람은 켜진 줄 알고, 몇 주 뒤에 제목이 그대로인 것을
+        # 발견한다. 그때는 이미 회차가 쌓여 있다.
+        auto_rename = bool(rec.get("auto_rename"))
+        if auto_rename:
+            try:
+                probe = relabel(title, date.fromisoformat(anchor))
+            except ValueError:
+                probe = None
+            if not probe:
+                self._send_json(
+                    {"error": "제목에 고칠 기간 표시가 없습니다. "
+                              "'10월 3주' · '10월' · '2026년' 처럼 제목에 "
+                              "기간을 적어 주세요 (예: [재무리뷰] 10월 3주)"}, 400)
+                return
+
+        # 만들 회차가 있는지는 **시리즈를 만들기 전에** 본다. 전에는 만든 뒤
+        # "업무가 0개면 다 쓴 것" 으로 보고 시리즈를 지웠는데, 보충이 잠금으로
+        # 한 번 실패해도 같은 길로 들어와 **방금 만든 시리즈를 지웠다.**
+        try:
+            start = first_open_seq(date.fromisoformat(anchor), freq, date.fromisoformat(today_kst()))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+        if count is not None and start > count:
+            self._send_json(
+                {"error": "만들 회차가 없습니다 — 마감일이 과거이고 횟수를 "
+                          "이미 다 썼습니다. 마감일이나 횟수를 확인하세요"}, 400)
+            return
+
         try:
             series = create_series(
                 room["id"], freq=freq, anchor_date=anchor, total_count=count,
                 title=title, summary=body.get("summary") or title,
                 assignee=body.get("assignee"),
                 priority=body.get("priority", "중간"),
-                project_id=body.get("project_id"))
+                project_id=body.get("project_id"),
+                auto_rename=auto_rename)
         except ValueError as e:
             self._send_json({"error": str(e)}, 400)
             return
@@ -981,20 +1051,18 @@ class APIHandler(BaseHTTPRequestHandler):
         backfill_series()
         rows = get_series_tasks(series["id"])
         if not rows:
-            # 기준일이 과거이고 그 사이에 횟수를 다 써 버린 경우. 빈 시리즈를
-            # 남겨 두면 목록에 안 보이는 쓰레기가 된다.
-            conn = get_conn()
-            conn.execute("DELETE FROM task_series WHERE id=?", (series["id"],))
-            conn.commit()
+            # 여기까지 왔으면 만들 회차는 있었는데 보충이 실패한 것이다.
+            # 시리즈는 남겨 둔다 — 다음에 목록을 열면 스스로 채워진다.
             self._send_json(
-                {"error": "만들 회차가 없습니다 — 마감일이 과거이고 횟수를 "
-                          "이미 다 썼습니다. 마감일이나 횟수를 확인하세요"}, 400)
+                {"error": "반복은 등록됐지만 업무를 만들지 못했습니다. "
+                          "목록을 새로 고치면 나타납니다"}, 503)
             return
 
         first = dict(rows[0])
         first["series"] = {
             "id": series["id"], "freq": freq, "total_count": count,
             "created": len(rows), "window": WINDOW,
+            "auto_rename": auto_rename,
         }
         self._refresh_dashboard()
         self._send_json(first)
@@ -1018,6 +1086,84 @@ class APIHandler(BaseHTTPRequestHandler):
         self._refresh_dashboard()
         self._send_json({"stopped": True, "series_id": task["series_id"],
                          "removed": s.get("removed", 0)})
+
+    def _handle_series_rename_mode(self, task_id):
+        """POST /api/tasks/<id>/series/rename-mode → 이름 자동 변경 켜기/끄기.
+
+        body `{"on": true|false}`. 켜면 아직 오지 않은 회차의 이름을 바로
+        맞춘다 — 다음 회차를 기다리게 하면 켠 줄 모른다.
+        """
+        task = get_task_by_id(task_id)
+        if not task:
+            self._send_json({"error": "task not found"}, 404)
+            return
+        if not task.get("series_id"):
+            self._send_json({"error": "반복 업무가 아닙니다"}, 400)
+            return
+        s = get_series(task["series_id"])
+        if not s:
+            self._send_json({"error": "반복 설정을 찾을 수 없습니다"}, 404)
+            return
+
+        on = bool(self._parse_body().get("on"))
+        if on:
+            try:
+                probe = relabel(s["title"], date.fromisoformat(s["anchor_date"][:10]))
+            except ValueError:
+                probe = None
+            if not probe:
+                self._send_json(
+                    {"error": f"반복 제목 '{s['title']}' 에 고칠 기간 표시가 "
+                              "없습니다. 제목을 '10월 3주' 처럼 고친 뒤 "
+                              "'이 업무와 이후 모두' 로 저장하고 다시 켜 주세요"},
+                    400)
+                return
+
+        fixed = set_series_auto_rename(task["series_id"], on)
+        self._refresh_dashboard()
+        self._send_json({"auto_rename": on, "renamed": fixed,
+                         "series_id": task["series_id"]})
+
+    def _handle_series_preview(self, qs):
+        """GET /api/series/preview?title=&due=&freq=&count=&rename=1
+
+        회차의 날짜와 제목을 미리 보여 준다. 화면이 같은 정규식을 따로 들고
+        있으면 서버와 어긋나므로, **계산은 서버만 한다.**
+        """
+        title = (qs.get("title", [""])[0] or "").strip()
+        freq = (qs.get("freq", [""])[0] or "").strip()
+        due = (qs.get("due", [""])[0] or "")[:10] or today_kst()
+        rename = (qs.get("rename", ["0"])[0] or "0") in ("1", "true", "True")
+        try:
+            total = int(qs.get("count", [""])[0])
+        except (TypeError, ValueError):
+            total = None
+
+        if freq not in FREQS:
+            self._send_json({"ok": False,
+                             "reason": f"반복 주기는 {' · '.join(FREQS)} 중 하나입니다"})
+            return
+        try:
+            anchor = date.fromisoformat(due)
+        except ValueError:
+            self._send_json({"ok": False, "reason": "마감일이 날짜가 아닙니다"})
+            return
+        if rename and not relabel(title or "", anchor):
+            self._send_json({"ok": False, "found": False,
+                             "reason": "제목에 고칠 기간 표시가 없습니다 — "
+                                       "'10월 3주' · '10월' · '2026년' 처럼 적어 주세요"})
+            return
+
+        items = []
+        for seq in range(1, WINDOW + 1):
+            if total is not None and seq > total:
+                break
+            d = nth_due(anchor, freq, seq)
+            name = title
+            if rename:
+                name = relabel(title, d) or title
+            items.append({"seq": seq, "due": d.isoformat(), "title": name})
+        self._send_json({"ok": True, "found": True, "items": items})
 
     # ── 프로젝트 핸들러 ────────────────────────────────
 

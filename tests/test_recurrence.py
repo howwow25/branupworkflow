@@ -8,13 +8,14 @@
 석 달을 기다려야 안다. 그래서 날짜를 넣어 날짜를 받는 순수 함수로 떼어
 놓고 (`recurrence.py`), 그 모든 경우를 여기에 박아 둔다.
 """
+from calendar import monthrange
 from datetime import date
 
 import pytest
 
 from recurrence import (
     FREQS, MONTHLY, WEEKLY, WINDOW, YEARLY,
-    first_open_seq, nth_due, plan_fill, series_label,
+    first_open_seq, nth_due, plan_fill, relabel, series_label, week_of_month,
 )
 
 D = date
@@ -195,3 +196,85 @@ class Test표시:
 
     def test_마감없음은_회차만(self):
         assert series_label(3, None) == "3회째"
+
+
+class Test주차:
+    def test_사용자가_직접_적은_값과_같다(self):
+        """실제 기록(2026-10-19 생성)에서 가져온 값이다.
+
+        "[재무리뷰] 10월 3주" 로 만들고 4개 회차의 제목을 손으로 고쳐 둔 것:
+        10/19=3주 · 10/26=4주 · 11/2=1주 · 11/9=2주.
+        """
+        assert week_of_month(D(2026, 10, 19)) == 3
+        assert week_of_month(D(2026, 10, 26)) == 4
+        assert week_of_month(D(2026, 11, 2)) == 1
+        assert week_of_month(D(2026, 11, 9)) == 2
+
+    def test_1일부터_7일까지가_1주(self):
+        for day in range(1, 8):
+            assert week_of_month(D(2026, 10, day)) == 1
+        assert week_of_month(D(2026, 10, 8)) == 2
+
+    def test_5주차도_있다(self):
+        assert week_of_month(D(2026, 10, 29)) == 5
+        assert week_of_month(D(2026, 10, 31)) == 5
+
+    def test_n번째_같은_요일과_언제나_같다(self):
+        """⌈일/7⌉ == 그 달의 n번째 (그 요일). 둘이 갈라지면 제목이 틀린다."""
+        for year in (2026, 2027, 2028):
+            for month in range(1, 13):
+                seen = {}
+                for day in range(1, monthrange(year, month)[1] + 1):
+                    d = D(year, month, day)
+                    seen[d.weekday()] = seen.get(d.weekday(), 0) + 1
+                    assert week_of_month(d) == seen[d.weekday()], d
+
+
+class Test제목_기간_고치기:
+    def test_사용자의_실제_제목(self):
+        t = "[재무리뷰] 10월 3주"
+        assert relabel(t, D(2026, 10, 26)) == "[재무리뷰] 10월 4주"
+        assert relabel(t, D(2026, 11, 2)) == "[재무리뷰] 11월 1주"
+        assert relabel(t, D(2026, 11, 9)) == "[재무리뷰] 11월 2주"
+
+    def test_해가_바뀌어도_연도를_붙이지_않는다(self):
+        # 원래 제목에 연도가 없었다. 없던 것을 붙이지 않는다.
+        assert relabel("[재무리뷰] 12월 5주", D(2027, 1, 4)) == "[재무리뷰] 1월 1주"
+
+    def test_연도가_있으면_연도도_고친다(self):
+        assert relabel("2026년 12월 5주 보고", D(2027, 1, 4)) == "2027년 1월 1주 보고"
+
+    def test_주차_라고_써도_그대로_둔다(self):
+        assert relabel("주간회의 10월 3주차", D(2026, 11, 2)) == "주간회의 11월 1주차"
+
+    def test_띄어쓰기가_없어도_찾는다(self):
+        assert relabel("[x]10월3주", D(2026, 11, 2)) == "[x]11월 1주"
+
+    def test_월만_있으면_월만_고친다(self):
+        assert relabel("월말 정산 10월", D(2026, 11, 30)) == "월말 정산 11월"
+        assert relabel("2026년 10월 정산", D(2026, 11, 30)) == "2026년 11월 정산"
+
+    def test_연도만_있으면_연도를_고친다(self):
+        assert relabel("2026년 정기감사", D(2027, 3, 2)) == "2027년 정기감사"
+
+    def test_주가_있으면_월_패턴보다_먼저_잡는다(self):
+        # 월 패턴을 먼저 대면 "3주" 가 묵은 값으로 남는다.
+        out = relabel("10월 3주 결산", D(2026, 11, 9))
+        assert out == "11월 2주 결산"
+        assert "3주" not in out
+
+    def test_기간_표시가_없으면_None(self):
+        # 조용히 그대로 두면 사람은 기능이 켜진 줄 알고 넘어간다.
+        assert relabel("주간 보고", D(2026, 11, 2)) is None
+        assert relabel("", D(2026, 11, 2)) is None
+        assert relabel("회의", D(2026, 11, 2)) is None
+
+    def test_처음_하나만_고친다(self):
+        out = relabel("10월 3주 ~ 10월 4주", D(2026, 11, 2))
+        assert out == "11월 1주 ~ 10월 4주"
+
+    def test_여러_번_불러도_같은_결과다(self):
+        # 보충은 같은 날 여러 번 돌 수 있다. 제목이 누적되어 망가지면 안 된다.
+        t = "[재무리뷰] 10월 3주"
+        once = relabel(t, D(2026, 11, 2))
+        assert relabel(once, D(2026, 11, 2)) == once

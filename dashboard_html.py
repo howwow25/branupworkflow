@@ -606,8 +606,14 @@ def generate_task_gantt(tasks, completed, projects=None):
 def render():
     # 화면을 굽기 전에 반복업무 창을 채운다. 이 앱엔 스케줄러가 없어서
     # "화면을 볼 때" 가 유일하게 믿을 수 있는 시점이다 (docs/adr/0001).
-    # API 서버를 거치지 않고 이 스크립트만 돌려도 창이 채워진다.
-    backfill_series()
+    # update.ps1 처럼 이 스크립트만 돌려도 창이 채워진다.
+    #
+    # 단, **api_server 가 띄운 경우는 건너뛴다.** 굽기는 별도 프로세스라
+    # 여기서 쓰면 같은 SQLite 에 쓰는 프로세스가 둘이 되어 잠금으로 부딪친다
+    # (실제로 "database is locked" 로 요청이 죽었다). API 서버는 자기 쪽에서
+    # 이미 보충하므로 잃는 것이 없다.
+    if not _os_dash.environ.get("BRANUP_SKIP_BACKFILL"):
+        backfill_series()
     tasks = get_active_tasks()
     groups = group_tasks(tasks)
     completed = get_completed_tasks()
@@ -664,7 +670,8 @@ def render():
     series_json = json.dumps(
         {s["id"]: {"freq": s["freq"], "total_count": s["total_count"],
                    "anchor_date": s["anchor_date"],
-                   "stopped_at": s["stopped_at"]}
+                   "stopped_at": s["stopped_at"],
+                   "auto_rename": bool(s["auto_rename"])}
          for s in series_all.values()}, ensure_ascii=False)
 
     # ── 프로젝트 데이터 JSON ──
@@ -1015,6 +1022,13 @@ body {{
 .recur-row input:disabled {{ opacity: .4; }}
 .recur-check {{ display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }}
 .recur-hint {{ font-size: 11px; color: #8b949e; margin-top: 6px; line-height: 1.5; }}
+.recur-preview {{
+    margin-top: 8px; font-size: 11px; line-height: 1.7; color: #8b949e;
+    border-top: 1px dashed #2a2d3a; padding-top: 7px;
+}}
+.recur-preview.hidden {{ display: none; }}
+.recur-preview b {{ color: #c9b6f5; font-weight: 600; }}
+.recur-preview .bad {{ color: #e3b341; }}
 .recur-info {{
     margin-top: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.6;
     background: rgba(163,113,247,0.08); border: 1px solid rgba(163,113,247,0.2);
@@ -2355,23 +2369,26 @@ function createModalEl() {{
         '</div>' +
         '<div class="modal-body">' +
         '<div class="modal-status modal-meta"></div>' +
-        '<div class="modal-field"><label>제목</label><input type="text" class="edit-title" placeholder="업무 제목"></div>' +
+        '<div class="modal-field"><label>제목</label><input type="text" class="edit-title" placeholder="업무 제목" oninput="recurPreviewSoon(this)"></div>' +
         '<div class="modal-field"><label>담당자</label><select class="edit-assignee" multiple size="5">' +
         '{''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}' +
         '</select><div style="font-size:10px;color:#8b949e;margin-top:3px">Ctrl+클릭: 다중 선택 | 선택 없으면 미정</div></div>' +
-        '<div class="modal-field"><label>마감일</label><input type="date" class="edit-due"></div>' +
+        '<div class="modal-field"><label>마감일</label><input type="date" class="edit-due" onchange="recurPreviewSoon(this)"></div>' +
         '<div class="modal-field recur-field">' +
         '<label class="recur-check"><input type="checkbox" class="edit-recur" onchange="toggleRecur(this)"> 🔁 반복</label>' +
         '<div class="recur-box hidden">' +
         '<div class="recur-row">' +
-        '<select class="edit-recur-freq"><option value="주">주마다</option><option value="월">월마다</option><option value="년">년마다</option></select>' +
-        '<input type="number" class="edit-recur-count" min="1" max="999" value="12"><span style="font-size:12px;color:#8b949e">회</span>' +
+        '<select class="edit-recur-freq" onchange="refreshRecurPreview(this)"><option value="주">주마다</option><option value="월">월마다</option><option value="년">년마다</option></select>' +
+        '<input type="number" class="edit-recur-count" min="1" max="999" value="12" oninput="recurPreviewSoon(this)"><span style="font-size:12px;color:#8b949e">회</span>' +
         '<label class="recur-check"><input type="checkbox" class="edit-recur-forever" onchange="toggleForever(this)"> 마감없음</label>' +
         '</div>' +
+        '<label class="recur-check" style="margin-top:8px"><input type="checkbox" class="edit-recur-rename" onchange="refreshRecurPreview(this)"> 주기마다 이름 자동 변경</label>' +
         '<div class="recur-hint">위 <b>마감일</b>이 1회차입니다. 미래 업무는 <b>최대 ' + RECUR_WINDOW + '개</b>만 미리 만들고, 하나가 끝나거나 날짜가 지나면 하나가 더 생깁니다.</div>' +
+        '<div class="recur-preview"></div>' +
         '</div></div>' +
         '<div class="modal-field recur-info-field" style="display:none">' +
         '<div class="recur-info"></div>' +
+        '<label class="recur-check" style="margin-top:8px"><input type="checkbox" class="series-rename-toggle" onchange="toggleSeriesRename(this)"> 주기마다 이름 자동 변경</label>' +
         '<button type="button" class="recur-stop-btn" onclick="stopSeries(this)">🔁 반복 중단</button>' +
         '</div>' +
         '<div class="modal-field content-field"><label>📝 내용</label><textarea class="edit-summary" placeholder="업무 내용..." rows="4" oninput="autoGrowField(this)"></textarea></div>' +
@@ -2478,6 +2495,7 @@ function populateModal(modalEl, task) {{
 
     if (isStaticHost) {{
         modalEl.querySelectorAll('.btn-save, .btn-complete, .btn-delete, .btn-uncomplete, .btn-dropzone, .recur-stop-btn').forEach(function(btn) {{ btn.classList.add('disabled'); }});
+        modalEl.querySelector('.series-rename-toggle').disabled = true;
     }}
 }}
 
@@ -2564,10 +2582,12 @@ function openCreateModal() {{
     modalEl.querySelector('.recur-info-field').style.display = 'none';
     modalEl.querySelector('.edit-recur').checked = false;
     modalEl.querySelector('.edit-recur-forever').checked = false;
+    modalEl.querySelector('.edit-recur-rename').checked = false;
     modalEl.querySelector('.edit-recur-count').disabled = false;
     modalEl.querySelector('.edit-recur-count').value = 12;
     modalEl.querySelector('.edit-recur-freq').value = '주';
     modalEl.querySelector('.recur-box').classList.add('hidden');
+    modalEl.querySelector('.recur-preview').innerHTML = '';
     hideScopeAsk(modalEl);
 
     var sel = modalEl.querySelector('.edit-assignee');
@@ -2625,7 +2645,8 @@ function createTask() {{
         if (task.error) {{ showToast('등록 실패: ' + task.error, true); return; }}
         if (task.series) {{
             showToast('🔁 #' + task.display_num + ' 등록 완료! ' + task.series.freq +
-                      '마다 · 앞으로 ' + task.series.created + '개를 만들어 뒀습니다');
+                      '마다 · 앞으로 ' + task.series.created + '개를 만들어 뒀습니다' +
+                      (task.series.auto_rename ? ' (이름 자동 변경)' : ''));
         }} else {{
         showToast('✨ #' + task.display_num + ' 등록 완료!');
         }}
@@ -2653,21 +2674,108 @@ function toggleRecur(cb) {{
             showToast('반복은 마감일이 기준입니다 — 오늘로 넣었습니다');
         }}
     }}
+    refreshRecurPreview(cb);
 }}
 
 function toggleForever(cb) {{
     cb.closest('.recur-row').querySelector('.edit-recur-count').disabled = cb.checked;
+    refreshRecurPreview(cb);
 }}
 
 function getRecurrence(modalEl) {{
     var cb = modalEl.querySelector('.edit-recur');
     if (!cb || !cb.checked) return null;
+    var freq = modalEl.querySelector('.edit-recur-freq').value;
+    var rename = modalEl.querySelector('.edit-recur-rename').checked;
     if (modalEl.querySelector('.edit-recur-forever').checked) {{
-        return {{ freq: modalEl.querySelector('.edit-recur-freq').value, count: null }};
+        return {{ freq: freq, count: null, auto_rename: rename }};
     }}
     var count = parseInt(modalEl.querySelector('.edit-recur-count').value, 10);
     if (!count || count < 1) return 'bad';
-    return {{ freq: modalEl.querySelector('.edit-recur-freq').value, count: count }};
+    return {{ freq: freq, count: count, auto_rename: rename }};
+}}
+
+// ── 미리보기 ────────────────────────────────────────────
+// 날짜도 제목도 **서버가 계산한 것만** 보여 준다. 화면이 같은 정규식을 따로
+// 들고 있으면 언젠가 어긋나고, 그때 사람은 화면을 믿는다.
+
+var recurPreviewTimer = null;
+
+function recurPreviewSoon(el) {{
+    var modalEl = el.closest('.modal');
+    if (!modalEl) return;
+    if (recurPreviewTimer) clearTimeout(recurPreviewTimer);
+    recurPreviewTimer = setTimeout(function() {{
+        refreshRecurPreview(modalEl.querySelector('.edit-recur') || el);
+    }}, 350);
+}}
+
+function refreshRecurPreview(el) {{
+    var modalEl = el.closest('.modal');
+    if (!modalEl) return;
+    var box = modalEl.querySelector('.recur-preview');
+    var on = modalEl.querySelector('.edit-recur');
+    // 반복 입력 자체가 숨겨진 상세 모달에서는 아무 일도 하지 않는다.
+    if (!box || !on || modalEl.querySelector('.recur-field').style.display === 'none'
+        || !on.checked) {{
+        if (box) box.innerHTML = '';
+        return;
+    }}
+    var rec = getRecurrence(modalEl);
+    if (!rec || rec === 'bad') {{ box.innerHTML = ''; return; }}
+    var q = '?title=' + encodeURIComponent(modalEl.querySelector('.edit-title').value.trim()) +
+            '&due=' + encodeURIComponent(modalEl.querySelector('.edit-due').value || '') +
+            '&freq=' + encodeURIComponent(rec.freq) +
+            '&rename=' + (rec.auto_rename ? '1' : '0') +
+            (rec.count ? '&count=' + rec.count : '');
+    fetch(API + '/series/preview' + q)
+    .then(function(r) {{ return r.json(); }})
+    .then(function(res) {{
+        if (!res.ok) {{
+            box.innerHTML = '<span class="bad">⚠️ ' + (res.reason || '미리보기를 만들 수 없습니다') + '</span>';
+            return;
+        }}
+        var lines = res.items.map(function(it) {{
+            return it.due + ' &nbsp; <b>' + escapeHtml(it.title || '(제목 없음)') + '</b>';
+        }});
+        box.innerHTML = '이렇게 만들어집니다:<br>' + lines.join('<br>');
+    }})
+    .catch(function() {{ box.innerHTML = ''; }});
+}}
+
+function escapeHtml(s) {{
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}}
+
+function toggleSeriesRename(cb) {{
+    var modalEl = cb.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) return;
+    var want = cb.checked;
+    cb.disabled = true;
+    fetch(API + '/tasks/' + m.taskId + '/series/rename-mode', {{
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ on: want }})
+    }})
+    .then(function(r) {{ return r.json(); }})
+    .then(function(res) {{
+        cb.disabled = false;
+        if (res.error) {{
+            cb.checked = !want;          // 서버가 거절했다. 화면을 되돌린다.
+            showToast(res.error, true);
+            return;
+        }}
+        showToast(res.auto_rename
+            ? (res.renamed ? ('이름 자동 변경 켬 — 다음 업무 ' + res.renamed + '개의 이름을 맞췄습니다')
+                           : '이름 자동 변경 켬')
+            : '이름 자동 변경 끔');
+        setTimeout(function() {{ forceRefresh(); }}, 500);
+    }})
+    .catch(function() {{
+        cb.disabled = false; cb.checked = !want;
+        showToast('⚠️ API 서버 연결 필요', true);
+    }});
 }}
 
 function hideScopeAsk(modalEl) {{
@@ -2688,6 +2796,11 @@ function renderRecurInfo(modalEl, task) {{
               ' · 이 업무는 <b>' + (task.series_seq || 1) + '회차</b>';
     if (s.stopped_at) txt += '<br><small>이 반복은 멈춰 있습니다 — 새 회차가 생기지 않습니다.</small>';
     modalEl.querySelector('.recur-info').innerHTML = txt;
+    var toggle = modalEl.querySelector('.series-rename-toggle');
+    toggle.checked = !!s.auto_rename;
+    toggle.disabled = false;
+    // 멈춘 반복은 새 회차를 만들지 않으니 이름을 고칠 일도 없다.
+    toggle.closest('label').style.display = s.stopped_at ? 'none' : '';
     modalEl.querySelector('.recur-stop-btn').style.display = s.stopped_at ? 'none' : '';
     field.style.display = '';
 }}

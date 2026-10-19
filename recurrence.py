@@ -23,6 +23,7 @@
 """
 from __future__ import annotations
 
+import re
 from calendar import monthrange
 from datetime import date, timedelta
 
@@ -113,3 +114,62 @@ def plan_fill(anchor: date, freq: str, total: int | None, today: date, *,
 def series_label(seq: int, total: int | None) -> str:
     """목록·카드에 붙는 글. 마감없음은 전체를 모르니 회차만 적는다."""
     return f"{seq}/{total}회" if total else f"{seq}회째"
+
+
+# ── 제목의 기간 표시 고치기 ──────────────────────────────
+#
+# "[재무리뷰] 10월 3주" 처럼 제목에 기간을 적어 두는 사람이 있다. 회차마다
+# 손으로 고치는 것이 실제로 하던 일이라(2026-10-19 에 4개를 만들고 1분 뒤
+# 4개를 모두 고친 기록이 있다) 그걸 대신한다.
+#
+# ## 주차는 ⌈일/7⌉ 이다
+#
+# 한국식 주차는 셈법이 갈린다 — "1일이 든 주를 1주차" 로 보면 10월 19일은
+# 4주차고, "그 달의 n번째 월요일" 로 보면 3주차다. 사용자가 직접 적은 제목이
+# 10/19=3주 · 10/26=4주 · 11/2=1주 였으므로 후자다.
+#
+# 그리고 **⌈일/7⌉ 과 "n번째 같은 요일" 은 언제나 같은 값이다**: 어떤 요일의
+# 그 달 첫 등장일 d 는 1..7 이고 n 번째는 d+7(n-1) 이므로
+# ⌈(d+7(n-1))/7⌉ = ⌈d/7⌉ + (n-1) = n. 그래서 식 하나로 두 직관을 모두 만족한다.
+
+def week_of_month(d: date) -> int:
+    """그 달 며칠째 주인지. ⌈일/7⌉ = 그 달의 n번째 같은 요일."""
+    return (d.day - 1) // 7 + 1
+
+
+# 찾는 순서가 중요하다 — 좁은 것부터. "2026년 10월 3주" 에 월 패턴을 먼저
+# 대면 "10월" 만 바뀌고 "3주" 가 묵은 값으로 남는다.
+_YEAR = r"(?:(?P<y>\d{4})\s*년\s*)?"
+_PERIOD_PATTERNS = (
+    ("week",  re.compile(_YEAR + r"(?P<m>\d{1,2})\s*월\s*(?P<w>\d{1,2})\s*주(?P<cha>차)?")),
+    ("month", re.compile(_YEAR + r"(?P<m>\d{1,2})\s*월")),
+    ("year",  re.compile(r"(?P<y>\d{4})\s*년")),
+)
+
+
+def relabel(title: str, d: date) -> str | None:
+    """제목의 기간 표시를 `d` 에 맞춰 고친다. 표시가 없으면 `None`.
+
+    주기를 받지 않는다 — 무엇을 고칠지는 **제목에 적힌 모양**이 정한다.
+    "10월 3주" 는 월과 주를, "10월" 은 월을, "2026년" 은 해를 고친다. 연도나
+    "차" 처럼 원래 있던 꾸밈은 그대로 둔다. 없던 것을 붙이지 않는다.
+
+    표시가 여러 번 나오면 **첫 번째만** 고친다. 제목에 날짜가 두 개 들어가는
+    경우는 둘이 다른 뜻일 가능성이 높아서, 둘 다 고치면 더 틀린다.
+    """
+    if not title:
+        return None
+    for kind, pat in _PERIOD_PATTERNS:
+        m = pat.search(title)
+        if not m:
+            continue
+        g = m.groupdict()
+        year = f"{d.year}년 " if g.get("y") else ""
+        if kind == "week":
+            new = f"{year}{d.month}월 {week_of_month(d)}주" + (g.get("cha") or "")
+        elif kind == "month":
+            new = f"{year}{d.month}월"
+        else:
+            new = f"{d.year}년"
+        return title[:m.start()] + new + title[m.end():]
+    return None
