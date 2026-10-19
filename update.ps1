@@ -1,4 +1,4 @@
-# branup 운영(branup-watcher) 업데이트 스크립트
+﻿# branup 운영(branup-watcher) 업데이트 스크립트
 # git pull -> dashboard rebuild -> api server restart -> 검증
 # 대시보드: http://toffer.co.kr/branup/branup-watcher/
 $ErrorActionPreference = 'Stop'
@@ -42,7 +42,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host '  [건너뜀] pytest 가 없습니다. 설치: python -m pip install pytest' -ForegroundColor Yellow
 } else {
     python -m pytest
-    if ($LASTEXITCODE -ne 0) { throw '시험 실패 — 배포를 멈춥니다. python -m pytest 로 확인하세요' }
+    if ($LASTEXITCODE -ne 0) { throw '시험 실패 - 배포를 멈춥니다. python -m pytest 로 확인하세요' }
 }
 
 Write-Host '[3/5] Building dashboard HTML...' -ForegroundColor Cyan

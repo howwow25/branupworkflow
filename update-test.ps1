@@ -1,4 +1,4 @@
-# branup TEST 인스턴스 업데이트 스크립트
+﻿# branup TEST 인스턴스 업데이트 스크립트
 # 용도: toffer.co.kr/branup/test (마일스톤#2 테스트)
 # 기존 toffer.co.kr/branup/branup-watcher 와 독립 실행
 
