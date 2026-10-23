@@ -3879,6 +3879,16 @@ function openFromLink() {{
 }}
 window.addEventListener('load', openFromLink);
 </script>
+<!--
+  브랜업 포털로 돌아가는 홈 단추. (portal/docs/홈버튼.md)
+
+  조각은 포털 저장소에 있고 여섯 앱이 그 하나를 함께 쓴다. 모양이나 자리를
+  바꿀 일이 생기면 포털만 고치면 여기도 함께 바뀐다 - 그래서 여기에는 복붙한
+  코드를 두지 않는다.
+
+  전에는 개별 서비스에 들어오면 포털로 돌아갈 길이 뒤로가기뿐이었다.
+-->
+<script src="https://toffer.co.kr/branup/portal/home.js" async></script>
 </body>
 </html>"""
     return html
