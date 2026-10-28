@@ -1083,7 +1083,7 @@ body {{
     z-index: 1000;
     justify-content: center; align-items: center;
     /* 모달은 overlay 의 flex 자식이라 둘 이상 열리면 나란히 놓인다.
-       넓이를 50vw 로 키운 뒤에는 둘만 열려도 화면을 가장자리까지 꽉 채우므로
+       넓어진 뒤에는 셋만 열려도 화면을 가장자리까지 꽉 채우므로
        여백과 간격을 둔다 - 모자라면 flex 가 알아서 줄여 준다. */
     padding: 16px; gap: 16px;
 }}
@@ -1097,12 +1097,12 @@ body {{
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }}
 /* 업무·프로젝트 상세는 내용이 많아 520px 에서는 글이 줄바꿈으로 뭉친다.
-   지금 크기를 최소로 두고 창 넓이의 절반까지 늘린다.
+   지금 크기를 최소로 두고 창 넓이의 1/3 까지 늘린다.
    min-width: 520px 가 아니라 max() 인 이유: CSS 는 min-width 를 max-width 보다
    나중에 적용하므로, min-width 를 쓰면 폭 400px 짜리 화면에서도 520px 를
    밀어붙여 가로 스크롤이 생긴다. max() 는 max-width 에 지므로 안전하다. */
 .modal.wide {{
-    width: max(520px, 50vw);
+    width: max(520px, 100vw / 3);
     max-width: 90%;
 }}
 .modal-header {{
