@@ -80,7 +80,7 @@ def get_conn():
 # 이 번호가 필요한 이유: 굽기(dashboard_html)는 별도 프로세스이고, 이 함수가
 # 매번 CREATE/ALTER 를 돌리면 **읽기만 하려는 프로세스도 쓰기 잠금을 잡는다.**
 # 그래서 업무를 연달아 만들면 "database is locked" 로 요청이 죽었다.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _ensure_schema(conn):
@@ -237,6 +237,22 @@ def _ensure_schema(conn):
                      "ON tasks(series_id, series_seq) WHERE series_id IS NOT NULL")
     except Exception:
         pass
+    # ── migration: 착수일 ──
+    #
+    # 마감일만 있어서 "오늘 손대야 하는 일" 이 화면에 없었다. 간트는 등록일을
+    # 시작일인 척 썼다.
+    #
+    # 이름이 **착수일** 인 이유: 「시작일」 은 반복 시리즈의 **기준일** 을 가리킬
+    # 때 사람들이 쓰던 말이고(사전의 기준일 항목이 그 말을 피하라고 적어 뒀다),
+    # 두 날짜가 같은 이름을 쓰면 "이 업무의 시작일" 이 회차의 기준일인지 이
+    # 업무에 손대는 날인지 구별되지 않는다.
+    #
+    # 비워 둘 수 있다. 쌓여 있는 업무를 추측으로 채우면 없던 "오늘 할 일" 이
+    # 수십 건 생겨 첫날부터 신뢰를 잃는다.
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN start_at TEXT")
+    except Exception:
+        pass  # already exists
     # assign display_num to tasks without one (ordered by created_at)
     nulls = conn.execute(
         "SELECT id FROM tasks WHERE display_num IS NULL ORDER BY created_at ASC"
@@ -349,6 +365,7 @@ def get_all_rooms() -> List[Dict]:
 
 @_writer
 def create_task(room_id: str, title: str, summary: str = "",
+                start_at: Optional[str] = None,
                 due_at: Optional[str] = None, assignee: Optional[str] = None,
                 priority: str = "중간", project_id: Optional[str] = None,
                 series_id: Optional[str] = None,
@@ -360,22 +377,52 @@ def create_task(room_id: str, title: str, summary: str = "",
         "SELECT COALESCE(MAX(display_num), 0) + 1 FROM tasks"
     ).fetchone()[0]
     conn.execute(
-        "INSERT INTO tasks (id,room_id,title,status,summary,due_at,assignee,priority,created_at,updated_at,display_num,project_id,series_id,series_seq) "
-        "VALUES (?,?,?,'진행중',?,?,?,?,?,?,?,?,?,?)",
-        (tid, room_id, title, summary, due_at, assignee, priority, ts, ts, next_num,
-         project_id, series_id, series_seq))
+        "INSERT INTO tasks (id,room_id,title,status,summary,start_at,due_at,assignee,priority,created_at,updated_at,display_num,project_id,series_id,series_seq) "
+        "VALUES (?,?,?,'진행중',?,?,?,?,?,?,?,?,?,?,?)",
+        (tid, room_id, title, summary, start_at, due_at, assignee, priority, ts, ts,
+         next_num, project_id, series_id, series_seq))
     conn.commit()
+    # 등록 시점의 날짜를 남긴다. 이것이 없으면 "마감일을 처음부터 그 날짜로
+    # 잡았는지, 세 번 미뤘는지" 를 영원히 구별할 수 없다.
+    add_event(tid, "등록", {"start_at": start_at, "due_at": due_at,
+                            "assignee": assignee})
     return {"id": tid, "room_id": room_id, "title": title, "status": "진행중",
-            "summary": summary, "due_at": due_at, "assignee": assignee,
+            "summary": summary, "start_at": start_at, "due_at": due_at,
+            "assignee": assignee,
             "priority": priority, "created_at": ts, "updated_at": ts, "closed_at": None,
             "display_num": next_num, "project_id": project_id,
             "series_id": series_id, "series_seq": series_seq}
 
 
+# 바뀌면 기록을 남기는 칸과 그때 쓰는 이름.
+#
+# 제목·내용·우선순위는 남기지 않는다. 날짜를 잘 잡았는지 세는 데 쓰이지
+# 않고, 양만 늘어 기록을 읽기 어렵게 만든다 — 포털의 감사 로그가 "화면
+# 이동까지 남기면 로그가 커지기만 하고 아무도 안 본다" 고 적어 둔 것과 같다.
+_TRACKED = {"start_at": "착수일 변경", "due_at": "마감일 변경",
+            "assignee": "담당자 변경"}
+
+
+def _same(a, b) -> bool:
+    """날짜는 'YYYY-MM-DD' 로, 빈 값은 전부 같은 것으로 본다.
+
+    `None` 과 `''` 과 `'2026-11-03T00:00:00'` 이 섞여 들어오므로, 글자를
+    그대로 비교하면 바뀌지 않았는데 바뀐 것으로 기록된다.
+    """
+    return ((a or "")[:10]) == ((b or "")[:10])
+
+
 @_writer
 def update_task(task_id: str, **kwargs):
     conn = get_conn()
-    allowed = {"status", "title", "summary", "due_at", "assignee", "priority", "closed_at", "feedback", "related_tasks", "project_id"}
+    allowed = {"status", "title", "summary", "start_at", "due_at", "assignee",
+               "priority", "closed_at", "feedback", "related_tasks", "project_id"}
+    # 고치기 **전** 값을 읽어 둔다. 기록을 이 함수 안에서 남기는 이유가
+    # 이것이다 — 부르는 곳마다 남기게 하면 언젠가 한 곳이 빠지고, 빠진 줄은
+    # 나중에 복원할 수 없다.
+    before = conn.execute(
+        "SELECT status, start_at, due_at, assignee FROM tasks WHERE id=?",
+        (task_id,)).fetchone()
     sets, vals = ["updated_at=?"], [now_iso()]
     for k, v in kwargs.items():
         if k in allowed:
@@ -384,6 +431,16 @@ def update_task(task_id: str, **kwargs):
     vals.append(task_id)
     conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id=?", vals)
     conn.commit()
+    if before is None:
+        return
+    for col, name in _TRACKED.items():
+        if col in kwargs and not _same(before[col], kwargs[col]):
+            add_event(task_id, name, {"from": before[col], "to": kwargs[col]})
+    if "status" in kwargs and before["status"] != kwargs["status"]:
+        if kwargs["status"] == "완료":
+            add_event(task_id, "완료", {"from": before["status"]})
+        elif before["status"] == "완료":
+            add_event(task_id, "완료 취소", {"to": kwargs["status"]})
 
 
 def get_tasks_by_room(room_id: str) -> List[Dict]:
@@ -835,6 +892,23 @@ def add_event(task_id: str, event_type: str, payload: Optional[Dict] = None):
         "INSERT INTO task_events (id,task_id,event_type,payload,created_at) VALUES (?,?,?,?,?)",
         (str(uuid4()), task_id, event_type, json.dumps(payload or {}), now_iso()))
     conn.commit()
+
+
+def get_task_events(task_id: str) -> List[Dict]:
+    """한 업무에 쌓인 기록. 오래된 것부터."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM task_events WHERE task_id=? ORDER BY created_at ASC, id ASC",
+        (task_id,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["payload"] = json.loads(d["payload"] or "{}")
+        except Exception:
+            d["payload"] = {}
+        out.append(d)
+    return out
 
 
 # ── files ────────────────────────────────────────────────

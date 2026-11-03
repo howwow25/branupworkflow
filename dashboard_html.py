@@ -507,6 +507,7 @@ def generate_task_gantt(tasks, completed, projects=None):
     # ── 업무 행 ──
     task_rows = []
     for t in all_ts:
+        start_str = t.get("start_at") or ""
         created_str = t.get("created_at", "")
         due_str = t.get("due_at", "")
         closed_str = t.get("closed_at", "")
@@ -515,9 +516,17 @@ def generate_task_gantt(tasks, completed, projects=None):
         s_date = None
         e_date = None
 
-        if created_str:
+        # 막대의 왼쪽 끝은 **착수일**이다. 없으면 등록일로 돌아간다 — 착수일이
+        # 생기기 전에 등록된 업무가 간트에서 사라지지 않게.
+        #
+        # 전에는 등록일만 썼다. 그래서 9월에 등록해 12월에 하기로 한 업무가
+        # 9월부터 뻗은 막대로 보였고, 막대 길이가 일의 크기와 아무 상관이 없었다.
+        for cand in (start_str, created_str):
+            if not cand:
+                continue
             try:
-                s_date = datetime.strptime(created_str[:10], "%Y-%m-%d").date()
+                s_date = datetime.strptime(cand[:10], "%Y-%m-%d").date()
+                break
             except Exception:
                 pass
         if status == "완료" and closed_str:
@@ -2262,6 +2271,7 @@ function requestWeeklyReport() {{
     // 불필요 필드 숨김
     body.querySelector('.edit-title').parentElement.style.display = 'none';
     body.querySelector('.edit-assignee').parentElement.style.display = 'none';
+    body.querySelector('.edit-start').parentElement.style.display = 'none';
     body.querySelector('.edit-due').parentElement.style.display = 'none';
     body.querySelector('.edit-summary').parentElement.style.display = 'none';
     body.querySelector('.edit-priority').parentElement.style.display = 'none';
@@ -2403,6 +2413,8 @@ function createModalEl() {{
         '<div class="modal-field"><label>담당자</label><select class="edit-assignee" multiple size="5">' +
         '{''.join(f'<option value="{a}">{a}</option>' for a in sorted_assignees)}' +
         '</select><div style="font-size:10px;color:#8b949e;margin-top:3px">Ctrl+클릭: 다중 선택 | 선택 없으면 미정</div></div>' +
+        '<div class="modal-field"><label>착수일</label><input type="date" class="edit-start">' +
+        '<div style="font-size:10px;color:#8b949e;margin-top:3px">손대기 시작할 날. 비워 두면 아무 때나 하는 일입니다</div></div>' +
         '<div class="modal-field"><label>마감일</label><input type="date" class="edit-due" onchange="recurPreviewSoon(this)"></div>' +
         '<div class="modal-field recur-field">' +
         '<label class="recur-check"><input type="checkbox" class="edit-recur" onchange="toggleRecur(this)"> 🔁 반복</label>' +
@@ -2472,6 +2484,7 @@ function autoGrowField(ta) {{
 function populateModal(modalEl, task) {{
     modalEl.querySelector('.modal-title').textContent = '#' + task.display_num + ' 업무 상세';
     modalEl.querySelector('.edit-title').value = task.title || '';
+    modalEl.querySelector('.edit-start').value = task.start_at ? task.start_at.slice(0,10) : '';
     modalEl.querySelector('.edit-due').value = task.due_at ? task.due_at.slice(0,10) : '';
     modalEl.querySelector('.edit-summary').value = task.summary || task.title || '';
     modalEl.querySelector('.edit-feedback').value = task.feedback || '';
@@ -2593,6 +2606,9 @@ function openCreateModal() {{
 
     modalEl.querySelector('.modal-title').textContent = '✨ 새 업무';
     modalEl.querySelector('.edit-title').value = '';
+    // 착수일은 비워 둔다. 오늘로 채우면 등록하는 모든 업무가 "오늘 할 일" 로
+    // 올라와, 정말 오늘 손대야 하는 일이 그 속에 묻힌다.
+    modalEl.querySelector('.edit-start').value = '';
     modalEl.querySelector('.edit-due').value = new Date().toISOString().slice(0,10);
     modalEl.querySelector('.edit-summary').value = '';
     modalEl.querySelector('.edit-feedback').value = '';
@@ -2662,6 +2678,7 @@ function createTask() {{
     var data = {{
         title: title,
         assignee: getAssigneeValue(modalEl),
+        start_at: modalEl.querySelector('.edit-start').value || null,
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
         priority: modalEl.querySelector('.edit-priority').value,
@@ -2897,6 +2914,7 @@ function collectTaskEdits(modalEl) {{
     var data = {{
         title: modalEl.querySelector('.edit-title').value.trim(),
         assignee: getAssigneeValue(modalEl),
+        start_at: modalEl.querySelector('.edit-start').value || null,
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
         feedback: modalEl.querySelector('.edit-feedback').value.trim(),
@@ -2969,6 +2987,7 @@ function completeTask(btnEl) {{
     var data = {{
         title: modalEl.querySelector('.edit-title').value.trim(),
         assignee: getAssigneeValue(modalEl),
+        start_at: modalEl.querySelector('.edit-start').value || null,
         due_at: modalEl.querySelector('.edit-due').value || null,
         summary: modalEl.querySelector('.edit-summary').value.trim(),
         feedback: modalEl.querySelector('.edit-feedback').value.trim(),

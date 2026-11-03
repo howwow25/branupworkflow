@@ -383,7 +383,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         body = self._parse_body()
-        allowed = {"title", "assignee", "due_at", "summary", "priority", "feedback", "related_tasks", "project_id"}
+        allowed = {"title", "assignee", "start_at", "due_at", "summary", "priority", "feedback", "related_tasks", "project_id"}
         updates = {k: v for k, v in body.items() if k in allowed}
         if not updates:
             self._send_json({"error": "no valid fields"}, 400)
@@ -699,7 +699,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if is_all:
             rows = conn.execute(
-                """SELECT display_num, title, status, summary, due_at, assignee,
+                """SELECT display_num, title, status, summary, start_at, due_at, assignee,
                           priority, created_at, closed_at, project_id, feedback, related_tasks
                    FROM tasks
                    WHERE status NOT IN ('보류')
@@ -723,7 +723,7 @@ class APIHandler(BaseHTTPRequestHandler):
             members = ROSTER + sorted(extra)
         else:
             rows = conn.execute(
-                """SELECT display_num, title, status, summary, due_at, assignee,
+                """SELECT display_num, title, status, summary, start_at, due_at, assignee,
                           priority, created_at, closed_at, project_id, feedback, related_tasks
                    FROM tasks
                    WHERE assignee LIKE ?
@@ -991,6 +991,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 room["id"],
                 title=title,
                 summary=body.get("summary") or title,
+                start_at=body.get("start_at") or None,
                 due_at=body.get("due_at"),
                 assignee=body.get("assignee"),
                 priority=body.get("priority", "중간"),
@@ -1264,6 +1265,7 @@ class APIHandler(BaseHTTPRequestHandler):
             room["id"],
             title=title,
             summary=body.get("summary") or title,
+            start_at=body.get("start_at") or None,
             due_at=body.get("due_at"),
             assignee=body.get("assignee"),
             priority=body.get("priority", "중간"),
