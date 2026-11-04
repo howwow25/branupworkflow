@@ -34,6 +34,20 @@ else:
                     backfill_series, get_all_series)
 from recurrence import FREQ_LABEL, WINDOW, series_label
 
+#: 모달이 읽는 칸. 구워 낸 HTML 안의 `TASKS_DATA` 에 이만큼만 들어간다.
+#:
+#: ⚠️ **칸을 더할 때 여기도 더해야 한다.** `openModal` 은 먼저 이 JSON 으로
+#: 칸을 채우고 그 다음 `GET /api/tasks/<id>` 로 덮어쓴다. 여기서 빠뜨리면
+#: 팝업을 연 순간 그 칸이 **빈칸으로 번쩍였다가** 채워지고, API 가 죽어
+#: 있으면 **영구히 빈칸**이다. 화면 코드에는 아무 잘못이 없어서 찾기 어렵다.
+#: 실제로 `start_at` 이 이 목록에서 빠져 그 모양이 났다.
+#: 목록을 따로 뽑아 둔 이유는 `tests/test_start_at.py` 가 지키게 하려는 것이다.
+MODAL_FIELDS = [
+    "id", "title", "status", "summary", "feedback", "start_at", "due_at",
+    "assignee", "priority", "created_at", "updated_at", "closed_at",
+    "display_num", "related_tasks", "project_id", "series_id", "series_seq",
+]
+
 
 def dday(due_str):
     if not due_str: return None
@@ -408,7 +422,10 @@ def generate_task_gantt(tasks, completed, projects=None):
     # ── 프로젝트 시작일·종료예정일도 날짜 범위에 포함 ──
     dates_set = set()
     for t in all_ts:
-        for k in ("created_at", "due_at", "closed_at"):
+        # ⚠️ `start_at` 을 빼면 **착수일이 등록일보다 앞선 업무**의 막대가
+        # 왼쪽으로 잘린다. 간트는 여기 모인 날짜로만 창을 잡는데, 막대는
+        # 착수일부터 그리기 때문이다(`:519-524`).
+        for k in ("created_at", "start_at", "due_at", "closed_at"):
             v = t.get(k, "")
             if v:
                 try:
@@ -672,7 +689,8 @@ def render():
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
-    all_tasks = {t["id"]: {k: t.get(k) for k in ["id","title","status","summary","feedback","due_at","assignee","priority","created_at","updated_at","closed_at","display_num","related_tasks","project_id","series_id","series_seq"]} for t in tasks + completed + dropzone}
+    all_tasks = {t["id"]: {k: t.get(k) for k in MODAL_FIELDS}
+                 for t in tasks + completed + dropzone}
     tasks_json = json.dumps(all_tasks, ensure_ascii=False)
 
     # ── 반복 시리즈 JSON (멈춘 것까지. 모달이 "3/10회" 를 적어야 한다) ──

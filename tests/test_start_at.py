@@ -181,3 +181,38 @@ def test_회차는_착수일_없이_만들어진다(room):
     made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
     assert made, "회차가 만들어지지 않았다"
     assert all(t["start_at"] is None for t in made)
+
+
+# ── 구워 낸 HTML 에 실리는가 ────────────────────────────
+#
+# 칸이 DB 에 있어도 **화면까지 가지 못하면** 없는 것과 같다. 실제로
+# `start_at` 이 `MODAL_FIELDS` 에서 빠져, 팝업이 열릴 때 착수일이
+# 빈칸으로 번쩍이고 API 가 죽은 동안에는 영구히 빈칸이었다.
+
+
+def test_모달_데이터에_착수일이_실린다():
+    import dashboard_html
+
+    assert "start_at" in dashboard_html.MODAL_FIELDS
+
+
+def test_모달_데이터의_칸_이름이_전부_실재한다(room):
+    """오타를 잡는다. `t.get(k)` 라서 틀린 이름은 **조용히 None** 이 된다 —
+    화면에는 빈칸만 보이고 아무 데도 오류가 안 남는다."""
+    import dashboard_html
+
+    cols = {r["name"] for r in db.get_conn().execute("PRAGMA table_info(tasks)")}
+    missing = set(dashboard_html.MODAL_FIELDS) - cols
+    assert not missing, f"tasks 에 없는 칸을 모달에 실으려 한다: {missing}"
+
+
+def test_간트가_착수일을_날짜_범위에_센다():
+    """안 세면 **착수일이 등록일보다 앞선 업무**의 막대가 왼쪽으로 잘린다.
+    막대는 착수일부터 그리는데 창은 여기 모인 날짜로만 잡기 때문이다."""
+    import inspect
+
+    import dashboard_html
+
+    src = inspect.getsource(dashboard_html.generate_task_gantt)
+    head = src[:src.index("# 프로젝트 일정 추가")]
+    assert '"start_at"' in head, "간트 날짜 범위에 착수일이 빠졌다"
