@@ -2225,6 +2225,17 @@ function filterByProject(projectId) {{
     updateCounts();
 }}
 
+// 현지 날짜를 `YYYY-MM-DD` 로.
+//
+// ⚠️ **`toISOString()` 을 쓰면 안 된다.** 그것은 UTC 로 바꾼 뒤 자르므로,
+// 한국(UTC+9)에서는 **오전 9시 전에 어제 날짜가 나온다.** 아침에 업무를
+// 등록하면 마감일이 어제로 들어가 곧바로 지연으로 뜨고, "미래 회차" 판정은
+// 하루가 밀려 **오늘 마감인 회차까지 삭제 대상에 들어간다.**
+function localDate(d) {{
+    var p = function(n) {{ return (n < 10 ? '0' : '') + n; }};
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}}
+
 function showToast(msg, isError) {{
     var t = document.getElementById('toast');
     t.textContent = msg;
@@ -2624,10 +2635,22 @@ function openCreateModal() {{
 
     modalEl.querySelector('.modal-title').textContent = '✨ 새 업무';
     modalEl.querySelector('.edit-title').value = '';
-    // 착수일은 비워 둔다. 오늘로 채우면 등록하는 모든 업무가 "오늘 할 일" 로
-    // 올라와, 정말 오늘 손대야 하는 일이 그 속에 묻힌다.
-    modalEl.querySelector('.edit-start').value = '';
-    modalEl.querySelector('.edit-due').value = new Date().toISOString().slice(0,10);
+    // 착수일·마감일 모두 **오늘**로 채운다.
+    //
+    // 전에는 착수일을 비워 뒀다 — "오늘로 채우면 등록하는 모든 업무가 오늘
+    // 할 일로 올라와 정말 오늘 손대야 하는 일이 묻힌다" 는 이유였다. 실제로
+    // 일어난 일은 그 반대였다: **아무도 안 채웠다.** 빈 착수일은 어느 날에도
+    // 안 올라오므로, 안 채운 업무는 포털의 하루 계획에서 **영영 안 보인다.**
+    // 묻히는 쪽이 안 보이는 쪽보다 낫다 — 묻힌 것은 미루면 되지만 안 보이는
+    // 것은 미룰 수조차 없다.
+    //
+    // ⚠️ 그래서 **착수일을 뒤로 미루는 일이 일상이 된다.** 오늘 못 할 일은
+    // 날짜를 옮겨 둬야 목록이 쓸모를 유지한다. `toISOString()` 이 아니라
+    // 현지 날짜를 쓴다 — UTC 로 바꾸면 한국에서 오전 9시 전에는 **어제**가
+    // 들어간다.
+    var todayStr = localDate(new Date());
+    modalEl.querySelector('.edit-start').value = todayStr;
+    modalEl.querySelector('.edit-due').value = todayStr;
     modalEl.querySelector('.edit-summary').value = '';
     modalEl.querySelector('.edit-feedback').value = '';
     autoGrowField(modalEl.querySelector('.edit-summary'));
@@ -2737,7 +2760,7 @@ function toggleRecur(cb) {{
         // 기준 날짜가 없으면 다음 회차를 계산할 수가 없다. 오늘로 채운다.
         var due = modalEl.querySelector('.edit-due');
         if (!due.value) {{
-            due.value = new Date().toISOString().slice(0,10);
+            due.value = localDate(new Date());
             showToast('반복은 마감일이 기준입니다 — 오늘로 넣었습니다');
         }}
     }}
@@ -2879,7 +2902,7 @@ function stopSeries(btnEl) {{
     // 지울 개수를 먼저 보여 준다. 그냥 "미래 업무를 지울까요?" 라고만 물으면
     // **지금 보고 있는 이 업무가 거기 들어간다는 것**을 모르고 누른다.
     var orig = modalEl._origTask || {{}};
-    var today = new Date().toISOString().slice(0,10);
+    var today = localDate(new Date());
     var future = [];
     for (var k in TASKS_DATA) {{
         if (!hasOwn(TASKS_DATA, k)) continue;

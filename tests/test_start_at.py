@@ -216,3 +216,31 @@ def test_간트가_착수일을_날짜_범위에_센다():
     src = inspect.getsource(dashboard_html.generate_task_gantt)
     head = src[:src.index("# 프로젝트 일정 추가")]
     assert '"start_at"' in head, "간트 날짜 범위에 착수일이 빠졌다"
+
+
+def test_화면이_UTC_로_오늘을_구하지_않는다():
+    """`toISOString()` 은 **UTC 로 바꾼 뒤** 자른다 — 한국(UTC+9)에서는
+    오전 9시 전에 **어제** 날짜가 나온다.
+
+    아침에 업무를 등록하면 착수일·마감일이 어제로 들어가 곧바로 지연으로
+    뜨고, "미래 회차" 판정은 하루가 밀려 **오늘 마감인 회차까지 삭제 대상에
+    들어간다.** 눈으로는 아홉 시간 동안만 틀려서 찾기 어렵다.
+    """
+    import dashboard_html
+
+    src = Path(dashboard_html.__file__).read_text(encoding="utf-8")
+    assert "toISOString" not in src.replace("`toISOString()`", ""), \
+        "현지 날짜가 필요한 자리다 — localDate() 를 쓴다"
+
+
+def test_새_업무는_착수일이_오늘로_채워진다():
+    """비워 두면 **아무도 안 채운다.** 빈 착수일은 어느 날에도 안 올라오므로
+    포털의 하루 계획에서 영영 안 보인다 — 묻히는 쪽이 안 보이는 쪽보다 낫다.
+    """
+    import dashboard_html
+
+    src = Path(dashboard_html.__file__).read_text(encoding="utf-8")
+    body = src[src.index("function openCreateModal"):]
+    body = body[:body.index("\n}}")]
+    assert ".edit-start').value = todayStr" in body
+    assert ".edit-due').value = todayStr" in body
