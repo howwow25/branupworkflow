@@ -17,6 +17,7 @@
 import os
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -244,3 +245,58 @@ def test_새_업무는_착수일이_오늘로_채워진다():
     body = body[:body.index("\n}}")]
     assert ".edit-start').value = todayStr" in body
     assert ".edit-due').value = todayStr" in body
+
+
+# ── 반복 회차의 착수일 ───────────────────────────────────
+#
+# 날짜가 아니라 **간격(일)** 을 저장한다. 날짜를 저장하면 1회차 것이 모든
+# 회차에 복사되어 3월 회차의 착수일이 1월로 박힌다.
+
+
+def test_회차마다_마감일과의_간격이_유지된다(room):
+    s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
+                         total_count=4, title="주간 리뷰", start_lead=2)
+    db.backfill_series()
+
+    made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
+    assert len(made) >= 2, "회차가 만들어지지 않았다"
+    for t in made:
+        due = date.fromisoformat(t["due_at"][:10])
+        start = date.fromisoformat(t["start_at"][:10])
+        assert (due - start).days == 2, f"{t['series_seq']} 회차의 간격이 틀렸다"
+
+    # 회차마다 **다른 날짜** 여야 한다. 같으면 1회차 것을 복사한 것이다.
+    assert len({t["start_at"] for t in made}) == len(made)
+
+
+def test_간격_0_은_간격_없음과_다르다(room):
+    """`None` 은 착수일 없이 만든 반복이고 `0` 은 "마감 당일 착수" 다.
+    `or` 로 꺼내면 둘이 같아져, 마감 당일 착수로 세운 반복이 조용히 착수일
+    없는 반복이 된다."""
+    s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
+                         total_count=3, title="당일 착수", start_lead=0)
+    db.backfill_series()
+
+    made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
+    assert made
+    for t in made:
+        assert t["start_at"][:10] == t["due_at"][:10]
+
+
+def test_간격을_안_주면_착수일이_비어_있다(room):
+    """옛 반복에 없던 착수일이 생기면 안 된다 — 마이그레이션이 지나간 날
+    모든 회차가 갑자기 "오늘 할 일" 로 올라온다."""
+    s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
+                         total_count=3, title="간격 없음")
+    db.backfill_series()
+
+    made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
+    assert made
+    assert all(t["start_at"] is None for t in made)
+
+
+def test_시리즈_표에_간격_칸이_생겼다(room):
+    conn = db.get_conn()
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(task_series)")}
+    assert "start_lead" in cols
+    assert conn.execute("PRAGMA user_version").fetchone()[0] >= 5

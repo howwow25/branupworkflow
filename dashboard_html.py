@@ -1884,7 +1884,16 @@ var PROJECTS_DATA = {projects_json};
 var SERIES_DATA = {series_json};
 var RECUR_WINDOW = {WINDOW};
 var API_BASE = '{API_BASE}';
-var API = API_BASE || ((window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + '/api'));
+// ⚠️ 굽기 때 `BRANUP_API_BASE` 가 비어 있으면 여기서 **직접 찾아낸다.**
+//
+// 전에는 `window.location.origin + '/api'` 로 되돌아갔다. 이 화면은 뿌리가
+// 아니라 `/branup/branup-watcher/` 아래에 얹혀 있어서, 그 값은 늘 **한 칸
+// 위의 없는 주소**(`toffer.co.kr/api`)를 가리켰다. 페이지는 멀쩡히 뜨고
+// API 만 전부 404 가 나므로, 화면이 깨진 게 아니라 **아무것도 저장되지 않는**
+// 모양이 된다 — 굽기를 `update.ps1` 밖에서 한 번만 돌려도 이렇게 된다.
+//
+// 이 페이지가 놓인 폴더가 곧 API 가 붙는 자리다. 거기서 센다.
+var API = API_BASE || ((window.location.protocol === 'file:' || window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:{API_PORT}/api' : (window.location.origin + window.location.pathname.replace(/\\/[^\\/]*$/, '') + '/api'));
 var currentTaskId = null;
 var isStaticHost = false;
 var currentProjectId = null;

@@ -1054,6 +1054,28 @@ class APIHandler(BaseHTTPRequestHandler):
                           "이미 다 썼습니다. 마감일이나 횟수를 확인하세요"}, 400)
             return
 
+        # 착수일은 **간격으로** 넘긴다. 사람이 적은 것은 1회차의 날짜이지만
+        # 뜻한 것은 "마감 며칠 전에 손댄다" 이다. 날짜를 그대로 저장하면
+        # 모든 회차가 1회차의 착수일을 갖는다.
+        #
+        # 마감일보다 **뒤**인 착수일은 받지 않는다 — 간격이 음수가 되어
+        # 회차마다 "마감 뒤에 시작" 이 복제된다. 오타일 가능성이 훨씬 높다.
+        start_lead = None
+        start_raw = (body.get("start_at") or "")[:10]
+        if start_raw:
+            try:
+                gap = (date.fromisoformat(anchor) - date.fromisoformat(start_raw)).days
+            except ValueError:
+                self._send_json({"error": "착수일이 날짜가 아닙니다"}, 400)
+                return
+            if gap < 0:
+                self._send_json(
+                    {"error": "착수일이 마감일보다 뒤입니다. 반복 업무는 "
+                              "회차마다 이 간격을 그대로 쓰므로 먼저 고쳐 "
+                              "주세요"}, 400)
+                return
+            start_lead = gap
+
         try:
             series = create_series(
                 room["id"], freq=freq, anchor_date=anchor, total_count=count,
@@ -1061,7 +1083,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 assignee=body.get("assignee"),
                 priority=body.get("priority", "중간"),
                 project_id=body.get("project_id"),
-                auto_rename=auto_rename)
+                auto_rename=auto_rename, start_lead=start_lead)
         except ValueError as e:
             self._send_json({"error": str(e)}, 400)
             return

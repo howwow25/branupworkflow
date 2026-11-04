@@ -80,7 +80,7 @@ def get_conn():
 # 이 번호가 필요한 이유: 굽기(dashboard_html)는 별도 프로세스이고, 이 함수가
 # 매번 CREATE/ALTER 를 돌리면 **읽기만 하려는 프로세스도 쓰기 잠금을 잡는다.**
 # 그래서 업무를 연달아 만들면 "database is locked" 로 요청이 죽었다.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _ensure_schema(conn):
@@ -251,6 +251,21 @@ def _ensure_schema(conn):
     # 수십 건 생겨 첫날부터 신뢰를 잃는다.
     try:
         conn.execute("ALTER TABLE tasks ADD COLUMN start_at TEXT")
+    except Exception:
+        pass  # already exists
+
+    # ── migration: 반복 회차의 착수일 ──
+    #
+    # 회차마다 마감일은 `nth_due` 가 계산해 주는데 착수일은 비어 있었다.
+    # 매주 도는 업무를 등록해 두고도 하루 계획에는 안 올라왔다.
+    #
+    # **날짜를 저장하지 않고 간격(일)을 저장한다.** 날짜를 넣으면 1회차 것이
+    # 모든 회차에 복사되어, 3월 회차의 착수일이 1월로 박힌다. 간격이면
+    # "마감 이틀 전에 손댄다" 는 **사람이 실제로 뜻한 것**이 그대로 남는다.
+    #
+    # NULL 이면 착수일 없이 만든다 — 0 과 다르다. 0 은 "마감 당일 착수" 다.
+    try:
+        conn.execute("ALTER TABLE task_series ADD COLUMN start_lead INTEGER")
     except Exception:
         pass  # already exists
     # assign display_num to tasks without one (ordered by created_at)
@@ -504,7 +519,8 @@ def create_series(room_id: str, freq: str, anchor_date: str,
                   total_count: Optional[int], title: str, summary: str = "",
                   assignee: Optional[str] = None, priority: str = "중간",
                   project_id: Optional[str] = None,
-                  auto_rename: bool = False) -> Dict:
+                  auto_rename: bool = False,
+                  start_lead: Optional[int] = None) -> Dict:
     if freq not in FREQS:
         raise ValueError(f"모르는 주기: {freq!r}")
     if total_count is not None and total_count < 1:
@@ -517,10 +533,12 @@ def create_series(room_id: str, freq: str, anchor_date: str,
     ts = now_iso()
     conn.execute(
         "INSERT INTO task_series (id,room_id,freq,anchor_date,total_count,made_through,"
-        "title,summary,assignee,priority,project_id,auto_rename,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,0,?,?,?,?,?,?,?,?)",
+        "title,summary,assignee,priority,project_id,auto_rename,start_lead,"
+        "created_at,updated_at) "
+        "VALUES (?,?,?,?,?,0,?,?,?,?,?,?,?,?,?)",
         (sid, room_id, freq, anchor_date[:10], total_count, title, summary,
-         assignee, priority, project_id, 1 if auto_rename else 0, ts, ts))
+         assignee, priority, project_id, 1 if auto_rename else 0,
+         None if start_lead is None else int(start_lead), ts, ts))
     conn.commit()
     return get_series(sid)
 
@@ -529,6 +547,21 @@ def get_series(series_id: str) -> Optional[Dict]:
     conn = get_conn()
     row = conn.execute("SELECT * FROM task_series WHERE id=?", (series_id,)).fetchone()
     return dict(row) if row else None
+
+
+def _series_lead(s) -> Optional[int]:
+    """시리즈의 착수 간격(일). 없으면 `None`.
+
+    ⚠️ **`or` 로 꺼내면 안 된다.** `None` 과 `0` 은 다른 뜻이다 — `None` 은
+    착수일 없이 만든 반복이고, `0` 은 "마감 당일에 손댄다" 다. `s["start_lead"]
+    or None` 로 쓰면 둘이 같아져, 마감 당일 착수로 세운 반복이 조용히
+    착수일 없는 반복이 된다.
+    """
+    try:
+        v = s["start_lead"]
+    except (KeyError, IndexError):
+        return None
+    return None if v is None else int(v)
 
 
 def get_open_series() -> List[Dict]:
@@ -620,10 +653,21 @@ def backfill_series(today: Optional[str] = None) -> int:
                 title = s["title"]
                 if s["auto_rename"]:
                     title = relabel(title, due_d) or title
+                # 착수일은 **간격으로** 따라온다 — 1회차가 마감 이틀 전
+                # 착수였으면 모든 회차가 그 회차 마감 이틀 전이다. 날짜를
+                # 복사하면 3월 회차의 착수일이 1월로 박힌다.
+                #
+                # `None` 과 `0` 은 다르다. `None` 은 착수일 없이 만든 반복이고
+                # `0` 은 "마감 당일 착수" 다. `s["start_lead"] or 0` 으로
+                # 쓰면 둘이 같아져 옛 반복에 없던 착수일이 생긴다.
+                lead = _series_lead(s)
+                start = (None if lead is None
+                         else (due_d - timedelta(days=lead)).isoformat())
                 try:
                     create_task(
                         s["room_id"], title=title,
-                        summary=s["summary"] or s["title"], due_at=due,
+                        summary=s["summary"] or s["title"],
+                        start_at=start, due_at=due,
                         assignee=s["assignee"], priority=s["priority"],
                         project_id=s["project_id"],
                         series_id=s["id"], series_seq=seq)
