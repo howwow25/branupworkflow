@@ -51,3 +51,29 @@ def test_UTF8로_읽힌다(path: Path):
         body.decode("utf-8")
     except UnicodeDecodeError as e:
         pytest.fail(f"{path.name} 이 UTF-8 이 아니다: {e}")
+
+
+# ── 구워 낸 화면은 추적하지 않는다 ───────────────────────
+
+
+def test_index_html_을_추적하지_않는다():
+    """추적하면 **배포 실패가 '되돌림' 이 된다.**
+
+    `index.html` 은 웹 서버가 내주는 페이지 그 자체다(`dashboard_html.py` 가
+    여기에 쓴다). 한때 매시 cron 이 이것을 커밋했고 2026-06-22 19:51 에
+    멈췄다 — 그 뒤로 git 안의 사본은 6월에 얼어 있었다.
+
+    `update.ps1` 은 `reset --hard`(:31) 로 그 6월 파일을 되살린 **뒤에**
+    다시 굽는다(:49). 순서는 맞지만 **그 사이에서 멈추면**(pytest 가 하나라도
+    실패하면 `throw` 한다) 서비스되는 화면이 다섯 달 전으로 돌아간 채 남는다.
+    게다가 `[5/5]` 검증은 API 만 찔러 보므로 **초록 글씨가 그대로 뜬다.**
+    """
+    import subprocess
+
+    out = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "index.html"],
+        cwd=ROOT, capture_output=True, text=True)
+    assert out.returncode != 0, (
+        "index.html 이 다시 추적되고 있다 — 배포가 중간에 멈추면 서비스 화면이 "
+        "커밋된 옛 사본으로 되돌아간다"
+    )
