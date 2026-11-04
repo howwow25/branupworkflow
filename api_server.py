@@ -48,7 +48,8 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 get_file_size_sum,
                 create_series, get_series, get_series_tasks, stop_series,
                 apply_series_following, backfill_series, today_kst,
-                set_series_auto_rename, delete_task_following)
+                set_series_auto_rename, delete_task_following,
+                delete_task)
 from recurrence import FREQS, WINDOW, first_open_seq, nth_due, relabel
 from roster import ROSTER, MANAGERS, RESIGNED
 
@@ -446,11 +447,11 @@ class APIHandler(BaseHTTPRequestHandler):
                              "stopped": res.get("stopped", False)})
             return
 
-        conn = get_conn()
-        conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
-        conn.commit()
+        # 지우는 문은 하나다 — `task_events` 를 먼저 치워야 외래키로
+        # 터지지 않는다 (db.py 의 `_drop_tasks` 에 전말이 있다).
+        removed = delete_task(task_id)
         self._refresh_dashboard()
-        self._send_json({"deleted": True, "id": task_id, "removed": 1})
+        self._send_json({"deleted": True, "id": task_id, "removed": removed})
 
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")
@@ -1641,8 +1642,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 "message": f"❌ #{display_num} 업무를 찾을 수 없습니다."
             }
         task = dict(row)
-        conn.execute("DELETE FROM tasks WHERE id=?", (task["id"],))
-        conn.commit()
+        delete_task(task["id"])
         return {
             "type": "delete",
             "message": f"🗑 #{display_num} '{task['title']}' 삭제되었습니다.",

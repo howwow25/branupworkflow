@@ -2,6 +2,7 @@
 branup-watcher SQLite CRUD 유틸
 """
 from typing import Optional, List, Dict
+import contextlib
 import functools
 import sqlite3
 import json
@@ -41,6 +42,40 @@ def _writer(fn):
         with _WRITE_LOCK:
             return fn(*a, **kw)
     return inner
+
+
+@contextlib.contextmanager
+def _db():
+    """쓰기용 연결. **터져도 반드시 되돌리고 닫는다.**
+
+    ## 왜 이것이 필요한가 (2026-11-04)
+
+    「이후 회차 모두 삭제」가 외래키 제약으로 터졌다. 그 자체는 한 요청의
+    실패지만, 진짜 피해는 그 다음이었다 — **그 뒤의 모든 저장이 "database is
+    locked" 로 죽었다.** 사람 눈에는 "삭제를 한 번 눌렀더니 앱 전체가
+    고장났다" 로 보였고, 서버를 다시 띄우기 전에는 안 풀렸다.
+
+    까닭은 터진 연결이 **쓰기 트랜잭션을 연 채 남아** 있었기 때문이다.
+    예외가 올라가면 그 연결은 traceback 의 프레임에 붙어 살아 있고, SQLite
+    는 그동안 DB 를 잠근 채 둔다. `get_conn()` 은 부를 때마다 **새 연결**을
+    만들므로 다음 요청은 잠긴 문 앞에 서게 된다.
+
+    그래서 쓰는 길은 전부 이 문을 지난다.
+    """
+    conn = get_conn()
+    try:
+        yield conn
+    except BaseException:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # 스키마는 프로세스마다 한 번만 확인한다.
@@ -699,13 +734,13 @@ def stop_series(series_id: str, delete_future: bool = False) -> Dict:
     today = today_kst()
     removed = 0
     if delete_future:
-        conn = get_conn()
-        cur = conn.execute(
-            "DELETE FROM tasks WHERE series_id=? AND status<>'완료' "
-            "AND due_at IS NOT NULL AND substr(due_at,1,10) > ?",
-            (series_id, today))
-        removed = cur.rowcount or 0
-        conn.commit()
+        with _db() as conn:
+            removed = _drop_tasks(
+                conn,
+                "series_id=? AND status<>'완료' "
+                "AND due_at IS NOT NULL AND substr(due_at,1,10) > ?",
+                (series_id, today))
+            conn.commit()
     update_series(series_id, stopped_at=now_iso())
     s = get_series(series_id) or {}
     s["removed"] = removed
@@ -759,6 +794,44 @@ def apply_series_following(series_id: str, from_seq: int, fields: Dict) -> int:
 
 
 @_writer
+def _drop_tasks(conn, where: str, params) -> int:
+    """업무를 지운다. **기록(`task_events`)을 먼저 치운다.**
+
+    ## 왜 (2026-11-04)
+
+    `task_events.task_id` 에 `ON DELETE CASCADE` 가 없다(`files` 에는 있다).
+    업무를 지우면 **외래키 제약으로 터진다.**
+
+    이게 **2026-11-03 에 생긴 지뢰**였다. 그 전까지 `task_events` 는 표만
+    있고 아무도 쓰지 않아서(`add_event()` 를 부르는 곳이 없었다) 참조하는
+    줄이 하나도 없었고, 그래서 삭제가 늘 성공했다. 착수일을 넣으며 기록을
+    쌓기 시작한 순간, **한 번이라도 고친 업무는 지울 수 없게** 됐다.
+
+    그래서 "저장은 되는데 삭제만 안 된다" 가 아니라 **"저장을 한 뒤부터
+    그 업무를 못 지운다"** 는 모양이 된다. 재현 순서가 정확히 그랬다.
+
+    표를 다시 만들어 CASCADE 를 붙이는 길도 있지만, 운영 DB 를 복사·교체하는
+    일이라 지금 할 일이 아니다. 지우는 문을 하나로 모으고 시험이 지킨다.
+    """
+    ids = [r["id"] for r in conn.execute(
+        f"SELECT id FROM tasks WHERE {where}", params)]
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    conn.execute(f"DELETE FROM task_events WHERE task_id IN ({marks})", ids)
+    conn.execute(f"DELETE FROM tasks WHERE id IN ({marks})", ids)
+    return len(ids)
+
+
+@_writer
+def delete_task(task_id: str) -> int:
+    """업무 하나를 지운다. 지운 수(0 또는 1)."""
+    with _db() as conn:
+        n = _drop_tasks(conn, "id=?", (task_id,))
+        conn.commit()
+        return n
+
+
 def delete_task_following(task_id: str) -> Dict:
     """이 회차와 **이후 회차**를 지우고 반복을 멈춘다.
 
@@ -768,24 +841,23 @@ def delete_task_following(task_id: str) -> Dict:
     완료한 이후 회차는 남긴다(했던 일은 기록이다). 다만 지금 보고 있는 이
     업무는 완료든 아니든 지운다 — 사람이 그걸 지목했다.
     """
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT series_id, series_seq FROM tasks WHERE id=?", (task_id,)).fetchone()
-    if not row:
-        return {"deleted": 0, "stopped": False}
-    if not row["series_id"]:
-        conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
-        conn.commit()
-        return {"deleted": 1, "stopped": False}
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT series_id, series_seq FROM tasks WHERE id=?",
+            (task_id,)).fetchone()
+        if not row:
+            return {"deleted": 0, "stopped": False}
+        if not row["series_id"]:
+            n = _drop_tasks(conn, "id=?", (task_id,))
+            conn.commit()
+            return {"deleted": n, "stopped": False}
 
-    sid = row["series_id"]
-    seq = row["series_seq"] or 0
-    conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
-    cur = conn.execute(
-        "DELETE FROM tasks WHERE series_id=? AND series_seq>? AND status<>'완료'",
-        (sid, seq))
-    n = 1 + (cur.rowcount or 0)
-    conn.commit()
+        sid = row["series_id"]
+        seq = row["series_seq"] or 0
+        n = _drop_tasks(conn, "id=?", (task_id,))
+        n += _drop_tasks(
+            conn, "series_id=? AND series_seq>? AND status<>'완료'", (sid, seq))
+        conn.commit()
     update_series(sid, stopped_at=now_iso())
     return {"deleted": n, "stopped": True, "series_id": sid}
 

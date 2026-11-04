@@ -27,9 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # db 는 가져올 때 DATA_DIR 을 정한다. 운영 DB 를 건드리지 않으려면 **가져오기
 # 전에** 환경변수를 바꿔야 한다. portal 쪽에서 시험 파일 17개가 운영
 # 디렉터리에 남은 사고가 있었다 — 같은 실수를 막는다.
-_TMP = tempfile.mkdtemp(prefix="branup_test_")
-os.environ["BRANUP_DATA_DIR"] = _TMP
-os.environ["BRANUP_SKIP_BACKFILL"] = "1"
+# 환경변수는 `tests/conftest.py` 가 **모든 시험 파일보다 먼저** 정한다.
+# 파일마다 각자 정하면 먼저 들어온 파일이 이겨서 이 검사가 깨진다.
+_TMP = os.environ["BRANUP_DATA_DIR"]
 
 import db  # noqa: E402
 
