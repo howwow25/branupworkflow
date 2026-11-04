@@ -49,7 +49,7 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 create_series, get_series, get_series_tasks, stop_series,
                 apply_series_following, backfill_series, today_kst,
                 set_series_auto_rename, delete_task_following,
-                delete_task)
+                delete_task, events_since)
 from recurrence import FREQS, WINDOW, first_open_seq, nth_due, relabel
 from roster import ROSTER, MANAGERS, RESIGNED
 
@@ -220,6 +220,19 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         # /api/tasks/list → 전체 활성 업무
+        # /api/task-events?since=&limit= → 포털이 알림을 보내려고 읽어 간다.
+        #
+        # ⚠️ 쓰기 부작용이 **없다.** `/api/tasks/list` 는 반복 보충을 돌리므로
+        # 포털이 그걸 주기적으로 부르면 아무도 안 보는 사이에 회차가 생긴다.
+        if path == "/api/task-events":
+            q = parse_qs(urlparse(self.path).query)
+            self._send_json({
+                "events": events_since(
+                    (q.get("since", [""])[0] or None),
+                    int(q.get("limit", ["200"])[0] or 200)),
+            })
+            return
+
         if path == "/api/tasks/list":
             # 반복업무 창을 여기서 채운다. 스케줄러가 없는 앱이라 "화면을 볼 때"
             # 가 유일하게 믿을 수 있는 시점이다 (docs/adr/0001).
@@ -364,6 +377,17 @@ class APIHandler(BaseHTTPRequestHandler):
 
         self._send_json(task)
 
+    def _actor(self) -> "str | None":
+        """고친 사람. 화면의 「나는 OOO」 가 머리에 실어 보낸다.
+
+        ⚠️ **신분 확인이 아니다.** 이 앱에는 로그인이 없고, 이 값은 알림에서
+        "본인이 바꾼 것" 을 빼는 데만 쓴다. 누구든 아무 이름이나 보낼 수
+        있으므로 권한 판단에 쓰면 안 된다 — 사내 7명이 쓰는 **알아차림**
+        장치다.
+        """
+        raw = (self.headers.get("X-Branup-Actor") or "").strip()
+        return raw[:40] or None
+
     def do_PATCH(self):
         path = urlparse(self.path).path
 
@@ -390,7 +414,7 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "no valid fields"}, 400)
             return
 
-        update_task(task_id, **updates)
+        update_task(task_id, actor=self._actor(), **updates)
 
         # scope='following' → 반복 시리즈의 틀과 **이후 회차**에도 반영한다.
         # 마감일·피드백·연관업무는 회차마다 다른 것이라 번지지 않는다

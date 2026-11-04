@@ -134,3 +134,52 @@ def _events(task_id: str) -> int:
 def _soon() -> str:
     """오늘 이후여야 회차가 만들어진다 — 날짜를 박으면 언젠가 과거가 된다."""
     return (date.today() + timedelta(days=3)).isoformat()
+
+
+# ── 누가 바꿨는지 (알림의 재료) ──────────────────────────
+
+
+def test_고친_사람을_기록에_남긴다(room):
+    """담당자에게 "누가 당신 업무를 바꿨다" 를 보낼 때 **본인이 바꾼 것까지
+    본인에게 보내면** 사람들이 알림을 꺼 버린다."""
+    t = db.create_task(room["id"], title="누가 바꿨나", assignee="전경표")
+    db.update_task(t["id"], actor="이상원", assignee="전경표,최유미")
+
+    ev = [e for e in db.get_task_events(t["id"])
+          if e["event_type"] == "담당자 변경"]
+    assert len(ev) == 1
+    assert ev[0]["payload"]["by"] == "이상원"
+    assert ev[0]["payload"]["from"] == "전경표"
+    assert ev[0]["payload"]["to"] == "전경표,최유미"
+
+
+def test_안_고르면_모름으로_남는다(room):
+    """「나는 OOO」 를 안 고른 사람도 업무를 고칠 수 있어야 한다 — 막으면
+    알림 때문에 일이 멈춘다. 모르면 모른다고 남긴다."""
+    t = db.create_task(room["id"], title="모르는 사람이 바꿈")
+    db.update_task(t["id"], due_at="2026-12-01")
+
+    ev = db.get_task_events(t["id"])[-1]
+    assert "by" not in ev["payload"]
+
+
+def test_포털이_읽어_갈_기록은_시각_뒤의_것만_준다(room):
+    t = db.create_task(room["id"], title="기록 읽기", assignee="전경표")
+    db.update_task(t["id"], actor="이상원", due_at="2026-12-01")
+    first = db.events_since()
+    assert first, "기록이 없다"
+    assert first[-1]["title"] == "기록 읽기", "업무 제목을 함께 줘야 한다"
+    assert first[-1]["assignee"] == "전경표", "담당자를 함께 줘야 한다"
+
+    db.update_task(t["id"], actor="이상원", assignee="최유미")
+    after = db.events_since(first[-1]["created_at"])
+    assert [e["event_type"] for e in after] == ["담당자 변경"], \
+        "이미 보낸 것을 또 주면 알림이 두 번 간다"
+
+
+def test_기록을_한꺼번에_다_주지_않는다(room):
+    """포털이 오래 꺼져 있다 올라오면 사람에게 수백 통이 간다."""
+    t = db.create_task(room["id"], title="많이 고침")
+    for d in range(1, 8):
+        db.update_task(t["id"], due_at=f"2026-12-0{d}")
+    assert len(db.events_since(limit=3)) == 3

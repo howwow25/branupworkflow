@@ -463,7 +463,15 @@ def _same(a, b) -> bool:
 
 
 @_writer
-def update_task(task_id: str, **kwargs):
+def update_task(task_id: str, *, actor: Optional[str] = None, **kwargs):
+    """업무를 고친다. `actor` 는 **고친 사람**이다 (없으면 모름).
+
+    기록에 남겨 두는 이유는 알림 때문이다 — 담당자에게 "누가 당신 업무를
+    바꿨다" 를 보낼 때, **본인이 바꾼 것까지 본인에게 보내면** 사람들이
+    알림을 꺼 버린다. 업무대시보드에는 로그인이 없으므로 화면이 「나는 OOO」
+    로 고른 값을 머리에 실어 보낸다. 보안 장치가 아니라 **알아차림을 위한
+    표시**다(사내 7명).
+    """
     conn = get_conn()
     allowed = {"status", "title", "summary", "start_at", "due_at", "assignee",
                "priority", "closed_at", "feedback", "related_tasks", "project_id"}
@@ -485,12 +493,13 @@ def update_task(task_id: str, **kwargs):
         return
     for col, name in _TRACKED.items():
         if col in kwargs and not _same(before[col], kwargs[col]):
-            add_event(task_id, name, {"from": before[col], "to": kwargs[col]})
+            add_event(task_id, name,
+                      {"from": before[col], "to": kwargs[col]}, by=actor)
     if "status" in kwargs and before["status"] != kwargs["status"]:
         if kwargs["status"] == "완료":
-            add_event(task_id, "완료", {"from": before["status"]})
+            add_event(task_id, "완료", {"from": before["status"]}, by=actor)
         elif before["status"] == "완료":
-            add_event(task_id, "완료 취소", {"to": kwargs["status"]})
+            add_event(task_id, "완료 취소", {"to": kwargs["status"]}, by=actor)
 
 
 def get_tasks_by_room(room_id: str) -> List[Dict]:
@@ -1002,12 +1011,61 @@ def update_ocr(msg_id: str, ocr_text: str):
 # ── task events ────────────────────────────────────────
 
 @_writer
-def add_event(task_id: str, event_type: str, payload: Optional[Dict] = None):
+def add_event(task_id: str, event_type: str, payload: Optional[Dict] = None,
+              *, by: Optional[str] = None):
+    """기록 한 줄. `by` 는 고친 사람이고 **칸이 아니라 payload 에** 넣는다.
+
+    칸을 더하면 스키마 번호를 올리고 운영에서 ALTER 를 돌려야 한다. 이 값은
+    알림이 "본인이 바꾼 것" 을 빼는 데만 쓰므로 그만한 일이 아니다.
+    """
+    body = dict(payload or {})
+    if by:
+        body["by"] = by
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO task_events (id,task_id,event_type,payload,created_at) "
+            "VALUES (?,?,?,?,?)",
+            (str(uuid4()), task_id, event_type, json.dumps(body), now_iso()))
+        conn.commit()
+
+
+def events_since(since: Optional[str] = None, limit: int = 200) -> List[Dict]:
+    """`since` 보다 **뒤에** 쌓인 기록. 오래된 것부터.
+
+    포털이 알림을 보내려고 읽어 간다([ADR 0011] 의 「읽기만 한다」 그대로) —
+    인증이 전혀 없는 이 앱에 봇 토큰을 두지 않는다.
+
+    업무 제목과 담당자를 함께 준다. 포털이 업무를 한 번 더 조회하면 그 사이에
+    지워진 업무의 알림이 **조용히 사라진다.**
+
+    `limit` 을 두는 이유는 포털이 오래 꺼져 있다 올라왔을 때다. 한 번에 다
+    보내면 사람에게 수백 통이 간다 — 포털 쪽이 그 상황을 알아보게 **가장
+    오래된 것부터** 준다.
+    """
+    sql = ("SELECT e.id, e.task_id, e.event_type, e.payload, e.created_at, "
+           "       t.title, t.assignee, t.display_num "
+           "FROM task_events e JOIN tasks t ON t.id = e.task_id ")
+    args: list = []
+    if since:
+        sql += "WHERE e.created_at > ? "
+        args.append(since)
+    sql += "ORDER BY e.created_at ASC, e.id ASC LIMIT ?"
+    args.append(max(1, min(int(limit), 1000)))
+
     conn = get_conn()
-    conn.execute(
-        "INSERT INTO task_events (id,task_id,event_type,payload,created_at) VALUES (?,?,?,?,?)",
-        (str(uuid4()), task_id, event_type, json.dumps(payload or {}), now_iso()))
-    conn.commit()
+    try:
+        rows = conn.execute(sql, args).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["payload"] = json.loads(d["payload"] or "{}")
+        except Exception:
+            d["payload"] = {}
+        out.append(d)
+    return out
 
 
 def get_task_events(task_id: str) -> List[Dict]:

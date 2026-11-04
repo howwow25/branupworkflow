@@ -688,6 +688,12 @@ def render():
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    # 「나는 OOO」 목록. **명단(ROSTER)에서 뽑는다** — 담당자 필터는 업무에
+    # 적힌 이름이라 `미정`·`모두` 가 섞여 있고, 그것들은 사람이 아니다.
+    actor_options = "".join(
+        f'<option value="{n}">{n}</option>'
+        for n in sorted(set(ROSTER) - set(RESIGNED)))
+
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
     all_tasks = {t["id"]: {k: t.get(k) for k in MODAL_FIELDS}
                  for t in tasks + completed + dropzone}
@@ -1789,6 +1795,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {{
 <div class="header">
     <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
+    <div class="sub" style="margin-top:6px">
+        나는
+        <select id="actorPick" onchange="setActor(this.value)"
+                style="background:#1c1f2b;color:#c9d1d9;border:1px solid #2a2d3a;border-radius:6px;padding:2px 6px;font-size:12px">
+            <option value="">(안 고름)</option>
+            {actor_options}
+        </select>
+        <span id="actorHint" style="color:#d2991d;margin-left:8px">
+            ← 고르면 <b>내가 바꾼 것</b>은 나에게 알림이 오지 않습니다
+        </span>
+    </div>
 </div>
 <div class="filters">{filter_btns}<button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button><span class="search-box"><input type="text" id="searchInput" class="search-input" placeholder="업무 검색..." onkeydown="if(event.key==='Enter')runSearch()" oninput="if(!this.value)clearSearch()"><button class="search-btn" onclick="runSearch()" title="검색">🔍</button><button class="search-clear" onclick="clearSearch()" title="검색 해제" style="display:none">✕</button></span></div>
 <div class="stats" id="statsRow">
@@ -2233,6 +2250,63 @@ function filterByProject(projectId) {{
 
     updateCounts();
 }}
+
+// ── 나는 누구인가 ──────────────────────────────────────
+//
+// 이 앱에는 로그인이 없다. 그래도 **고친 사람**은 알아야 한다 — 담당자에게
+// "누가 당신 업무를 바꿨다" 를 보낼 때 **본인이 바꾼 것까지 본인에게 보내면**
+// 사람들이 알림을 꺼 버리기 때문이다.
+//
+// ⚠️ **담당자 필터와 다른 값이다.** 필터는 "지금 누구 것을 보고 있나" 이고
+// 이것은 "지금 누가 쓰고 있나" 다. 둘을 같은 값으로 쓰면, 남의 업무를 보려고
+// 필터를 옮긴 순간 **내가 그 사람이 되어 버린다.**
+//
+// ⚠️ **신분 확인이 아니다.** 아무 이름이나 고를 수 있다. 권한 판단에 쓰면
+// 안 되고, 쓰임새는 알림에서 본인을 빼는 것 하나다.
+var ACTOR_KEY = 'branup.actor';
+
+function getActor() {{
+    try {{ return localStorage.getItem(ACTOR_KEY) || ''; }} catch (e) {{ return ''; }}
+}}
+
+function setActor(name) {{
+    try {{
+        if (name) localStorage.setItem(ACTOR_KEY, name);
+        else localStorage.removeItem(ACTOR_KEY);
+    }} catch (e) {{ /* 사생활 보호 모드 등. 알림이 덜 똑똑해질 뿐이다 */ }}
+    paintActor();
+}}
+
+function paintActor() {{
+    var el = document.getElementById('actorPick');
+    if (el) el.value = getActor();
+    var hint = document.getElementById('actorHint');
+    // 안 고르면 알림이 **본인에게도** 간다. 그걸 숨기지 않는다.
+    if (hint) hint.style.display = getActor() ? 'none' : '';
+}}
+
+// 모든 쓰기 요청에 「나는」 을 실어 보낸다.
+//
+// fetch 부르는 자리가 서른 곳이라 하나씩 고치지 않는다 — 하나를 빠뜨리면
+// 그 길로 들어온 변경만 **조용히** 알림이 틀리고, 찾기 어렵다. 문 하나를
+// 감싸면 앞으로 생길 자리까지 따라온다.
+(function() {{
+    var raw = window.fetch;
+    window.fetch = function(input, init) {{
+        init = init || {{}};
+        var method = (init.method || 'GET').toUpperCase();
+        var url = (typeof input === 'string') ? input : (input && input.url) || '';
+        if (method !== 'GET' && method !== 'OPTIONS' && url.indexOf('/api') !== -1) {{
+            var who = getActor();
+            if (who) {{
+                var h = new Headers(init.headers || {{}});
+                h.set('X-Branup-Actor', who);
+                init.headers = h;
+            }}
+        }}
+        return raw.call(this, input, init);
+    }};
+}})();
 
 // 현지 날짜를 `YYYY-MM-DD` 로.
 //
@@ -3962,6 +4036,8 @@ function openFromLink() {{
     else showToast('링크의 프로젝트를 찾을 수 없습니다', true);
 }}
 window.addEventListener('load', openFromLink);
+// 「나는 OOO」 는 브라우저마다 다르므로 구워 낼 수 없다. 뜬 뒤에 칠한다.
+window.addEventListener('load', paintActor);
 </script>
 <!--
   브랜업 포털로 돌아가는 홈 단추. (portal/docs/홈버튼.md)
