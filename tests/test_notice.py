@@ -106,6 +106,61 @@ def test_auto_와_by_는_서로_다른_값이다(room):
     assert "by" not in _reg(보충["id"]) and _reg(보충["id"])["auto"] is True
 
 
+# ── 누가 보고 있나 — 화면이 포털에 묻는다 ────────────────
+#
+# 이 앱에는 인증이 전혀 없다. 「나는 OOO」 를 손으로 고르게 해 뒀는데 안
+# 고르면 알림이 본인에게도 가고 **아무도 그걸 모른다.** 포털과 같은 호스트라
+# 로그인 쿠키가 이 화면에도 오므로 진짜 이름을 물을 수 있다.
+
+
+def _baked() -> str:
+    import dashboard_html
+    return dashboard_html.render()
+
+
+def test_제목에_이름을_넣을_자리가_있다():
+    html = _baked()
+    assert 'id="whoami"' in html
+    assert "브랜업 대시보드<span id=\"whoami\">" in html, \
+        "제목과 이름 사이에 다른 것이 끼었다"
+
+
+def test_포털을_못_읽으면_손으로_고르는_줄이_남는다():
+    """`file://` 로 열었거나 로그인하지 않았을 때다. **인증도 없는 이 앱이
+    포털 때문에 못 쓰이게 되면 안 된다.**"""
+    html = _baked()
+    assert 'id="actorRow"' in html, "숨길 대상에 이름표가 없다"
+    assert 'id="actorPick"' in html
+    # 숨기는 일은 포털이 **답했을 때만** 일어나야 한다.
+    assert "catch(function() {" in html
+
+
+def test_명단을_화면에_실어_보낸다():
+    """포털 이름이 업무 담당자 명단에 없으면 **알림이 조용히 틀린다** —
+    담당자 이름과 안 맞아서 "본인이 바꾼 것 빼기" 가 작동하지 않는다.
+    화면이 그걸 알아보려면 명단이 있어야 한다."""
+    import json
+
+    from roster import RESIGNED, ROSTER
+
+    html = _baked()
+    assert "var ROSTER_NAMES = " in html
+    for name in set(ROSTER) - set(RESIGNED):
+        assert json.dumps(name, ensure_ascii=False) in html, name
+
+
+def test_퇴사자는_명단에_없다():
+    import re
+
+    from roster import RESIGNED
+
+    html = _baked()
+    m = re.search(r"var ROSTER_NAMES = (\[.*?\]);", html)
+    assert m, "명단을 못 찾았다"
+    for name in RESIGNED:
+        assert name not in m.group(1), f"{name} 은 퇴사자다"
+
+
 # ── 포털이 읽어 가는 길 ──────────────────────────────────
 
 

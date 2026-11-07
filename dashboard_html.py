@@ -14,6 +14,17 @@ OUTPUT_PATH = Path(DATA_DIR) / "dashboard.html"
 API_PORT = os.environ.get("BRANUP_API_PORT", "8800")
 API_BASE = os.environ.get("BRANUP_API_BASE", "")
 
+#: 포털(대문) API 가 붙는 자리. **이 앱에는 인증이 없으므로** 누가 보고 있는지는
+#: 포털에 물어서만 알 수 있다.
+#:
+#: 둘은 같은 호스트(`toffer.co.kr`)에 있어서 포털의 로그인 쿠키가 이 화면에도
+#: 그대로 온다. 그리고 **같은 출처**라 CORS 도 없다. 그래서 물어보는 일이
+#: 한 줄로 끝난다.
+#:
+#: 비워 두면 화면이 `/branup/portal/api` 로 짐작한다 — `API_BASE` 가 자기
+#: 위치에서 API 를 찾아내는 것과 같은 방식이다.
+PORTAL_API = os.environ.get("BRANUP_PORTAL_API", "")
+
 sys.path.insert(0, str(Path(__file__).parent))
 from roster import ROSTER, MANAGERS, ALL_HANDS, RESIGNED
 import os as _os_dash
@@ -690,9 +701,13 @@ def render():
 
     # 「나는 OOO」 목록. **명단(ROSTER)에서 뽑는다** — 담당자 필터는 업무에
     # 적힌 이름이라 `미정`·`모두` 가 섞여 있고, 그것들은 사람이 아니다.
+    actor_names = sorted(set(ROSTER) - set(RESIGNED))
     actor_options = "".join(
-        f'<option value="{n}">{n}</option>'
-        for n in sorted(set(ROSTER) - set(RESIGNED)))
+        f'<option value="{n}">{n}</option>' for n in actor_names)
+    # 포털에서 받은 이름이 이 명단에 있는지 화면이 본다. 없으면 **알림이
+    # 조용히 틀린다** — 담당자 이름과 안 맞아 "본인이 바꾼 것 빼기" 가
+    # 작동하지 않는다. 그걸 화면이 말해 줄 수 있어야 한다.
+    roster_json = json.dumps(actor_names, ensure_ascii=False)
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
     all_tasks = {t["id"]: {k: t.get(k) for k in MODAL_FIELDS}
@@ -1793,9 +1808,14 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {{
 </head>
 <body>
 <div class="header">
-    <h1>📊 브랜업 대시보드 <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
+    <h1>📊 브랜업 대시보드<span id="whoami"></span> <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
-    <div class="sub" style="margin-top:6px">
+    <!--
+      「나는 OOO」. 포털에서 이름을 알아내면 **이 줄을 숨긴다** — 그때는 손으로
+      고르는 것이 거짓말이 될 수 있다. 포털을 못 읽는 자리(file:// 로 열었거나
+      로그인 안 했을 때)에서만 보인다.
+    -->
+    <div class="sub" id="actorRow" style="margin-top:6px">
         나는
         <select id="actorPick" onchange="setActor(this.value)"
                 style="background:#1c1f2b;color:#c9d1d9;border:1px solid #2a2d3a;border-radius:6px;padding:2px 6px;font-size:12px">
@@ -2283,6 +2303,62 @@ function paintActor() {{
     var hint = document.getElementById('actorHint');
     // 안 고르면 알림이 **본인에게도** 간다. 그걸 숨기지 않는다.
     if (hint) hint.style.display = getActor() ? 'none' : '';
+}}
+
+// ── 누가 보고 있나 — 포털에 물어본다 ───────────────────────
+//
+// **이 앱에는 인증이 전혀 없다.** 그래서 「나는 OOO」 를 손으로 고르게 해
+// 뒀는데, 안 고르면 알림이 본인에게도 가고 아무도 그걸 모른다.
+//
+// 포털과 같은 호스트에 있으므로 **포털의 로그인 쿠키가 이 화면에도 온다.**
+// 같은 출처라 CORS 도 없다. 그러면 진짜 이름을 알 수 있다.
+//
+// ⚠️ **실패해도 화면은 그대로 돈다.** 포털이 꺼져 있거나 로그인하지 않았거나
+// `file://` 로 열었으면 조용히 넘기고 손으로 고르는 줄이 남는다 — 인증도
+// 없는 이 앱이 포털 때문에 안 열리면 안 된다.
+var PORTAL_API = '{PORTAL_API}';
+var ROSTER_NAMES = {roster_json};
+
+function portalBase() {{
+    if (PORTAL_API) return PORTAL_API;
+    var p = window.location.protocol;
+    if (p !== 'http:' && p !== 'https:') return '';   // file:// — 포털이 없다
+    return window.location.origin + '/branup/portal/api';
+}}
+
+function showWhoami(name) {{
+    var el = document.getElementById('whoami');
+    if (el) el.textContent = ' - ' + name;
+    document.title = '브랜업 대시보드 - ' + name;
+}}
+
+function askPortalWhoami() {{
+    var base = portalBase();
+    if (!base) return;
+    fetch(base + '/auth/me', {{ credentials: 'same-origin' }})
+        .then(function(r) {{ return r.ok ? r.json() : null; }})
+        .then(function(me) {{
+            if (!me || !me.name) return;
+            showWhoami(me.name);
+            // **손으로 고르는 줄을 숨긴다.** 진짜 이름을 알고 있으면 손으로
+            // 고르는 것은 거짓말이 될 수 있다.
+            var row = document.getElementById('actorRow');
+            if (row) row.style.display = 'none';
+            setActor(me.name);
+
+            // ⚠️ 포털 이름이 업무대시보드 명단에 없으면 **알림이 조용히
+            // 틀린다** — 담당자 이름과 안 맞아서 "본인이 바꾼 것 빼기" 가
+            // 작동하지 않는다. 숨기지 말고 말해 준다.
+            if (ROSTER_NAMES.indexOf(me.name) === -1) {{
+                var h1 = document.getElementById('whoami');
+                if (h1) {{
+                    h1.textContent = ' - ' + me.name + ' ⚠️';
+                    h1.title = '이 이름이 업무 담당자 명단에 없습니다 — '
+                        + '관리자에게 확인하세요 (roster.py)';
+                }}
+            }}
+        }})
+        .catch(function() {{ /* 포털을 못 읽었다. 손으로 고르는 줄이 남는다 */ }});
 }}
 
 // 모든 쓰기 요청에 「나는」 을 실어 보낸다.
@@ -4042,6 +4118,8 @@ function openFromLink() {{
 window.addEventListener('load', openFromLink);
 // 「나는 OOO」 는 브라우저마다 다르므로 구워 낼 수 없다. 뜬 뒤에 칠한다.
 window.addEventListener('load', paintActor);
+// 포털에 "누가 보고 있나" 를 묻는다. 실패해도 위의 손으로 고르는 줄이 남는다.
+window.addEventListener('load', askPortalWhoami);
 </script>
 <!--
   브랜업 포털로 돌아가는 홈 단추. (portal/docs/홈버튼.md)
