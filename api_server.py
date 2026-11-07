@@ -56,6 +56,41 @@ from roster import ROSTER, MANAGERS, RESIGNED
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
 
+#: 이름의 길이 상한. 로스터의 이름은 세 글자이고, 머리에 실려 오는 값은
+#: 누구든 아무 것이나 넣을 수 있으므로 자른다.
+ACTOR_MAX = 40
+
+
+def decode_actor(raw: "str | None") -> "str | None":
+    """머리에 실려 온 「나는 OOO」 를 이름으로 되돌린다.
+
+    ⚠️ **HTTP 헤더에는 한글을 그대로 실을 수 없다.** 헤더 값은 latin-1 이고,
+    브라우저는 UTF-8 바이트를 그냥 밀어 넣으며 `http.server` 는 그것을
+    latin-1 로 읽는다 — `전대박` 이 `ì\xa0\x84ë\x8c\x80ë°\x95` 으로 들어온다.
+
+    **그래서 이름이 하나도 안 맞았다.** 기록의 `by` 가 깨진 글자이면 포털의
+    "본인이 바꾼 것을 본인에게 보내지 않는다" 가 **영구히 작동하지 않고**,
+    알림에도 깨진 글자가 찍힌다. 2026-11-07 에 고쳤다.
+
+    화면은 이제 **퍼센트로 감싸** 보낸다(`encodeURIComponent`). 그래도 깨진
+    글자를 되돌려 받는 길을 남긴다 — 구운 화면이 브라우저에 캐시돼 있을 수
+    있고, 배포 직후 새로고침을 안 한 사람의 이름이 조용히 사라지면 안 된다.
+
+    길이는 **되돌린 뒤에** 자른다. 깨진 바이트를 먼저 자르면 글자 가운데가
+    끊겨 되돌릴 수 없는 값이 된다.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    if "%" in raw:
+        raw = unquote(raw)
+    else:
+        try:
+            raw = raw.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass                # 이미 아스키다 — 그대로 쓴다
+    return raw.strip()[:ACTOR_MAX] or None
+
 # 굽기 프로세스 겹침 방지 (_refresh_dashboard)
 _BAKE_LOCK = threading.Lock()
 _BAKING = []
@@ -385,8 +420,7 @@ class APIHandler(BaseHTTPRequestHandler):
         있으므로 권한 판단에 쓰면 안 된다 — 사내 7명이 쓰는 **알아차림**
         장치다.
         """
-        raw = (self.headers.get("X-Branup-Actor") or "").strip()
-        return raw[:40] or None
+        return decode_actor(self.headers.get("X-Branup-Actor"))
 
     def do_PATCH(self):
         path = urlparse(self.path).path

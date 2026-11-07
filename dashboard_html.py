@@ -2300,7 +2300,11 @@ function paintActor() {{
             var who = getActor();
             if (who) {{
                 var h = new Headers(init.headers || {{}});
-                h.set('X-Branup-Actor', who);
+                // **퍼센트로 감싼다.** HTTP 헤더 값은 latin-1 이어서 한글을
+                // 그대로 실으면 서버가 깨진 글자로 읽는다 — `전대박` 이
+                // `ì „ëŒ€ë°•` 이 되고, 그러면 알림에서 "본인이 바꾼 것 빼기"
+                // 가 영구히 안 맞는다. 서버가 `unquote` 로 되돌린다.
+                h.set('X-Branup-Actor', encodeURIComponent(who));
                 init.headers = h;
             }}
         }}

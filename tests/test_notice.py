@@ -126,6 +126,50 @@ def test_events_since_가_등록을_담당자와_함께_준다(room):
     assert e["payload"]["by"] == "전대박"
 
 
+# ── 머리에 실려 온 이름 ─────────────────────────────────
+#
+# **2026-11-07 에 실제로 깨져 있던 자리다.** 헤더 값은 latin-1 이어서 한글이
+# 그대로 실리지 않는다. 기록의 `by` 가 깨진 글자이면 포털의 "본인이 바꾼 것을
+# 본인에게 보내지 않는다" 가 **영구히 작동하지 않는다** — 그런데 화면도
+# 서버도 아무 오류를 내지 않아서 아무도 모른다.
+
+
+def test_퍼센트로_감싼_이름을_되돌린다():
+    from api_server import decode_actor
+    assert decode_actor("%EC%A0%84%EB%8C%80%EB%B0%95") == "전대박"
+
+
+def test_깨진_글자도_되돌린다():
+    """구운 화면이 브라우저에 캐시돼 있는 경우다. 배포 직후 새로고침을 안 한
+    사람의 이름이 조용히 사라지면 안 된다."""
+    from api_server import decode_actor
+    깨진 = "전대박".encode("utf-8").decode("latin-1")
+    assert 깨진 != "전대박", "이 시험의 전제가 깨졌다"
+    assert decode_actor(깨진) == "전대박"
+
+
+def test_아스키_이름은_그대로():
+    from api_server import decode_actor
+    assert decode_actor("admin") == "admin"
+
+
+def test_비었으면_None():
+    from api_server import decode_actor
+    assert decode_actor(None) is None
+    assert decode_actor("   ") is None
+
+
+def test_길이는_되돌린_뒤에_자른다():
+    """깨진 바이트를 먼저 자르면 글자 가운데가 끊겨 되돌릴 수 없는 값이 된다.
+    상한은 **글자 수**다 — 깨진 글자로 받으면 바이트가 세 배라, 먼저 자르면
+    40바이트(13자 남짓)에서 끊긴다."""
+    from api_server import ACTOR_MAX, decode_actor
+    긴이름 = "김" * (ACTOR_MAX + 10)
+    got = decode_actor(긴이름.encode("utf-8").decode("latin-1"))
+    assert got == "김" * ACTOR_MAX, "글자가 아니라 바이트로 잘랐다"
+    assert "�" not in got and got.isprintable()
+
+
 def test_since_는_그_뒤에_쌓인_것만_준다(room):
     """포털이 같은 알림을 두 번 보내지 않게 하는 기준점이다."""
     a = db.create_task(room["id"], title="먼저", actor="전대박")
