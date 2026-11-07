@@ -498,7 +498,7 @@ class APIHandler(BaseHTTPRequestHandler):
         # 아무 일도 일어나지 않은 것처럼 보인다.
         scope = (parse_qs(urlparse(self.path).query).get("scope", [""])[0] or "")
         if scope == "following" and task.get("series_id"):
-            res = delete_task_following(task_id)
+            res = delete_task_following(task_id, actor=self._actor())
             self._refresh_dashboard()
             self._send_json({"deleted": True, "id": task_id,
                              "removed": res.get("deleted", 0),
@@ -507,7 +507,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # 지우는 문은 하나다 — `task_events` 를 먼저 치워야 외래키로
         # 터지지 않는다 (db.py 의 `_drop_tasks` 에 전말이 있다).
-        removed = delete_task(task_id)
+        removed = delete_task(task_id, actor=self._actor())
         self._refresh_dashboard()
         self._send_json({"deleted": True, "id": task_id, "removed": removed})
 

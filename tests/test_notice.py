@@ -106,6 +106,105 @@ def test_auto_와_by_는_서로_다른_값이다(room):
     assert "by" not in _reg(보충["id"]) and _reg(보충["id"])["auto"] is True
 
 
+# ── 삭제 ─────────────────────────────────────────────────
+#
+# **삭제는 `task_events` 에 남길 수 없다.** 그 표는 `tasks(id)` 외래키를
+# 갖고 CASCADE 가 없어서 업무를 지우려면 기록을 먼저 치워야 하고, 포털이
+# 읽는 `events_since` 는 제목·담당자를 얻으려고 `tasks` 를 조인한다 — 지워진
+# 업무는 조인할 상대가 없다. 그래서 `task_deletions` 가 제목과 담당자를
+# **베껴 적는다.**
+
+
+def _drops(*task_ids) -> list:
+    """그 업무들의 삭제 줄만.
+
+    **업무로 좁혀야 한다.** 시험들이 한 DB 를 함께 쓰므로(`conftest.py` 가
+    한 번만 폴더를 정한다) `events_since()` 는 **다른 시험이 지운 것까지**
+    돌려준다. 그걸 세면 "몇 통 가나" 시험이 돌 때마다 다른 수를 낸다.
+    """
+    want = set(task_ids)
+    return [e for e in db.events_since()
+            if e["event_type"] == "삭제" and e["task_id"] in want]
+
+
+def test_지우면_기록이_남는다(room):
+    t = db.create_task(room["id"], title="지울 업무", assignee="이향석",
+                       actor="이상원")
+    assert db.delete_task(t["id"], actor="이상원") == 1
+
+    rows = _drops(t["id"])
+    assert len(rows) == 1
+    e = rows[0]
+    assert e["task_id"] == t["id"]
+    assert e["title"] == "지울 업무", "제목을 베껴 적지 않았다"
+    assert e["assignee"] == "이향석", "담당자를 베껴 적지 않았다"
+    assert e["display_num"] == t["display_num"]
+    assert e["payload"]["by"] == "이상원"
+
+
+def test_지워도_업무를_조인하지_않는다(room):
+    """`tasks` 를 조인하면 지워진 업무의 줄은 **영영 나오지 않는다.** 이
+    시험이 그 구조를 지킨다 — 기능이 조용히 사라지는 자리다."""
+    t = db.create_task(room["id"], title="사라질 업무", assignee="이향석")
+    db.delete_task(t["id"], actor="이상원")
+
+    assert db.get_task_by_id(t["id"]) is None, "이 시험의 전제가 깨졌다"
+    assert any(e["event_type"] == "삭제" and e["task_id"] == t["id"]
+               for e in db.events_since())
+
+
+def test_지운_사람을_모르면_칸이_없다(room):
+    t = db.create_task(room["id"], title="누가 지웠는지 모름", assignee="이향석")
+    db.delete_task(t["id"])
+    assert "by" not in _drops(t["id"])[0]["payload"]
+
+
+def test_옛_기록은_함께_사라진다(room):
+    """업무를 지우면 그 업무의 변경 기록도 지워진다(외래키). 삭제 줄만
+    남는다 — 없어진 업무의 「마감일 변경」 알림이 뒤늦게 가면 안 된다."""
+    t = db.create_task(room["id"], title="고쳤다 지울 업무", assignee="이향석")
+    db.update_task(t["id"], due_at="2026-12-01", actor="이상원")
+    assert any(e["event_type"] == "마감일 변경" for e in db.events_since())
+
+    db.delete_task(t["id"], actor="이상원")
+    kinds = {e["event_type"] for e in db.events_since()
+             if e["task_id"] == t["id"]}
+    assert kinds == {"삭제"}, f"남은 기록: {kinds}"
+
+
+def test_반복을_이후_모두_지우면_한_줄만_남는다(room):
+    """회차마다 남기면 월간 반복 여섯 회차를 지울 때 담당자에게 **여섯 통**이
+    간다. 사람이 한 번 누른 일이므로 한 통이 맞다."""
+    s = db.create_series(room["id"], freq="월", anchor_date="2026-11-10",
+                         total_count=4, title="월간 보고", summary="월간 보고",
+                         assignee="이향석", priority="중간")
+    db.backfill_series("2026-11-01")
+    made = db.get_series_tasks(s["id"])
+    assert len(made) >= 2, f"이 시험의 전제가 깨졌다 (회차 {len(made)}개)"
+
+    ids = [dict(r)["id"] for r in made]
+    res = db.delete_task_following(ids[0], actor="이상원")
+    assert res["deleted"] >= 2
+
+    rows = _drops(*ids)
+    assert len(rows) == 1, f"삭제 줄이 {len(rows)}개다 — 통이 그만큼 간다"
+    assert rows[0]["payload"]["following"] == res["deleted"] - 1
+    assert rows[0]["payload"]["by"] == "이상원"
+
+
+def test_반복_멈추기는_알림_기록을_남기지_않는다(room):
+    """거기서 지우는 것은 **아직 오지도 않은 미래 회차**다. "업무가
+    지워졌습니다" 를 보내면 담당자는 없어진 적 없는 일을 찾는다."""
+    s = db.create_series(room["id"], freq="월", anchor_date="2026-11-10",
+                         total_count=6, title="멈출 반복", summary="멈출 반복",
+                         assignee="이향석", priority="중간")
+    db.backfill_series("2026-11-01")
+    ids = [dict(r)["id"] for r in db.get_series_tasks(s["id"])]
+    db.stop_series(s["id"], delete_future=True)
+
+    assert not _drops(*ids)
+
+
 # ── 누가 보고 있나 — 화면이 포털에 묻는다 ────────────────
 #
 # 이 앱에는 인증이 전혀 없다. 「나는 OOO」 를 손으로 고르게 해 뒀는데 안

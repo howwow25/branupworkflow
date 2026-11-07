@@ -115,7 +115,12 @@ def get_conn():
 # 이 번호가 필요한 이유: 굽기(dashboard_html)는 별도 프로세스이고, 이 함수가
 # 매번 CREATE/ALTER 를 돌리면 **읽기만 하려는 프로세스도 쓰기 잠금을 잡는다.**
 # 그래서 업무를 연달아 만들면 "database is locked" 로 요청이 죽었다.
-SCHEMA_VERSION = 5
+#: ⚠️ **새 표나 칸을 더하면 이 번호를 올려야 한다.** 안 올리면
+#: `_ensure_schema` 가 첫 줄에서 그냥 돌아가고 `CREATE`·`ALTER` 가 **조용히
+#: 건너뛰어진다** (docs/adr/0003). 화면에는 아무 오류가 안 뜨고 저장만 안 된다.
+#:
+#: 6 = `task_deletions` (지워진 업무의 알림)
+SCHEMA_VERSION = 6
 
 
 def _ensure_schema(conn):
@@ -180,6 +185,29 @@ def _ensure_schema(conn):
         payload TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL
     );
+    -- 지워진 업무의 기록. **`task_events` 에 둘 수 없다.**
+    --
+    -- 둘 다 안 되는 이유가 있다. 첫째, 그 표는 `tasks(id)` 를 가리키는
+    -- 외래키가 있고 `ON DELETE CASCADE` 가 없어서, 업무를 지우려면 기록을
+    -- **먼저 치워야** 한다 (`_drop_tasks`). 둘째, 포털이 읽어 가는
+    -- `events_since` 가 제목·담당자를 얻으려고 `tasks` 를 **조인**한다 —
+    -- 지워진 업무는 조인할 상대가 없어서 그 줄은 영영 나오지 않는다.
+    --
+    -- 그래서 **제목과 담당자를 베껴 적는다.** 업무가 사라진 뒤에도 "누구의
+    -- 무슨 업무가 지워졌나" 를 말할 수 있어야 알림을 보낼 수 있다.
+    --
+    -- 외래키를 걸지 않는다. 가리킬 줄이 이미 없다.
+    CREATE TABLE IF NOT EXISTS task_deletions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        display_num INTEGER,
+        title TEXT NOT NULL,
+        assignee TEXT,
+        payload TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_deletions_at
+        ON task_deletions(created_at);
     CREATE INDEX IF NOT EXISTS idx_inbox_processed
         ON inbox_messages(processed, received_at);
     CREATE INDEX IF NOT EXISTS idx_tasks_room
@@ -768,11 +796,15 @@ def stop_series(series_id: str, delete_future: bool = False) -> Dict:
     removed = 0
     if delete_future:
         with _db() as conn:
-            removed = _drop_tasks(
+            # 알림 기록을 남기지 않는다. 여기서 지우는 것은 **아직 오지도
+            # 않은 미래 회차**라, 담당자에게 "업무가 지워졌습니다" 를 보내면
+            # 그는 없어진 적 없는 일을 찾게 된다. 반복을 멈춘 사실은
+            # 업무대시보드 화면에서 보인다.
+            removed = len(_drop_tasks(
                 conn,
                 "series_id=? AND status<>'완료' "
                 "AND due_at IS NOT NULL AND substr(due_at,1,10) > ?",
-                (series_id, today))
+                (series_id, today)))
             conn.commit()
     update_series(series_id, stopped_at=now_iso())
     s = get_series(series_id) or {}
@@ -827,7 +859,7 @@ def apply_series_following(series_id: str, from_seq: int, fields: Dict) -> int:
 
 
 @_writer
-def _drop_tasks(conn, where: str, params) -> int:
+def _drop_tasks(conn, where: str, params) -> List[Dict]:
     """업무를 지운다. **기록(`task_events`)을 먼저 치운다.**
 
     ## 왜 (2026-11-04)
@@ -845,27 +877,57 @@ def _drop_tasks(conn, where: str, params) -> int:
 
     표를 다시 만들어 CASCADE 를 붙이는 길도 있지만, 운영 DB 를 복사·교체하는
     일이라 지금 할 일이 아니다. 지우는 문을 하나로 모으고 시험이 지킨다.
+
+    ## 돌려주는 것
+
+    지운 **줄들**이다(개수가 아니다). 지워진 뒤에는 제목도 담당자도 물어볼
+    데가 없으므로, 알림을 보낼 쪽이 쓸 값을 **지우기 전에** 들고 나와야 한다.
     """
-    ids = [r["id"] for r in conn.execute(
-        f"SELECT id FROM tasks WHERE {where}", params)]
-    if not ids:
-        return 0
+    rows = [dict(r) for r in conn.execute(
+        f"SELECT id, display_num, title, assignee FROM tasks WHERE {where}",
+        params)]
+    if not rows:
+        return []
+    ids = [r["id"] for r in rows]
     marks = ",".join("?" * len(ids))
     conn.execute(f"DELETE FROM task_events WHERE task_id IN ({marks})", ids)
     conn.execute(f"DELETE FROM tasks WHERE id IN ({marks})", ids)
-    return len(ids)
+    return rows
+
+
+def _note_deletion(conn, row: Dict, *, by: Optional[str] = None, **extra):
+    """지웠다는 기록 한 줄. 제목과 담당자를 **베껴 적는다.**
+
+    `task_events` 에 남길 수 없는 이유는 `task_deletions` 의 머리말에 있다.
+    """
+    body = {k: v for k, v in extra.items() if v}
+    if by:
+        body["by"] = by
+    conn.execute(
+        "INSERT INTO task_deletions "
+        "(id,task_id,display_num,title,assignee,payload,created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (str(uuid4()), row["id"], row["display_num"], row["title"],
+         row["assignee"], json.dumps(body, ensure_ascii=False), now_iso()))
 
 
 @_writer
-def delete_task(task_id: str) -> int:
-    """업무 하나를 지운다. 지운 수(0 또는 1)."""
+def delete_task(task_id: str, *, actor: Optional[str] = None) -> int:
+    """업무 하나를 지운다. 지운 수(0 또는 1).
+
+    `actor` 는 **지운 사람**이다. 담당자가 아닌 사람이 지우면 담당자는 자기
+    업무가 사라진 것을 모른다 — 포털이 이 기록을 읽어 알린다.
+    """
     with _db() as conn:
-        n = _drop_tasks(conn, "id=?", (task_id,))
+        rows = _drop_tasks(conn, "id=?", (task_id,))
+        for r in rows:
+            _note_deletion(conn, r, by=actor)
         conn.commit()
-        return n
+        return len(rows)
 
 
-def delete_task_following(task_id: str) -> Dict:
+def delete_task_following(task_id: str, *,
+                          actor: Optional[str] = None) -> Dict:
     """이 회차와 **이후 회차**를 지우고 반복을 멈춘다.
 
     멈추지 않으면 창이 비었다고 보고 **곧바로 새 회차를 만든다** — 지운
@@ -873,6 +935,10 @@ def delete_task_following(task_id: str) -> Dict:
 
     완료한 이후 회차는 남긴다(했던 일은 기록이다). 다만 지금 보고 있는 이
     업무는 완료든 아니든 지운다 — 사람이 그걸 지목했다.
+
+    알림용 기록은 **지목한 회차 한 줄만** 남긴다. 회차마다 남기면 월간 반복
+    여섯 회차를 지울 때 담당자에게 **여섯 통**이 간다 — 사람이 한 번 누른
+    일이므로 한 통이 맞다. 함께 지운 수는 payload 의 `following` 에 적는다.
     """
     with _db() as conn:
         row = conn.execute(
@@ -881,15 +947,20 @@ def delete_task_following(task_id: str) -> Dict:
         if not row:
             return {"deleted": 0, "stopped": False}
         if not row["series_id"]:
-            n = _drop_tasks(conn, "id=?", (task_id,))
+            rows = _drop_tasks(conn, "id=?", (task_id,))
+            for r in rows:
+                _note_deletion(conn, r, by=actor)
             conn.commit()
-            return {"deleted": n, "stopped": False}
+            return {"deleted": len(rows), "stopped": False}
 
         sid = row["series_id"]
         seq = row["series_seq"] or 0
-        n = _drop_tasks(conn, "id=?", (task_id,))
-        n += _drop_tasks(
+        rows = _drop_tasks(conn, "id=?", (task_id,))
+        rest = _drop_tasks(
             conn, "series_id=? AND series_seq>? AND status<>'완료'", (sid, seq))
+        n = len(rows) + len(rest)
+        for r in rows:
+            _note_deletion(conn, r, by=actor, following=len(rest))
         conn.commit()
     update_series(sid, stopped_at=now_iso())
     return {"deleted": n, "stopped": True, "series_id": sid}
@@ -1066,14 +1137,27 @@ def events_since(since: Optional[str] = None, limit: int = 200) -> List[Dict]:
     보내면 사람에게 수백 통이 간다 — 포털 쪽이 그 상황을 알아보게 **가장
     오래된 것부터** 준다.
     """
-    sql = ("SELECT e.id, e.task_id, e.event_type, e.payload, e.created_at, "
-           "       t.title, t.assignee, t.display_num "
-           "FROM task_events e JOIN tasks t ON t.id = e.task_id ")
+    # **두 표를 이어 붙인다.** 지워진 업무의 기록은 `task_events` 에 둘 수
+    # 없다 — 거기에 두면 업무를 지울 때 함께 지워지고, 아래 조인도 상대를
+    # 잃는다 (`task_deletions` 의 머리말). 그래서 그 표는 제목·담당자를
+    # 스스로 들고 있고, 여기서 같은 모양으로 맞춰 준다.
+    where = "WHERE created_at > ? " if since else ""
+    sql = (
+        "SELECT * FROM ("
+        "  SELECT e.id AS id, e.task_id AS task_id, e.event_type AS event_type,"
+        "         e.payload AS payload, e.created_at AS created_at,"
+        "         t.title AS title, t.assignee AS assignee,"
+        "         t.display_num AS display_num"
+        "  FROM task_events e JOIN tasks t ON t.id = e.task_id"
+        "  UNION ALL"
+        "  SELECT d.id, d.task_id, '삭제', d.payload, d.created_at,"
+        "         d.title, d.assignee, d.display_num"
+        "  FROM task_deletions d"
+        f") {where}"
+        "ORDER BY created_at ASC, id ASC LIMIT ?")
     args: list = []
     if since:
-        sql += "WHERE e.created_at > ? "
         args.append(since)
-    sql += "ORDER BY e.created_at ASC, e.id ASC LIMIT ?"
     args.append(max(1, min(int(limit), 1000)))
 
     conn = get_conn()
