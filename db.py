@@ -419,7 +419,26 @@ def create_task(room_id: str, title: str, summary: str = "",
                 due_at: Optional[str] = None, assignee: Optional[str] = None,
                 priority: str = "중간", project_id: Optional[str] = None,
                 series_id: Optional[str] = None,
-                series_seq: Optional[int] = None) -> Dict:
+                series_seq: Optional[int] = None,
+                actor: Optional[str] = None, auto: bool = False) -> Dict:
+    """업무 하나를 만든다.
+
+    `actor` 는 **만든 사람**이고 `auto` 는 **사람이 만든 게 아니라는 표시**다.
+    둘 다 「등록」 기록의 payload 로만 간다 (`update_task` 의 `actor` 와 같은
+    판단 — 칸을 더하면 운영에서 ALTER 를 돌려야 한다).
+
+    포털이 "업무를 지시받았다" 를 담당자에게 알리려고 이 둘을 읽는다.
+
+    * `actor` 가 없으면 **자기가 자기 업무를 만든 것인지 구별할 수 없다.**
+      그러면 방금 자기가 타이핑한 업무의 알림을 자기가 받는다.
+    * `auto` 는 **반복 회차 보충**(`backfill_series`)이 켠다. 월간 반복이 여섯
+      회차를 한꺼번에 채우면 「등록」 이 여섯 줄 쌓이는데, 아무도 누르지 않은
+      사이에 생긴 것이라 알림으로 나가면 안 된다.
+
+    `auto` 를 두고 `actor` 가 비었는지로 갈음하지 않는 이유: 화면에서 「나는
+    OOO」 를 아직 안 고른 사람이 만든 업무도 `actor` 가 빈다. 그 둘을 한 값으로
+    묶으면 **진짜 업무 지시가 반복 보충으로 취급돼 조용히 안 간다.**
+    """
     conn = get_conn()
     tid = str(uuid4())
     ts = now_iso()
@@ -434,8 +453,10 @@ def create_task(room_id: str, title: str, summary: str = "",
     conn.commit()
     # 등록 시점의 날짜를 남긴다. 이것이 없으면 "마감일을 처음부터 그 날짜로
     # 잡았는지, 세 번 미뤘는지" 를 영원히 구별할 수 없다.
-    add_event(tid, "등록", {"start_at": start_at, "due_at": due_at,
-                            "assignee": assignee})
+    body = {"start_at": start_at, "due_at": due_at, "assignee": assignee}
+    if auto:
+        body["auto"] = True
+    add_event(tid, "등록", body, by=actor)
     return {"id": tid, "room_id": room_id, "title": title, "status": "진행중",
             "summary": summary, "start_at": start_at, "due_at": due_at,
             "assignee": assignee,
@@ -714,7 +735,10 @@ def backfill_series(today: Optional[str] = None) -> int:
                         start_at=start, due_at=due,
                         assignee=s["assignee"], priority=s["priority"],
                         project_id=s["project_id"],
-                        series_id=s["id"], series_seq=seq)
+                        series_id=s["id"], series_seq=seq,
+                        # 사람이 누른 것이 아니다 — 알림으로 내보내면 안 된다.
+                        # 월간 반복 하나가 여섯 회차를 채우면 여섯 통이 간다.
+                        auto=True)
                 except sqlite3.IntegrityError:
                     continue      # 다른 요청이 같은 회차를 먼저 만들었다
                 made += 1

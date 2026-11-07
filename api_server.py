@@ -49,7 +49,7 @@ from db import (get_conn, get_task_by_id, update_task, now_iso,
                 create_series, get_series, get_series_tasks, stop_series,
                 apply_series_following, backfill_series, today_kst,
                 set_series_auto_rename, delete_task_following,
-                delete_task, events_since)
+                delete_task, events_since, add_event)
 from recurrence import FREQS, WINDOW, first_open_seq, nth_due, relabel
 from roster import ROSTER, MANAGERS, RESIGNED
 
@@ -1021,6 +1021,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 assignee=body.get("assignee"),
                 priority=body.get("priority", "중간"),
                 project_id=body.get("project_id"),
+                # 만든 사람. 포털이 "남이 나에게 지시한 업무" 만 알리는 데 쓴다.
+                actor=self._actor(),
             )
             self._refresh_dashboard()
             self._send_json(task)
@@ -1123,7 +1125,18 @@ class APIHandler(BaseHTTPRequestHandler):
                           "목록을 새로 고치면 나타납니다"}, 503)
             return
 
+        # 반복으로 지시한 것도 **한 번은** 알려야 한다. 회차는 전부
+        # `backfill_series()` 가 만들어 `auto` 라서 「등록」 알림이 안 나간다 —
+        # 그게 맞다(월간 반복 하나가 여섯 통이 된다). 대신 **시리즈 한 건에
+        # 한 줄**을 남겨 포털이 한 통만 보낸다.
+        #
+        # 기록은 첫 회차에 붙인다. `task_events.task_id` 가 `tasks` 를 가리키는
+        # 외래키라 업무 없는 기록을 남길 자리가 없다.
         first = dict(rows[0])
+        add_event(first["id"], "반복 등록",
+                  {"assignee": body.get("assignee"), "freq": freq,
+                   "count": count, "created": len(rows)},
+                  by=self._actor())
         first["series"] = {
             "id": series["id"], "freq": freq, "total_count": count,
             "created": len(rows), "window": WINDOW,
@@ -1317,6 +1330,7 @@ class APIHandler(BaseHTTPRequestHandler):
             assignee=body.get("assignee"),
             priority=body.get("priority", "중간"),
             project_id=project_id,
+            actor=self._actor(),
         )
         self._refresh_dashboard()
         self._send_json(task)
