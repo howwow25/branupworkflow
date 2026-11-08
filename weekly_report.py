@@ -28,6 +28,64 @@ REPORT_DIR = Path(DATA_DIR) / "reports"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# ── 우선순위 ─────────────────────────────────────────
+#
+# 리포트의 업무 표는 **중요한 것부터** 읽혀야 한다. 마감 오름차순만으로
+# 늘어놓으면 「낮음」짜리 잡무가 이번 주 가장 중요한 업무보다 위에 오고,
+# 읽는 사람은 표 전체를 훑어야 그것을 안다 — 스무 줄짜리 표에서는 안 훑는다.
+
+#: 앞에서부터 중요한 순서. **이 차례가 곧 표에 찍히는 차례**다.
+PRIORITIES = ("긴급", "높음", "중간", "낮음")
+
+#: 대시보드(`dashboard_html.py`)가 쓰는 것과 **같은 그림**이다. 한쪽만 바꾸면
+#: 같은 업무가 두 화면에서 다른 급으로 보인다. 「중간」에 그림이 없는 것도
+#: 그쪽을 따른 것이다 — 기본값이라 눈에 안 띄는 쪽이 맞다.
+PRIO_ICON = {"긴급": "🔥", "높음": "⭐", "중간": "", "낮음": "➖"}
+
+#: 모르는 값일 때 쓰는 자리. **「낮음」 뒤가 아니라 「중간」 자리**다.
+#:
+#: DB 의 기본값이 `중간` 이고 칸은 NOT NULL 이므로(`db.py`), 비어 있는 것은
+#: "낮다" 가 아니라 **"아직 안 정했다"** 는 뜻이다. 맨 뒤로 보내면 우선순위를
+#: 안 적은 업무가 조용히 표 바닥에 깔려, 적는 것을 잊은 날 그 업무가 사라진
+#: 것처럼 보인다.
+_DEFAULT_RANK = PRIORITIES.index("중간")
+
+
+def prio_of(t):
+    """업무의 우선순위 글자. 비었으면 빈 문자열."""
+    return (t.get("priority") or "").strip()
+
+
+def prio_rank(t):
+    """표에 찍히는 차례. 작을수록 위."""
+    try:
+        return PRIORITIES.index(prio_of(t))
+    except ValueError:
+        return _DEFAULT_RANK
+
+
+def prio_cell(t):
+    """표의 「우선」 칸. 그림 + 글자.
+
+    **글자를 꼭 적는다.** 그림만 찍으면 「중간」이 빈 칸이 되어 자료가 빠진
+    것처럼 보이고, 그림이 안 뜨는 곳(메일·터미널)에서는 칸 전체가 사라진다.
+    """
+    p = prio_of(t)
+    if not p:
+        return "미정"
+    return f"{PRIO_ICON.get(p, '')} {p}".strip()
+
+
+def by_priority(tasks):
+    """우선순위 차례로 다시 세운다. **같은 급 안에서는 받은 차례 그대로.**
+
+    `sorted` 는 안정 정렬이므로 들어온 순서(마감 오름차순)가 같은 급 안에서
+    그대로 남는다 — 그래서 여기서 마감을 다시 보지 않는다. 두 열쇠를 다 적으면
+    부르는 쪽이 이미 정렬해 둔 차례와 **어긋날 수 있는 두 번째 규칙**이 생긴다.
+    """
+    return sorted(tasks, key=prio_rank)
+
+
 def dday(due_str):
     """마감까지 남은 일수"""
     if not due_str:
@@ -169,11 +227,15 @@ def week_bucket(t, ws_date, we_date, today):
 
 
 def classify_tasks(tasks, ws_date, we_date, today):
-    """업무 목록을 섹션별로 나눈다. 각 리스트는 원본(마감 오름차순) 순서를 유지."""
+    """업무 목록을 섹션별로 나눈다.
+
+    각 리스트는 **우선순위 차례**(긴급 → 높음 → 중간 → 낮음)로 서고, 같은
+    급 안에서는 원본(마감 오름차순) 순서를 유지한다.
+    """
     out = {b: [] for b in BUCKETS}
     for t in tasks:
         out[week_bucket(t, ws_date, we_date, today)].append(t)
-    return out
+    return {b: by_priority(v) for b, v in out.items()}
 
 
 def bucket_counts(title, tasks, groups):
@@ -184,7 +246,12 @@ def bucket_counts(title, tasks, groups):
 
 
 def render_task_sections(lines, groups, ws_date, we_date):
-    """분류된 업무를 5개 표로 출력한다. (prev_completed 는 의도적으로 표에서 제외)"""
+    """분류된 업무를 5개 표로 출력한다. (prev_completed 는 의도적으로 표에서 제외)
+
+    표마다 **「우선」 칸이 맨 앞**에 선다. 줄 순서가 우선순위로 정해지므로,
+    기준을 안 보여 주면 "왜 이 차례인가" 를 읽는 사람이 알 수 없다 — 그러면
+    차례가 뒤죽박죽으로 보이고, 자기 눈으로 다시 훑게 된다.
+    """
     def ev(t):
         return evaluate_task(t, ws_date, we_date)[0]
 
@@ -194,11 +261,11 @@ def render_task_sections(lines, groups, ws_date, we_date):
     lines.append("### ✅ 기준 주 완료")
     lines.append("")
     if groups["completed"]:
-        lines.append("| # | 제목 | 완료일 | 평가 |")
-        lines.append("|---|---|---|---|")
+        lines.append("| 우선 | # | 제목 | 완료일 | 평가 |")
+        lines.append("|---|---|---|---|---|")
         for t in groups["completed"]:
             closed = (t.get("closed_at") or "")[:10]
-            lines.append(f"| #{num(t)} | {t.get('title', '')} | {closed} | {ev(t)} |")
+            lines.append(f"| {prio_cell(t)} | #{num(t)} | {t.get('title', '')} | {closed} | {ev(t)} |")
     else:
         lines.append("*기준 주에 완료된 업무가 없습니다.*")
     lines.append("")
@@ -206,12 +273,12 @@ def render_task_sections(lines, groups, ws_date, we_date):
     lines.append("### ⚠️ 지연 업무")
     lines.append("")
     if groups["delayed"]:
-        lines.append("| # | 제목 | 마감 | 지연일 | 평가 |")
-        lines.append("|---|---|---|---|---|")
+        lines.append("| 우선 | # | 제목 | 마감 | 지연일 | 평가 |")
+        lines.append("|---|---|---|---|---|---|")
         for t in groups["delayed"]:
             due = (t.get("due_at") or "")[:10]
             dd = dday(t.get("due_at"))
-            lines.append(f"| #{num(t)} | {t.get('title', '')} | {due} | D+{abs(dd)} | {ev(t)} |")
+            lines.append(f"| {prio_cell(t)} | #{num(t)} | {t.get('title', '')} | {due} | D+{abs(dd)} | {ev(t)} |")
     else:
         lines.append("*지연된 업무가 없습니다.* 👍")
     lines.append("")
@@ -224,11 +291,11 @@ def render_task_sections(lines, groups, ws_date, we_date):
         lines.append(heading)
         lines.append("")
         if groups[key]:
-            lines.append("| # | 제목 | 마감 | D-Day | 평가 |")
-            lines.append("|---|---|---|---|---|")
+            lines.append("| 우선 | # | 제목 | 마감 | D-Day | 평가 |")
+            lines.append("|---|---|---|---|---|---|")
             for t in groups[key]:
                 due = (t.get("due_at") or "")[:10] if t.get("due_at") else ""
-                lines.append(f"| #{num(t)} | {t.get('title', '')} | {due} | {dday_label(dday(t.get('due_at')))} | {ev(t)} |")
+                lines.append(f"| {prio_cell(t)} | #{num(t)} | {t.get('title', '')} | {due} | {dday_label(dday(t.get('due_at')))} | {ev(t)} |")
         else:
             lines.append(empty_note)
         lines.append("")
@@ -551,15 +618,18 @@ def generate_all_report(payload: dict) -> dict:
     lines.append("## 🚨 긴급: 지연·위험 업무")
     lines.append("")
     if all_delayed:
-        lines.append("| # | 제목 | 담당 | 마감 | 지연일 | 평가 |")
-        lines.append("|---|---|---|---|---|---|")
+        # 여기도 **우선순위가 먼저**다. 같은 급 안에서는 들어온 차례(마감
+        # 오름차순 = 가장 오래 밀린 것부터)가 그대로 남는다.
+        all_delayed = sorted(all_delayed, key=lambda pair: prio_rank(pair[0]))
+        lines.append("| 우선 | # | 제목 | 담당 | 마감 | 지연일 | 평가 |")
+        lines.append("|---|---|---|---|---|---|---|")
         for t, dd in all_delayed:
             num = t.get("display_num", "?")
             title = t.get("title", "")
             a = t.get("assignee", "?")
             due = (t.get("due_at") or "")[:10]
             ev, _ = evaluate_task(t, ws_date, we_date)
-            lines.append(f"| #{num} | {title} | {a} | {due} | D+{dd} | {ev} |")
+            lines.append(f"| {prio_cell(t)} | #{num} | {title} | {a} | {due} | D+{dd} | {ev} |")
         lines.append("")
         lines.append(f"> ⚠️ 총 **{len(all_delayed)}건**의 지연 업무가 있습니다. 즉시 조치가 필요합니다.")
     else:
