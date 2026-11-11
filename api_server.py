@@ -591,7 +591,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return
 
         ts = now_iso()
-        update_task(task_id, status="완료", closed_at=ts)
+        update_task(task_id, status="완료", closed_at=ts, actor=self._actor())
         task = get_task_by_id(task_id)
         self._refresh_dashboard()
         self._send_json(task)
@@ -1022,7 +1022,8 @@ class APIHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "완료된 업무만 취소할 수 있습니다"}, 400)
             return
 
-        update_task(task_id, status="진행중", closed_at=None)
+        update_task(task_id, status="진행중", closed_at=None,
+                    actor=self._actor())
         task = get_task_by_id(task_id)
         self._refresh_dashboard()
         self._send_json(task)
@@ -1663,7 +1664,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 "message": f"📝 #{display_num} '{task['title']}' 내용 수정 완료\n> {value}"
             }
         elif field == "마감":
-            update_task(task["id"], due_at=value)
+            update_task(task["id"], due_at=value, actor=self._actor())
             self._refresh_dashboard()
             return {
                 "type": "update",
@@ -1696,7 +1697,8 @@ class APIHandler(BaseHTTPRequestHandler):
             }
 
         ts = now_iso()
-        update_task(task["id"], status="완료", closed_at=ts)
+        update_task(task["id"], status="완료", closed_at=ts,
+                    actor=self._actor())
         return {
             "type": "complete",
             "message": f"✅ #{display_num} '{task['title']}' 완료 처리되었습니다!",
@@ -1714,7 +1716,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 "message": f"❌ #{display_num} 업무를 찾을 수 없습니다."
             }
         task = dict(row)
-        delete_task(task["id"])
+        delete_task(task["id"], actor=self._actor())
         return {
             "type": "delete",
             "message": f"🗑 #{display_num} '{task['title']}' 삭제되었습니다.",
