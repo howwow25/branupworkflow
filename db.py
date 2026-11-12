@@ -1,7 +1,7 @@
 """
 branup-watcher SQLite CRUD 유틸
 """
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
 import contextlib
 import functools
 import sqlite3
@@ -448,7 +448,7 @@ def create_task(room_id: str, title: str, summary: str = "",
                 priority: str = "중간", project_id: Optional[str] = None,
                 series_id: Optional[str] = None,
                 series_seq: Optional[int] = None,
-                actor: Optional[str] = None, auto: bool = False) -> Dict:
+                actor: "Actor" = None, auto: bool = False) -> Dict:
     """업무 하나를 만든다.
 
     `actor` 는 **만든 사람**이고 `auto` 는 **사람이 만든 게 아니라는 표시**다.
@@ -463,8 +463,8 @@ def create_task(room_id: str, title: str, summary: str = "",
       회차를 한꺼번에 채우면 「등록」 이 여섯 줄 쌓이는데, 아무도 누르지 않은
       사이에 생긴 것이라 알림으로 나가면 안 된다.
 
-    `auto` 를 두고 `actor` 가 비었는지로 갈음하지 않는 이유: 화면에서 「나는
-    OOO」 를 아직 안 고른 사람이 만든 업무도 `actor` 가 빈다. 그 둘을 한 값으로
+    `auto` 를 두고 `actor` 가 비었는지로 갈음하지 않는 이유: 로그인을 확인하지
+    못한 요청(포털이 꺼졌거나 쿠키가 없을 때)으로 만든 업무도 `actor` 가 빈다. 그 둘을 한 값으로
     묶으면 **진짜 업무 지시가 반복 보충으로 취급돼 조용히 안 간다.**
     """
     conn = get_conn()
@@ -512,14 +512,13 @@ def _same(a, b) -> bool:
 
 
 @_writer
-def update_task(task_id: str, *, actor: Optional[str] = None, **kwargs):
+def update_task(task_id: str, *, actor: "Actor" = None, **kwargs):
     """업무를 고친다. `actor` 는 **고친 사람**이다 (없으면 모름).
 
     기록에 남겨 두는 이유는 알림 때문이다 — 담당자에게 "누가 당신 업무를
     바꿨다" 를 보낼 때, **본인이 바꾼 것까지 본인에게 보내면** 사람들이
-    알림을 꺼 버린다. 업무대시보드에는 로그인이 없으므로 화면이 「나는 OOO」
-    로 고른 값을 머리에 실어 보낸다. 보안 장치가 아니라 **알아차림을 위한
-    표시**다(사내 7명).
+    알림을 꺼 버린다. 웹 요청이면 서버가 통합 로그인 쿠키로 **로그인한
+    직원**을 확인해 넘긴다 (`portal_login.py`). 권한 판단에는 쓰지 않는다.
     """
     conn = get_conn()
     allowed = {"status", "title", "summary", "start_at", "due_at", "assignee",
@@ -895,14 +894,35 @@ def _drop_tasks(conn, where: str, params) -> List[Dict]:
     return rows
 
 
-def _note_deletion(conn, row: Dict, *, by: Optional[str] = None, **extra):
+#: 고친 사람. 웹 요청이면 **로그인한 직원** `{"id": 포털 user.id, "name": 이름}`
+#: 이고 (`portal_login.py`), 시험·스크립트에서는 이름 글자만 넘기기도 한다.
+Actor = Union[Dict, str, None]
+
+
+def _stamp(body: Dict, by: "Actor") -> None:
+    """payload 에 고친 사람을 적는다. 모르면 **칸을 아예 안 만든다.**
+
+    `by` 는 이름(알림에 찍는다), `by_uid` 는 포털 직원 번호다. 포털은
+    `by_uid` 로 「담당자가 곧 로그인한 직원인가」 를 본다 — 이름은 포털과
+    업무대시보드에서 다르게 적힐 수 있지만 번호는 짝짓기 표로 정확히 맞는다.
+    """
+    if isinstance(by, dict):
+        name, uid = by.get("name"), by.get("id")
+        if isinstance(name, str) and name.strip():
+            body["by"] = name.strip()
+        if isinstance(uid, int):
+            body["by_uid"] = uid
+    elif isinstance(by, str) and by.strip():
+        body["by"] = by.strip()
+
+
+def _note_deletion(conn, row: Dict, *, by: "Actor" = None, **extra):
     """지웠다는 기록 한 줄. 제목과 담당자를 **베껴 적는다.**
 
     `task_events` 에 남길 수 없는 이유는 `task_deletions` 의 머리말에 있다.
     """
     body = {k: v for k, v in extra.items() if v}
-    if by:
-        body["by"] = by
+    _stamp(body, by)
     conn.execute(
         "INSERT INTO task_deletions "
         "(id,task_id,display_num,title,assignee,payload,created_at) "
@@ -912,7 +932,7 @@ def _note_deletion(conn, row: Dict, *, by: Optional[str] = None, **extra):
 
 
 @_writer
-def delete_task(task_id: str, *, actor: Optional[str] = None) -> int:
+def delete_task(task_id: str, *, actor: "Actor" = None) -> int:
     """업무 하나를 지운다. 지운 수(0 또는 1).
 
     `actor` 는 **지운 사람**이다. 담당자가 아닌 사람이 지우면 담당자는 자기
@@ -927,7 +947,7 @@ def delete_task(task_id: str, *, actor: Optional[str] = None) -> int:
 
 
 def delete_task_following(task_id: str, *,
-                          actor: Optional[str] = None) -> Dict:
+                          actor: "Actor" = None) -> Dict:
     """이 회차와 **이후 회차**를 지우고 반복을 멈춘다.
 
     멈추지 않으면 창이 비었다고 보고 **곧바로 새 회차를 만든다** — 지운
@@ -1107,15 +1127,14 @@ def update_ocr(msg_id: str, ocr_text: str):
 
 @_writer
 def add_event(task_id: str, event_type: str, payload: Optional[Dict] = None,
-              *, by: Optional[str] = None):
+              *, by: "Actor" = None):
     """기록 한 줄. `by` 는 고친 사람이고 **칸이 아니라 payload 에** 넣는다.
 
     칸을 더하면 스키마 번호를 올리고 운영에서 ALTER 를 돌려야 한다. 이 값은
     알림이 "본인이 바꾼 것" 을 빼는 데만 쓰므로 그만한 일이 아니다.
     """
     body = dict(payload or {})
-    if by:
-        body["by"] = by
+    _stamp(body, by)
     with _db() as conn:
         conn.execute(
             "INSERT INTO task_events (id,task_id,event_type,payload,created_at) "

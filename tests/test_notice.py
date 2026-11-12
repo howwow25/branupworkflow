@@ -224,13 +224,14 @@ def test_제목에_이름을_넣을_자리가_있다():
         "제목과 이름 사이에 다른 것이 끼었다"
 
 
-def test_포털을_못_읽으면_손으로_고르는_줄이_남는다():
-    """`file://` 로 열었거나 로그인하지 않았을 때다. **인증도 없는 이 앱이
-    포털 때문에 못 쓰이게 되면 안 된다.**"""
+def test_화면이_바꾼_사람을_고르지_않는다():
+    """바꾼 사람은 서버가 로그인 쿠키로 정한다 (`portal_login.py`). 화면이
+    이름을 실어 보내는 길이 남아 있으면, 그 길을 빠뜨린 버튼 하나로 본인에게
+    알림이 간다 — 2026-11-12 에 완료처리 버튼이 그랬다."""
     html = _baked()
-    assert 'id="actorRow"' in html, "숨길 대상에 이름표가 없다"
-    assert 'id="actorPick"' in html
-    # 숨기는 일은 포털이 **답했을 때만** 일어나야 한다.
+    assert 'id="actorPick"' not in html
+    assert "X-Branup-Actor" not in html
+    # 포털을 못 읽어도 화면은 돈다.
     assert "catch(function() {" in html
 
 
@@ -280,48 +281,28 @@ def test_events_since_가_등록을_담당자와_함께_준다(room):
     assert e["payload"]["by"] == "전대박"
 
 
-# ── 머리에 실려 온 이름 ─────────────────────────────────
-#
-# **2026-11-07 에 실제로 깨져 있던 자리다.** 헤더 값은 latin-1 이어서 한글이
-# 그대로 실리지 않는다. 기록의 `by` 가 깨진 글자이면 포털의 "본인이 바꾼 것을
-# 본인에게 보내지 않는다" 가 **영구히 작동하지 않는다** — 그런데 화면도
-# 서버도 아무 오류를 내지 않아서 아무도 모른다.
+# ── 로그인한 직원의 번호 ──────────────────────────────
 
 
-def test_퍼센트로_감싼_이름을_되돌린다():
-    from api_server import decode_actor
-    assert decode_actor("%EC%A0%84%EB%8C%80%EB%B0%95") == "전대박"
+def test_로그인한_직원이면_번호도_남는다(room):
+    """포털은 `by_uid` 로 「담당자가 곧 바꾼 사람인가」 를 본다. 이름은 두
+    앱에서 다르게 적힐 수 있지만 번호는 짝짓기 표로 정확히 맞는다."""
+    t = db.create_task(room["id"], title="번호", assignee="이향석",
+                       actor={"id": 7, "name": "이향석"})
+    db.update_task(t["id"], status="완료", closed_at=db.now_iso(),
+                   actor={"id": 7, "name": "이향석"})
+    assert _reg(t["id"])["by_uid"] == 7
+    done = [e for e in db.get_task_events(t["id"]) if e["event_type"] == "완료"]
+    assert done[0]["payload"]["by"] == "이향석"
+    assert done[0]["payload"]["by_uid"] == 7
 
 
-def test_깨진_글자도_되돌린다():
-    """구운 화면이 브라우저에 캐시돼 있는 경우다. 배포 직후 새로고침을 안 한
-    사람의 이름이 조용히 사라지면 안 된다."""
-    from api_server import decode_actor
-    깨진 = "전대박".encode("utf-8").decode("latin-1")
-    assert 깨진 != "전대박", "이 시험의 전제가 깨졌다"
-    assert decode_actor(깨진) == "전대박"
-
-
-def test_아스키_이름은_그대로():
-    from api_server import decode_actor
-    assert decode_actor("admin") == "admin"
-
-
-def test_비었으면_None():
-    from api_server import decode_actor
-    assert decode_actor(None) is None
-    assert decode_actor("   ") is None
-
-
-def test_길이는_되돌린_뒤에_자른다():
-    """깨진 바이트를 먼저 자르면 글자 가운데가 끊겨 되돌릴 수 없는 값이 된다.
-    상한은 **글자 수**다 — 깨진 글자로 받으면 바이트가 세 배라, 먼저 자르면
-    40바이트(13자 남짓)에서 끊긴다."""
-    from api_server import ACTOR_MAX, decode_actor
-    긴이름 = "김" * (ACTOR_MAX + 10)
-    got = decode_actor(긴이름.encode("utf-8").decode("latin-1"))
-    assert got == "김" * ACTOR_MAX, "글자가 아니라 바이트로 잘랐다"
-    assert "�" not in got and got.isprintable()
+def test_지울_때도_번호가_남는다(room):
+    t = db.create_task(room["id"], title="지울 것", assignee="이향석")
+    db.delete_task(t["id"], actor={"id": 7, "name": "이향석"})
+    e = [x for x in db.events_since(None, limit=1000)
+         if x["task_id"] == t["id"] and x["event_type"] == "삭제"][0]
+    assert e["payload"]["by"] == "이향석" and e["payload"]["by_uid"] == 7
 
 
 def test_since_는_그_뒤에_쌓인_것만_준다(room):

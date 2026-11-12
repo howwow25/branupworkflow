@@ -699,14 +699,10 @@ def render():
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # 「나는 OOO」 목록. **명단(ROSTER)에서 뽑는다** — 담당자 필터는 업무에
-    # 적힌 이름이라 `미정`·`모두` 가 섞여 있고, 그것들은 사람이 아니다.
+    # 업무 담당자 명단. 포털에서 받은 이름이 여기에 있는지 화면이 본다 — 없으면
+    # 그 사람에게 업무를 맡길 수 없으니 관리자가 알아야 한다. `미정`·`모두` 는
+    # 사람이 아니라서 담당자 필터가 아니라 **명단(ROSTER)** 에서 뽑는다.
     actor_names = sorted(set(ROSTER) - set(RESIGNED))
-    actor_options = "".join(
-        f'<option value="{n}">{n}</option>' for n in actor_names)
-    # 포털에서 받은 이름이 이 명단에 있는지 화면이 본다. 없으면 **알림이
-    # 조용히 틀린다** — 담당자 이름과 안 맞아 "본인이 바꾼 것 빼기" 가
-    # 작동하지 않는다. 그걸 화면이 말해 줄 수 있어야 한다.
     roster_json = json.dumps(actor_names, ensure_ascii=False)
 
     # ── 모든 업무 데이터를 JSON으로 내장 (API 없는 환경에서도 모달 조회 가능) ──
@@ -1810,22 +1806,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {{
 <div class="header">
     <h1>📊 브랜업 대시보드<span id="whoami"></span> <button class="refresh-btn" onclick="forceRefresh()" title="강력 새로고침">🔄</button></h1>
     <div class="sub">마지막 갱신: {now_str} | 진행 <span id="hdr-active">{total}</span>건 · 완료 <span id="hdr-done">{done_count}</span>건</div>
-    <!--
-      「나는 OOO」. 포털에서 이름을 알아내면 **이 줄을 숨긴다** — 그때는 손으로
-      고르는 것이 거짓말이 될 수 있다. 포털을 못 읽는 자리(file:// 로 열었거나
-      로그인 안 했을 때)에서만 보인다.
-    -->
-    <div class="sub" id="actorRow" style="margin-top:6px">
-        나는
-        <select id="actorPick" onchange="setActor(this.value)"
-                style="background:#1c1f2b;color:#c9d1d9;border:1px solid #2a2d3a;border-radius:6px;padding:2px 6px;font-size:12px">
-            <option value="">(안 고름)</option>
-            {actor_options}
-        </select>
-        <span id="actorHint" style="color:#d2991d;margin-left:8px">
-            ← 고르면 <b>내가 바꾼 것</b>은 나에게 알림이 오지 않습니다
-        </span>
-    </div>
 </div>
 <div class="filters">{filter_btns}<button class="weekly-report-btn" id="weeklyReportBtn" onclick="requestWeeklyReport()" title="선택 직원의 주간리포트 생성">📊 주간리포트</button><span class="search-box"><input type="text" id="searchInput" class="search-input" placeholder="업무 검색..." onkeydown="if(event.key==='Enter')runSearch()" oninput="if(!this.value)clearSearch()"><button class="search-btn" onclick="runSearch()" title="검색">🔍</button><button class="search-clear" onclick="clearSearch()" title="검색 해제" style="display:none">✕</button></span></div>
 <div class="stats" id="statsRow">
@@ -2271,51 +2251,18 @@ function filterByProject(projectId) {{
     updateCounts();
 }}
 
-// ── 나는 누구인가 ──────────────────────────────────────
-//
-// 이 앱에는 로그인이 없다. 그래도 **고친 사람**은 알아야 한다 — 담당자에게
-// "누가 당신 업무를 바꿨다" 를 보낼 때 **본인이 바꾼 것까지 본인에게 보내면**
-// 사람들이 알림을 꺼 버리기 때문이다.
-//
-// ⚠️ **담당자 필터와 다른 값이다.** 필터는 "지금 누구 것을 보고 있나" 이고
-// 이것은 "지금 누가 쓰고 있나" 다. 둘을 같은 값으로 쓰면, 남의 업무를 보려고
-// 필터를 옮긴 순간 **내가 그 사람이 되어 버린다.**
-//
-// ⚠️ **신분 확인이 아니다.** 아무 이름이나 고를 수 있다. 권한 판단에 쓰면
-// 안 되고, 쓰임새는 알림에서 본인을 빼는 것 하나다.
-var ACTOR_KEY = 'branup.actor';
-
-function getActor() {{
-    try {{ return localStorage.getItem(ACTOR_KEY) || ''; }} catch (e) {{ return ''; }}
-}}
-
-function setActor(name) {{
-    try {{
-        if (name) localStorage.setItem(ACTOR_KEY, name);
-        else localStorage.removeItem(ACTOR_KEY);
-    }} catch (e) {{ /* 사생활 보호 모드 등. 알림이 덜 똑똑해질 뿐이다 */ }}
-    paintActor();
-}}
-
-function paintActor() {{
-    var el = document.getElementById('actorPick');
-    if (el) el.value = getActor();
-    var hint = document.getElementById('actorHint');
-    // 안 고르면 알림이 **본인에게도** 간다. 그걸 숨기지 않는다.
-    if (hint) hint.style.display = getActor() ? 'none' : '';
-}}
-
 // ── 누가 보고 있나 — 포털에 물어본다 ───────────────────────
 //
-// **이 앱에는 인증이 전혀 없다.** 그래서 「나는 OOO」 를 손으로 고르게 해
-// 뒀는데, 안 고르면 알림이 본인에게도 가고 아무도 그걸 모른다.
-//
 // 포털과 같은 호스트에 있으므로 **포털의 로그인 쿠키가 이 화면에도 온다.**
-// 같은 출처라 CORS 도 없다. 그러면 진짜 이름을 알 수 있다.
+// 같은 출처라 CORS 도 없다. 제목에 이름을 띄우는 데 쓴다.
 //
-// ⚠️ **실패해도 화면은 그대로 돈다.** 포털이 꺼져 있거나 로그인하지 않았거나
-// `file://` 로 열었으면 조용히 넘기고 손으로 고르는 줄이 남는다 — 인증도
-// 없는 이 앱이 포털 때문에 안 열리면 안 된다.
+// ⚠️ **업무를 바꾼 사람은 여기서 정하지 않는다.** 서버가 같은 쿠키를 포털에
+// 물어 직접 정한다 (`portal_login.py`). 화면이 이름을 실어 보내면, 그 이름을
+// 빠뜨린 길 하나로 본인에게 알림이 간다 — 2026-11-12 에 완료처리 버튼이
+// 그랬다.
+//
+// 실패해도 화면은 그대로 돈다. 포털이 꺼져 있거나 `file://` 로 열었으면
+// 제목에 이름이 안 뜰 뿐이다.
 var PORTAL_API = '{PORTAL_API}';
 var ROSTER_NAMES = {roster_json};
 
@@ -2340,15 +2287,8 @@ function askPortalWhoami() {{
         .then(function(me) {{
             if (!me || !me.name) return;
             showWhoami(me.name);
-            // **손으로 고르는 줄을 숨긴다.** 진짜 이름을 알고 있으면 손으로
-            // 고르는 것은 거짓말이 될 수 있다.
-            var row = document.getElementById('actorRow');
-            if (row) row.style.display = 'none';
-            setActor(me.name);
-
-            // ⚠️ 포털 이름이 업무대시보드 명단에 없으면 **알림이 조용히
-            // 틀린다** — 담당자 이름과 안 맞아서 "본인이 바꾼 것 빼기" 가
-            // 작동하지 않는다. 숨기지 말고 말해 준다.
+            // 포털 이름이 업무 담당자 명단에 없으면 이 사람에게 업무를 맡길
+            // 수 없다. 숨기지 말고 말해 준다.
             if (ROSTER_NAMES.indexOf(me.name) === -1) {{
                 var h1 = document.getElementById('whoami');
                 if (h1) {{
@@ -2358,35 +2298,8 @@ function askPortalWhoami() {{
                 }}
             }}
         }})
-        .catch(function() {{ /* 포털을 못 읽었다. 손으로 고르는 줄이 남는다 */ }});
+        .catch(function() {{ /* 포털을 못 읽었다. 제목에 이름이 안 뜰 뿐이다 */ }});
 }}
-
-// 모든 쓰기 요청에 「나는」 을 실어 보낸다.
-//
-// fetch 부르는 자리가 서른 곳이라 하나씩 고치지 않는다 — 하나를 빠뜨리면
-// 그 길로 들어온 변경만 **조용히** 알림이 틀리고, 찾기 어렵다. 문 하나를
-// 감싸면 앞으로 생길 자리까지 따라온다.
-(function() {{
-    var raw = window.fetch;
-    window.fetch = function(input, init) {{
-        init = init || {{}};
-        var method = (init.method || 'GET').toUpperCase();
-        var url = (typeof input === 'string') ? input : (input && input.url) || '';
-        if (method !== 'GET' && method !== 'OPTIONS' && url.indexOf('/api') !== -1) {{
-            var who = getActor();
-            if (who) {{
-                var h = new Headers(init.headers || {{}});
-                // **퍼센트로 감싼다.** HTTP 헤더 값은 latin-1 이어서 한글을
-                // 그대로 실으면 서버가 깨진 글자로 읽는다 — `전대박` 이
-                // `ì „ëŒ€ë°•` 이 되고, 그러면 알림에서 "본인이 바꾼 것 빼기"
-                // 가 영구히 안 맞는다. 서버가 `unquote` 로 되돌린다.
-                h.set('X-Branup-Actor', encodeURIComponent(who));
-                init.headers = h;
-            }}
-        }}
-        return raw.call(this, input, init);
-    }};
-}})();
 
 // 현지 날짜를 `YYYY-MM-DD` 로.
 //
@@ -4116,9 +4029,7 @@ function openFromLink() {{
     else showToast('링크의 프로젝트를 찾을 수 없습니다', true);
 }}
 window.addEventListener('load', openFromLink);
-// 「나는 OOO」 는 브라우저마다 다르므로 구워 낼 수 없다. 뜬 뒤에 칠한다.
-window.addEventListener('load', paintActor);
-// 포털에 "누가 보고 있나" 를 묻는다. 실패해도 위의 손으로 고르는 줄이 남는다.
+// 포털에 "누가 보고 있나" 를 묻는다. 실패해도 화면은 그대로 돈다.
 window.addEventListener('load', askPortalWhoami);
 </script>
 <!--
