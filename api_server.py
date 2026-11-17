@@ -57,6 +57,10 @@ import portal_login
 
 PORT = int(os.environ.get("BRANUP_API_PORT", "8800"))
 
+#: 브라우저에서 바로 열어도 되는 첨부. **그림만** — SVG 는 스크립트를 품을 수
+#: 있어서 뺀다.
+INLINE_MIMES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+
 # 굽기 프로세스 겹침 방지 (_refresh_dashboard)
 _BAKE_LOCK = threading.Lock()
 _BAKING = []
@@ -346,10 +350,18 @@ class APIHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "file missing"}, 404)
                 return
             fname = file_rec.get("original_name") or "download"
+            mime = file_rec.get("mime_type") or "application/octet-stream"
+            # `?inline=1` — 업무내용에 붙여 넣은 이미지를 눌렀을 때 **새 탭에서
+            # 원본 크기로 보이게** 한다. 그림 파일만 허락한다: SVG 나 HTML 을
+            # inline 으로 내주면 이 출처에서 스크립트가 돈다.
+            inline = (parse_qs(parsed.query).get("inline") == ["1"]
+                      and mime in INLINE_MIMES)
             self.send_response(200)
-            self.send_header("Content-Type", file_rec.get("mime_type", "application/octet-stream"))
+            self.send_header("Content-Type", mime)
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Disposition",
-                f"attachment; filename*=UTF-8''{quote(fname, safe='')}")
+                f"{'inline' if inline else 'attachment'}; "
+                f"filename*=UTF-8''{quote(fname, safe='')}")
             self._cors_headers()
             self.send_header("Content-Length", str(filepath.stat().st_size))
             self.end_headers()

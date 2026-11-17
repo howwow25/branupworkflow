@@ -1217,6 +1217,26 @@ body {{
 }}
 /* 업무 '내용' 입력칸: 기본 높이를 2배로 (내용 있으면 JS 로 자동 확장) */
 .modal-field textarea.edit-summary {{ min-height: 160px; }}
+/* 업무 '내용' 보기 칸. 붙여 넣은 이미지·파일 링크가 그려진다. 누르면 입력칸으로
+   바뀐다 (저장되는 값은 입력칸의 글자 그대로다). */
+.summary-view {{
+    min-height: 160px; padding: 10px 12px; box-sizing: border-box;
+    background: #0f1117; border: 1px solid #2a2d3a; border-radius: 8px;
+    color: #e1e4e8; font-size: 13px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word; cursor: text;
+}}
+.summary-view:hover {{ border-color: #3a3f52; }}
+.summary-view .sv-empty {{ color: #6e7681; }}
+.summary-view img.sv-img {{
+    display: block; max-width: 100%; max-height: 420px; margin: 6px 0;
+    border: 1px solid #2a2d3a; border-radius: 6px; cursor: zoom-in;
+}}
+.summary-view a.sv-file {{
+    color: #58a6ff; text-decoration: none; background: #161b22;
+    border: 1px solid #1f3a5f; border-radius: 4px; padding: 1px 6px;
+}}
+.summary-view a.sv-file:hover {{ text-decoration: underline; }}
+.summary-view .sv-gone {{ color: #8b949e; font-style: italic; }}
 /* ── 날짜 입력 달력 아이콘 ──
    다크 배경(#0f1117)에 브라우저 기본 달력 아이콘이 검정으로 그려져 안 보였다.
    color-scheme: dark 로 드롭다운 달력 패널까지 다크로 맞추고,
@@ -2538,7 +2558,9 @@ function createModalEl() {{
         '<label class="recur-check" style="margin-top:8px"><input type="checkbox" class="series-rename-toggle" onchange="toggleSeriesRename(this)"> 주기마다 이름 자동 변경</label>' +
         '<button type="button" class="recur-stop-btn" onclick="stopSeries(this)">🔁 반복 중단</button>' +
         '</div>' +
-        '<div class="modal-field content-field"><label>📝 내용</label><textarea class="edit-summary" placeholder="업무 내용..." rows="4" oninput="autoGrowField(this)"></textarea></div>' +
+        '<div class="modal-field content-field"><label>📝 내용</label>' +
+        '<div class="summary-view" onclick="editSummary(this, event)" title="눌러서 편집"></div>' +
+        '<textarea class="edit-summary" placeholder="업무 내용... (이미지·파일을 붙여 넣으면 첨부됩니다)" rows="4" oninput="autoGrowField(this)" onpaste="pasteIntoSummary(event, this)" onblur="viewSummary(this)"></textarea></div>' +
         '<div class="modal-field feedback-field" style="display:none"><label>💬 피드백</label><textarea class="edit-feedback" placeholder="완료 후기, 결과, 특이사항 등..."></textarea></div>' +
         '<div class="modal-field"><label>우선순위</label><select class="edit-priority">' +
         '<option value="긴급">🔴 긴급</option><option value="높음">🟠 높음</option><option value="중간" selected>🟡 중간</option><option value="낮음">🟢 낮음</option>' +
@@ -2594,6 +2616,7 @@ function populateModal(modalEl, task) {{
     modalEl.querySelector('.edit-summary').value = task.summary || task.title || '';
     modalEl.querySelector('.edit-feedback').value = task.feedback || '';
     autoGrowField(modalEl.querySelector('.edit-summary'));
+    viewSummary(modalEl.querySelector('.edit-summary'));
     modalEl.querySelector('.edit-priority').value = task.priority || '중간';
     modalEl.querySelector('.edit-project').value = task.project_id || '';
     modalEl.querySelector('.modal-meta').innerHTML =
@@ -2729,7 +2752,7 @@ function openCreateModal() {{
     modalEl.querySelector('.edit-due').value = todayStr;
     modalEl.querySelector('.edit-summary').value = '';
     modalEl.querySelector('.edit-feedback').value = '';
-    autoGrowField(modalEl.querySelector('.edit-summary'));
+    showSummaryEditor(modalEl.querySelector('.edit-summary'), false);
     modalEl.querySelector('.edit-priority').value = '중간';
     modalEl.querySelector('.modal-meta').style.display = 'none';
     modalEl.querySelector('.content-field').style.display = '';
@@ -3317,6 +3340,150 @@ function openRelatedTask(displayNum, event) {{
         .catch(function() {{
             showToast('#' + displayNum + ' 업무를 찾을 수 없습니다', true);
         }});
+}}
+
+// ── 업무내용: 보기 / 편집 · 붙여넣기 첨부 ───────────────────
+//
+// 저장되는 값은 **글자 그대로**다. 붙여 넣은 파일은 첨부파일로 올리고 본문에
+// 표시를 남긴다 — 그림은 `![이름](file:ID)`, 그 밖은 `[이름](file:ID)`.
+// HTML 로 저장하지 않는 이유: 검색·명령창·템플릿이 이 값을 글자로 쓴다.
+//
+// `file:ID` 는 주소가 아니라 첨부 번호다. API 주소가 바뀌어도 본문은 그대로다.
+var SV_TOKEN = /(!?)\\[([^\\]\\n]*)\\]\\(file:([A-Za-z0-9_-]+)\\)/g;
+var SV_INLINE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+
+function renderSummaryHtml(text) {{
+    var out = '', last = 0, mt;
+    SV_TOKEN.lastIndex = 0;
+    while ((mt = SV_TOKEN.exec(text)) !== null) {{
+        out += escapeHtml(text.slice(last, mt.index));
+        var name = escapeHtml(mt[2] || '첨부파일');
+        var url = API + '/files/' + encodeURIComponent(mt[3]);
+        if (mt[1]) {{
+            out += '<a href="' + url + '?inline=1" target="_blank" rel="noopener">' +
+                   '<img class="sv-img" src="' + url + '" alt="' + name + '" ' +
+                   'onerror="svImgGone(this)"></a>';
+        }} else {{
+            out += '<a class="sv-file" href="' + url + '">📎 ' + name + '</a>';
+        }}
+        last = SV_TOKEN.lastIndex;
+    }}
+    return out + escapeHtml(text.slice(last));
+}}
+
+// 첨부를 지웠는데 본문에 표시가 남은 경우. 깨진 그림 대신 말로 알린다.
+function svImgGone(img) {{
+    var span = document.createElement('span');
+    span.className = 'sv-gone';
+    span.textContent = '(삭제된 이미지: ' + (img.getAttribute('alt') || '') + ')';
+    var a = img.closest('a');
+    (a || img).replaceWith(span);
+}}
+
+function viewSummary(ta) {{
+    if (!ta) return;
+    // 붙여 넣은 파일이 올라가는 중에는 입력칸을 닫지 않는다.
+    if ((+ta.dataset.uploading || 0) > 0) return;
+    var view = ta.parentElement.querySelector('.summary-view');
+    if (!view) return;
+    view.innerHTML = ta.value.trim()
+        ? renderSummaryHtml(ta.value)
+        : '<span class="sv-empty">눌러서 내용 입력 · 이미지나 파일을 붙여 넣으면 첨부됩니다</span>';
+    view.style.display = '';
+    ta.style.display = 'none';
+}}
+
+function showSummaryEditor(ta, focus) {{
+    var view = ta.parentElement.querySelector('.summary-view');
+    if (view) view.style.display = 'none';
+    ta.style.display = '';
+    autoGrowField(ta);
+    if (focus) ta.focus();
+}}
+
+function editSummary(view, ev) {{
+    // 링크·그림을 누른 것은 편집이 아니다.
+    if (ev && ev.target.closest('a')) return;
+    showSummaryEditor(view.parentElement.querySelector('.edit-summary'), true);
+}}
+
+// 화면 캡처는 이름이 늘 `image.png` 다. 같은 이름이 여럿이면 첨부 목록에서
+// 구별이 안 되므로 시각을 붙인다.
+function svPastedName(f, i) {{
+    var name = f.name || '';
+    if (name && !/^image\\.(png|jpe?g|gif|webp)$/i.test(name)) return name;
+    var ext = ((f.type || '').split('/')[1] || 'png').replace('jpeg', 'jpg');
+    var d = new Date(), p = function(n) {{ return (n < 10 ? '0' : '') + n; }};
+    return '붙여넣기_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' +
+           p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) +
+           (i ? '_' + (i + 1) : '') + '.' + ext;
+}}
+
+function pasteIntoSummary(ev, ta) {{
+    var files = ev.clipboardData && ev.clipboardData.files;
+    if (!files || files.length === 0) return;      // 글자 붙여넣기는 그대로
+    ev.preventDefault();
+
+    var modalEl = ta.closest('.modal');
+    var m = modalStack.find(function(x) {{ return x.el === modalEl; }});
+    if (!m || !m.taskId) {{
+        showToast('파일은 업무를 등록한 뒤에 붙여 넣을 수 있습니다', true);
+        return;
+    }}
+
+    // 커서 자리에 「올리는 중」 표시를 먼저 넣는다. 올라가는 동안 계속 써도
+    // 표시를 찾아 바꾸므로 자리가 어긋나지 않는다.
+    var jobs = [], insert = '';
+    for (var i = 0; i < files.length; i++) {{
+        var f = files[i];
+        var name = svPastedName(f, i);
+        if (f.size > 20 * 1024 * 1024) {{
+            showToast(name + ': 20MB 제한 초과', true);
+            continue;
+        }}
+        var ext = name.split('.').pop().toLowerCase();
+        var isImg = (f.type || '').indexOf('image/') === 0 && SV_INLINE_EXT.indexOf(ext) >= 0;
+        var mark = '⏳ 업로드 중: ' + name + ' #' + Math.random().toString(36).slice(2, 7);
+        jobs.push({{ file: f, name: name, isImg: isImg, mark: mark }});
+        insert += isImg ? '\\n' + mark + '\\n' : mark + ' ';
+    }}
+    if (!jobs.length) return;
+
+    var s = ta.selectionStart, e = ta.selectionEnd;
+    ta.value = ta.value.slice(0, s) + insert + ta.value.slice(e);
+    ta.selectionStart = ta.selectionEnd = s + insert.length;
+    autoGrowField(ta);
+    ta.dataset.uploading = (+ta.dataset.uploading || 0) + jobs.length;
+
+    var done = 0, ok = 0;
+    jobs.forEach(function(job) {{
+        // 한 통에 한 파일. 서버가 파일 이름으로 묶으므로 여럿을 한 번에 보내면
+        // 어느 결과가 어느 표시인지 맞출 수 없다.
+        var fd = new FormData();
+        fd.append('file_0', new File([job.file], job.name, {{ type: job.file.type }}));
+        fetch(API + '/tasks/' + m.taskId + '/files', {{ method: 'POST', body: fd }})
+            .then(function(r) {{ return r.json(); }})
+            .then(function(res) {{
+                var rec = res.uploaded && res.uploaded[0];
+                if (!rec) throw new Error((res.errors && res.errors[0]) || res.error || '업로드 실패');
+                var label = (rec.original_name || job.name).replace(/[\\[\\]\\n]/g, ' ');
+                var token = (job.isImg ? '!' : '') + '[' + label + '](file:' + rec.id + ')';
+                ta.value = ta.value.replace(job.mark, token);
+                ok++;
+            }})
+            .catch(function(err) {{
+                ta.value = ta.value.replace(job.mark, '');
+                showToast(job.name + ': ' + ((err && err.message) || '업로드 실패'), true);
+            }})
+            .then(function() {{
+                ta.dataset.uploading = Math.max(0, (+ta.dataset.uploading || 0) - 1);
+                autoGrowField(ta);
+                if (++done < jobs.length) return;
+                renderFiles(modalEl, m.taskId);
+                if (ok) showToast(ok + '개 첨부 완료 — 저장을 눌러야 본문에 남습니다');
+                if (document.activeElement !== ta) viewSummary(ta);
+            }});
+    }});
 }}
 
 // ── 파일 첨부 ──
