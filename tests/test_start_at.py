@@ -33,6 +33,11 @@ _TMP = os.environ["BRANUP_DATA_DIR"]
 
 import db  # noqa: E402
 
+#: 반복 시험의 「오늘」. 회차 보충은 오늘 이전 회차를 만들지 않으므로, 시작일을
+#: `2026-11-02` 로 박아 두고 진짜 오늘로 돌리면 **날짜가 지나는 순간 깨진다**
+#: (2026-11-17 에 배포가 멈췄다). 시작일 전날로 고정한다 — `test_notice.py` 와 같다.
+_ANCHOR_EVE = "2026-11-01"
+
 
 def test_운영_디비를_쓰지_않는다():
     assert str(db.DB_PATH).startswith(_TMP), f"시험이 {db.DB_PATH} 를 쓰려 한다"
@@ -160,7 +165,7 @@ def test_착수일은_이후_회차로_번지지_않는다(room):
     """마감일이 번지지 않는 것과 같은 이유다 — 회차마다 다른 날짜다."""
     s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
                          total_count=4, title="주간 리뷰", assignee="이상원")
-    db.backfill_series()
+    db.backfill_series(_ANCHOR_EVE)
     seqs = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
     assert len(seqs) >= 2, "회차가 만들어지지 않았다"
 
@@ -178,7 +183,7 @@ def test_착수일은_이후_회차로_번지지_않는다(room):
 def test_회차는_착수일_없이_만들어진다(room):
     s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
                          total_count=3, title="회차 착수일")
-    db.backfill_series()
+    db.backfill_series(_ANCHOR_EVE)
     made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
     assert made, "회차가 만들어지지 않았다"
     assert all(t["start_at"] is None for t in made)
@@ -256,7 +261,7 @@ def test_새_업무는_착수일이_오늘로_채워진다():
 def test_회차마다_마감일과의_간격이_유지된다(room):
     s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
                          total_count=4, title="주간 리뷰", start_lead=2)
-    db.backfill_series()
+    db.backfill_series(_ANCHOR_EVE)
 
     made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
     assert len(made) >= 2, "회차가 만들어지지 않았다"
@@ -275,7 +280,7 @@ def test_간격_0_은_간격_없음과_다르다(room):
     없는 반복이 된다."""
     s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
                          total_count=3, title="당일 착수", start_lead=0)
-    db.backfill_series()
+    db.backfill_series(_ANCHOR_EVE)
 
     made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
     assert made
@@ -288,7 +293,7 @@ def test_간격을_안_주면_착수일이_비어_있다(room):
     모든 회차가 갑자기 "오늘 할 일" 로 올라온다."""
     s = db.create_series(room["id"], freq="주", anchor_date="2026-11-02",
                          total_count=3, title="간격 없음")
-    db.backfill_series()
+    db.backfill_series(_ANCHOR_EVE)
 
     made = [t for t in db.get_active_tasks() if t.get("series_id") == s["id"]]
     assert made
