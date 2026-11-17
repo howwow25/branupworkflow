@@ -1236,6 +1236,7 @@ body {{
     border: 1px solid #1f3a5f; border-radius: 4px; padding: 1px 6px;
 }}
 .summary-view a.sv-file:hover {{ text-decoration: underline; }}
+.summary-view a.sv-link {{ color: #58a6ff; text-decoration: underline; word-break: break-all; }}
 .summary-view .sv-gone {{ color: #8b949e; font-style: italic; }}
 /* ── 날짜 입력 달력 아이콘 ──
    다크 배경(#0f1117)에 브라우저 기본 달력 아이콘이 검정으로 그려져 안 보였다.
@@ -3352,11 +3353,39 @@ function openRelatedTask(displayNum, event) {{
 var SV_TOKEN = /(!?)\\[([^\\]\\n]*)\\]\\(file:([A-Za-z0-9_-]+)\\)/g;
 var SV_INLINE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
+// 본문의 주소를 눌러 열 수 있게 한다. `http(s)://` 와 `www.` 로 시작하는 것만
+// 본다 — `javascript:` 같은 것은 처음부터 링크가 되지 않는다.
+var SV_URL = /(?:https?:\\/\\/|www\\.)[^\\s<>"']+/gi;
+// 문장 끝의 문장부호는 주소가 아니다 (`https://a.com.` 의 마침표).
+var SV_URL_TRAIL = /[.,;:!?'"\\]}}>」』、。]$/;
+
+function svLinkify(text) {{
+    var out = '', last = 0, mt;
+    SV_URL.lastIndex = 0;
+    while ((mt = SV_URL.exec(text)) !== null) {{
+        var url = mt[0], trail = '';
+        // 닫는 괄호는 주소 안에 여는 괄호가 있을 때만 주소의 것이다
+        // (위키 주소 `.../Foo_(bar)` 와 `(https://a.com)` 을 함께 맞춘다).
+        while (SV_URL_TRAIL.test(url) ||
+               (url.slice(-1) === ')' && url.split('(').length < url.split(')').length)) {{
+            trail = url.slice(-1) + trail;
+            url = url.slice(0, -1);
+        }}
+        var href = /^www\\./i.test(url) ? 'https://' + url : url;
+        out += escapeHtml(text.slice(last, mt.index)) +
+               '<a class="sv-link" href="' + escapeHtml(href) +
+               '" target="_blank" rel="noopener noreferrer">' + escapeHtml(url) + '</a>' +
+               escapeHtml(trail);
+        last = mt.index + mt[0].length;
+    }}
+    return out + escapeHtml(text.slice(last));
+}}
+
 function renderSummaryHtml(text) {{
     var out = '', last = 0, mt;
     SV_TOKEN.lastIndex = 0;
     while ((mt = SV_TOKEN.exec(text)) !== null) {{
-        out += escapeHtml(text.slice(last, mt.index));
+        out += svLinkify(text.slice(last, mt.index));
         var name = escapeHtml(mt[2] || '첨부파일');
         var url = API + '/files/' + encodeURIComponent(mt[3]);
         if (mt[1]) {{
@@ -3368,7 +3397,7 @@ function renderSummaryHtml(text) {{
         }}
         last = SV_TOKEN.lastIndex;
     }}
-    return out + escapeHtml(text.slice(last));
+    return out + svLinkify(text.slice(last));
 }}
 
 // 첨부를 지웠는데 본문에 표시가 남은 경우. 깨진 그림 대신 말로 알린다.

@@ -84,3 +84,13 @@ def test_화면에_붙여넣기와_보기_칸이_있다():
     assert 'onpaste="pasteIntoSummary(event, this)"' in html
     # f-문자열 안이라 역슬래시가 한 번 줄어든다. 줄면 안 되는 자리가 맞는지.
     assert r"var SV_TOKEN = /(!?)\[([^\]\n]*)\]\(file:([A-Za-z0-9_-]+)\)/g;" in html
+
+
+def test_본문의_주소는_링크가_된다():
+    """`http(s)://` 와 `www.` 만 링크로 만든다 — `javascript:` 는 처음부터
+    대상이 아니다. 실제 결과(문장부호·괄호 처리)는 node 로 확인했다."""
+    import dashboard_html
+    html = dashboard_html.render()
+    assert r"""var SV_URL = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;""" in html
+    assert "out += svLinkify(text.slice(last, mt.index));" in html
+    assert 'rel="noopener noreferrer"' in html
