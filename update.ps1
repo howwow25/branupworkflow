@@ -6,6 +6,16 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
+# ── 관리자 권한 창인가 ──────────────────────────────────────
+# 이 폴더는 관리자 권한으로만 쓸 수 있다. 계정이 Administrator 여도 창을
+# '관리자 권한으로 실행' 하지 않으면(Medium) git·화면 굽기·서버 기동이 전부
+# "Access denied" 로 막힌다. 2026-11-19 에 일반 창에서 돌려 git fetch 에서
+# 멈췄고, 원인을 찾는 데 한참 걸렸다 — 처음부터 이유를 말하고 멈춘다.
+$principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw '관리자 권한 창이 아닙니다. PowerShell 을 마우스 오른쪽 → 「관리자 권한으로 실행」 으로 연 창에서 다시 돌리세요.'
+}
+
 # ── 환경변수 ────────────────────────────────────────────────
 # BRANUP_DATA_DIR 을 이 스크립트 폴더의 data 로 '명시 고정'한다.
 #   운영 api_server 와 서빙되는 index.html 이 모두 <ScriptDir>\data\db\branup.db 를 기준으로 돈다.
